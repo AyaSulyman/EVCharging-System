@@ -6,8 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "seed": "tsx src/seed/seed.ts"
+    "lint": "next lint"
   },
   "dependencies": {
     "@types/qrcode": "^1.5.6",
