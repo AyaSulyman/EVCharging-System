@@ -130,6 +130,20 @@ export interface INotification {
   createdAt: Date;
 }
 
+/** Banner/slide shape returned by the backend's /api/banners endpoint. */
+export interface IBanner {
+  _id: string;
+  title: string;
+  subtitle: string;
+  tag: string;
+  imageUrl: string;
+  ctaLabel: string;
+  ctaHref: string;
+  order: number;
+  isActive: boolean;
+  createdAt: string;
+}
+
 // Convenience populated shapes used by UI
 export interface StationWithChargers extends IStation {
   chargers: ICharger[];

@@ -11,12 +11,14 @@ import {
   MapPin,
 } from "lucide-react";
 import { getStationsWithChargers } from "@/lib/data";
+import { getBanners } from "@/lib/backend";
 import { StationCard } from "@/components/stations/StationCard";
+import { HeroSlider } from "@/components/home/HeroSlider";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const stations = await getStationsWithChargers();
+  const [stations, banners] = await Promise.all([getStationsWithChargers(), getBanners()]);
   const totalChargers = stations.reduce((n, s) => n + s.chargerCount, 0);
 
   return (
@@ -26,34 +28,8 @@ export default async function HomePage() {
         <div className="absolute inset-0 opacity-[0.12] [background-image:radial-gradient(circle_at_1px_1px,white_1px,transparent_0)] [background-size:22px_22px]" />
         <div className="absolute -right-24 top-1/2 h-[420px] w-[420px] -translate-y-1/2 rounded-full bg-volt/20 blur-3xl" />
 
-        <div className="relative mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8 lg:py-28">
-          <div className="max-w-2xl">
-            <span className="chip bg-white/10 text-white ring-1 ring-white/20">
-              <BatteryCharging className="h-3.5 w-3.5 text-volt" />
-              Live availability across every branch
-            </span>
-            <h1 className="mt-5 text-4xl font-bold leading-[1.05] tracking-tight text-white sm:text-5xl lg:text-6xl">
-              Smart charging,
-              <br />
-              <span className="text-volt">simplified.</span>
-            </h1>
-            <p className="mt-5 max-w-lg text-lg leading-relaxed text-white/80">
-              Find a station, check which chargers are free right now, and lock in
-              your slot in seconds. No queues, no guesswork.
-            </p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <Link href="/stations" className="btn-primary bg-white text-primary hover:bg-white/90">
-                <Search className="h-4 w-4" />
-                Find a station
-              </Link>
-              <Link
-                href="/register"
-                className="btn-secondary border-white/40 text-white hover:bg-white/10"
-              >
-                Get started
-              </Link>
-            </div>
-          </div>
+        <div className="relative mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8 lg:py-14">
+          <HeroSlider slides={banners} />
         </div>
 
         {/* Stats bar */}
