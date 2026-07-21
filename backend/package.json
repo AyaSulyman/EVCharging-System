@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "seed:banners": "tsx src/seed/seed-banners.ts"
+    "seed:banners": "tsx src/seed/seed-banners.ts",
+    "seed:stations": "tsx src/seed/seed-stations.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
