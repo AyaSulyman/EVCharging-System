@@ -2,7 +2,14 @@
  * Seeds the "banners" collection used by the frontend's homepage image slider.
  * Run with:  npx tsx src/seed/seed-banners.ts
  */
-import "dotenv/config";
+import { config } from "dotenv";
+import path from "path";
+
+// dotenv/config only auto-loads a file literally named ".env" — this project
+// keeps its secrets in ".env.local" (same convention Next.js uses), so load
+// that explicitly instead.
+config({ path: path.resolve(__dirname, "../../.env.local") });
+
 import mongoose from "mongoose";
 import Banner from "@/models/Banner";
 
