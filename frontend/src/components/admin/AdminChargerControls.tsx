@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import type { ChargerStatus } from "@/types";
+import { useApi } from "@/lib/useApi";
 
 const STATUSES: { value: ChargerStatus; label: string }[] = [
   { value: "available", label: "Available" },
@@ -27,15 +28,15 @@ export function AdminChargerControls({
   status: ChargerStatus;
 }) {
   const router = useRouter();
+  const { call } = useApi();
   const [current, setCurrent] = useState<ChargerStatus>(status);
   const [saving, setSaving] = useState(false);
 
   async function update(next: ChargerStatus) {
     setSaving(true);
     setCurrent(next);
-    await fetch("/api/chargers", {
+    await call("/api/chargers", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: chargerId, status: next }),
     });
     setSaving(false);

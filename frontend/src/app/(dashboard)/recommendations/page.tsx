@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { BatteryGauge, ConnectorBadge } from "@/components/ui/Primitives";
 import type { ICharger, IStation, IVehicle } from "@/types";
+import { useApi } from "@/lib/useApi";
 
 interface Rec {
   vehicle: IVehicle;
@@ -24,11 +25,12 @@ interface Rec {
 }
 
 export default function RecommendationsPage() {
+  const { call } = useApi();
   const [recs, setRecs] = useState<Rec[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/recommendations")
+    call("/api/recommendations")
       .then((r) => r.json())
       .then((d) => setRecs(d.recommendations ?? []))
       .finally(() => setLoading(false));

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2, Zap } from "lucide-react";
 import { registerSchema } from "@/lib/validations";
+import { apiUrl } from "@/lib/apiClient";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -30,7 +31,7 @@ export default function RegisterPage() {
     }
 
     setLoading(true);
-    const res = await fetch("/api/auth/register", {
+    const res = await fetch(apiUrl("/api/auth/register"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form),

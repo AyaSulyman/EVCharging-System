@@ -15,6 +15,7 @@ import { ConnectorBadge } from "@/components/ui/Primitives";
 import { useToast } from "@/components/Toast";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { StationWithChargers, ICharger, ISlot, IVehicle } from "@/types";
+import { useApi } from "@/lib/useApi";
 
 const STEPS = ["Station", "Charger", "Time", "Confirm"];
 
@@ -22,6 +23,7 @@ function BookingWizard() {
   const params = useSearchParams();
   const router = useRouter();
   const { toast } = useToast();
+  const { call } = useApi();
 
   const [step, setStep] = useState(0);
   const [stations, setStations] = useState<StationWithChargers[]>([]);
@@ -38,8 +40,8 @@ function BookingWizard() {
   // Load stations + vehicles, honor URL prefill
   useEffect(() => {
     Promise.all([
-      fetch("/api/stations").then((r) => r.json()),
-      fetch("/api/vehicles").then((r) => r.json()),
+      call("/api/stations").then((r) => r.json()),
+      call("/api/vehicles").then((r) => r.json()),
     ]).then(([s, v]) => {
       const st: StationWithChargers[] = s.stations ?? [];
       setStations(st);
@@ -81,7 +83,7 @@ function BookingWizard() {
   useEffect(() => {
     if (!charger || !date || step !== 2) return;
     setLoadingSlots(true);
-    fetch(`/api/slots?chargerId=${charger._id}&date=${date}`)
+    call(`/api/slots?chargerId=${charger._id}&date=${date}`)
       .then((r) => r.json())
       .then((d) => setSlots(d.slots ?? []))
       .finally(() => setLoadingSlots(false));
@@ -112,7 +114,7 @@ function BookingWizard() {
       return;
     }
     setSubmitting(true);
-    const res = await fetch("/api/bookings", {
+    const res = await call("/api/bookings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -129,7 +131,7 @@ function BookingWizard() {
       toast(data.error ?? "Could not create booking", "error");
       // slot may be gone — refresh slots
       if (res.status === 409 && charger && date) {
-        fetch(`/api/slots?chargerId=${charger._id}&date=${date}`)
+        call(`/api/slots?chargerId=${charger._id}&date=${date}`)
           .then((r) => r.json())
           .then((d) => setSlots(d.slots ?? []));
         setSlot(null);
