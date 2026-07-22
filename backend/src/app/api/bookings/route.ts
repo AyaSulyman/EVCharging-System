@@ -20,7 +20,11 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const all = searchParams.get("all");
     const query = all && auth.role === "admin" ? {} : { userId: auth.id };
-    const bookings = await Booking.find(query).sort({ createdAt: -1 }).lean();
+    const bookings = await Booking.find(query)
+      .populate("stationId", "name address")
+      .populate("chargerId", "label connectorType powerKW")
+      .sort({ createdAt: -1 })
+      .lean();
     return json({ bookings: serialize(bookings) });
   } catch (err) {
     if (err instanceof AuthError) return json({ error: err.message }, { status: err.status });
