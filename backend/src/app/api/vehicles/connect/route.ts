@@ -6,7 +6,7 @@ import { json, preflight, serialize } from "@/utils/response";
 export const dynamic = "force-dynamic";
 export const OPTIONS = preflight;
 
-// POST /api/vehicles/connect — link a vehicle to a (mock) OEM provider
+
 export async function POST(req: Request) {
   try {
     const auth = requireAuth(req);

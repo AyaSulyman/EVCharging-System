@@ -12,14 +12,7 @@ export const OPTIONS = preflight;
 
 const USER_LOCATION: [number, number] = [35.4955, 33.8886];
 
-/**
- * The chatbot is a BUSINESS assistant grounded in platform data — not a
- * general-purpose LLM. It answers using real database lookups.
- *
- * If OPENAI_API_KEY is set, a future iteration could call the model with the
- * same data as context. For now it uses intent matching over the same data,
- * so the feature is always demonstrable and never hallucinates.
- */
+
 export async function POST(req: Request) {
   try {
     const auth = requireAuth(req);
@@ -38,7 +31,7 @@ export async function POST(req: Request) {
 async function answer(message: string, userId: string): Promise<string> {
   const q = message.toLowerCase();
 
-  // --- Intent: upcoming bookings ---
+
   if (q.includes("booking") || q.includes("reservation") || q.includes("my slot")) {
     const now = new Date();
     const upcoming = await Booking.find({
@@ -63,7 +56,6 @@ async function answer(message: string, userId: string): Promise<string> {
     return `Here ${upcoming.length === 1 ? "is your next booking" : "are your upcoming bookings"}:\n${lines.join("\n")}`;
   }
 
-  // --- Intent: nearest / fastest station ---
   if (q.includes("nearest") || q.includes("closest") || q.includes("where") || q.includes("near me")) {
     const stations = JSON.parse(JSON.stringify(await Station.find({ isActive: true }).lean()));
     const ranked = stations
@@ -88,14 +80,14 @@ async function answer(message: string, userId: string): Promise<string> {
     return `The fastest available charger is ${c.label} at ${station} — ${c.powerKW} kW. That'll get you topped up quickly.`;
   }
 
-  // --- Intent: availability ---
+
   if (q.includes("available") || q.includes("free") || q.includes("open")) {
     const total = await Charger.countDocuments({});
     const available = await Charger.countDocuments({ status: "available" });
     return `Right now ${available} of ${total} chargers across our network are available. Open the Stations page to see them by location.`;
   }
 
-  // --- Intent: recommendation / low battery ---
+
   if (
     q.includes("recommend") ||
     q.includes("low battery") ||
@@ -116,7 +108,7 @@ async function answer(message: string, userId: string): Promise<string> {
     return `Your ${v.make} ${v.model} is at ${v.currentBatteryLevel}%. I'd recommend charging soon — check the Recommendations page for the best nearby charger for your ${v.connectorType} connector.`;
   }
 
-  // --- Intent: pricing ---
+
   if (q.includes("price") || q.includes("cost") || q.includes("how much")) {
     return "Charging is priced per kWh and varies by charger — typically between $0.25 and $0.45/kWh. You'll see the exact price on each charger before you book.";
   }

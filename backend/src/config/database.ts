@@ -12,14 +12,13 @@ interface MongooseCache {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
+
   var _mongoose: MongooseCache | undefined;
 }
 
 const cached: MongooseCache = global._mongoose ?? { conn: null, promise: null };
 global._mongoose = cached;
 
-/** Connects to MongoDB Atlas, reusing the cached connection across hot reloads / serverless invocations. */
 export async function connectDB(): Promise<typeof mongoose> {
   if (cached.conn) return cached.conn;
 

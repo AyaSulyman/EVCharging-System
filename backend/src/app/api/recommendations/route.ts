@@ -9,9 +9,8 @@ import { json, preflight, serialize } from "@/utils/response";
 export const dynamic = "force-dynamic";
 export const OPTIONS = preflight;
 
-// Assume the driver's current location (Beirut central) — in production this
-// would come from the connected vehicle provider's getLocation().
-const USER_LOCATION: [number, number] = [35.4955, 33.8886]; // [lng, lat]
+
+const USER_LOCATION: [number, number] = [35.4955, 33.8886]; 
 
 interface StationLean {
   _id: unknown;

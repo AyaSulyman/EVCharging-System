@@ -6,7 +6,7 @@ import { json, preflight, serialize } from "@/utils/response";
 export const dynamic = "force-dynamic";
 export const OPTIONS = preflight;
 
-// GET /api/slots?chargerId=...&date=YYYY-MM-DD
+
 export async function GET(req: Request) {
   await connectDB();
   const { searchParams } = new URL(req.url);
@@ -27,7 +27,7 @@ export async function GET(req: Request) {
   return json({ slots: serialize(slots) });
 }
 
-// Admin: generate slots for a charger over a date range
+
 export async function POST(req: Request) {
   try {
     requireAdmin(req);
@@ -56,7 +56,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // insertMany with ordered:false skips duplicates (unique index on chargerId+startTime)
+ 
     let created = 0;
     try {
       const res = await Slot.insertMany(docs, { ordered: false });
@@ -73,7 +73,6 @@ export async function POST(req: Request) {
   }
 }
 
-// Admin: block/unblock a slot manually
 export async function PATCH(req: Request) {
   try {
     requireAdmin(req);

@@ -1,6 +1,6 @@
 import { verifyToken, type TokenPayload } from "@/utils/jwt";
 
-/** Reads the `Authorization: Bearer <token>` header and returns the decoded user, or null. */
+
 export function getAuthUser(req: Request): TokenPayload | null {
   const header = req.headers.get("authorization") || req.headers.get("Authorization");
   if (!header?.startsWith("Bearer ")) return null;

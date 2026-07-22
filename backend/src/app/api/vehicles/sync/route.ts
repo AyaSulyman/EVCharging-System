@@ -7,7 +7,7 @@ import { json, preflight, serialize } from "@/utils/response";
 export const dynamic = "force-dynamic";
 export const OPTIONS = preflight;
 
-// POST /api/vehicles/sync — { vehicleId } refreshes a mock battery level from the "OEM"
+
 export async function POST(req: Request) {
   try {
     const auth = requireAuth(req);

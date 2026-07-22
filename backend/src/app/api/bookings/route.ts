@@ -12,7 +12,7 @@ function genCode() {
   return "CH-" + Math.random().toString(36).slice(2, 8).toUpperCase();
 }
 
-// GET /api/bookings — the logged-in user's bookings (admins can pass ?all=1 for every booking)
+
 export async function GET(req: Request) {
   try {
     const auth = requireAuth(req);
@@ -33,7 +33,6 @@ export async function GET(req: Request) {
   }
 }
 
-// POST /api/bookings — book a slot
 export async function POST(req: Request) {
   try {
     const auth = requireAuth(req);
@@ -78,7 +77,7 @@ export async function POST(req: Request) {
   }
 }
 
-// PATCH /api/bookings — cancel a booking: { id, status: "cancelled", cancellationReason? }
+
 export async function PATCH(req: Request) {
   try {
     const auth = requireAuth(req);

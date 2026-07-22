@@ -29,7 +29,7 @@ export async function POST(req: Request) {
   }
 }
 
-// Admin: update charger status (available / in_use / maintenance / offline), price, etc.
+
 export async function PATCH(req: Request) {
   try {
     requireAdmin(req);

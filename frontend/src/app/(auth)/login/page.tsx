@@ -103,9 +103,7 @@ export default function LoginPage() {
       </div>
 
       <div className="mt-4 rounded-lg border border-line bg-white/60 px-4 py-3 text-center text-xs text-ink-soft">
-        Demo — user: <span className="font-mono">user@chargehub.com / User123!</span>
-        <br />
-        admin: <span className="font-mono">admin@chargehub.com / Admin123!</span>
+      
       </div>
     </div>
   );

@@ -21,7 +21,7 @@ export async function GET(req: Request) {
   }
 }
 
-// PATCH /api/notifications — { id, isRead: true } or { markAllRead: true }
+
 export async function PATCH(req: Request) {
   try {
     const auth = requireAuth(req);

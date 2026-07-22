@@ -66,13 +66,13 @@ async function run() {
 
   // ---------------- Users ----------------
   const [admin, user] = await User.create([
-    {
-      name: "Admin User",
-      email: "admin@chargehub.com",
-      phone: "+961 70 000 001",
-      passwordHash: await bcrypt.hash("Admin123!", 10),
-      role: "admin",
-    },
+ {
+  name: "System Admin",
+  email: "admin@chargehubsystem.com",
+  phone: "+961 70 000 001",
+  passwordHash: await bcrypt.hash("Admin$123", 10),
+  role: "admin",
+},
     {
       name: "Sara Haddad",
       email: "user@chargehub.com",
@@ -330,7 +330,7 @@ async function run() {
 
   await mongoose.disconnect();
   console.log("\nAll collections seeded successfully.");
-  console.log("Login with:  admin@chargehub.com / Admin123!  (admin)");
+  console.log("Login with:  admin@chargehubsystem.com / Admin$123  (admin)");
   console.log("         or  user@chargehub.com  / User123!   (regular user)");
   process.exit(0);
 }

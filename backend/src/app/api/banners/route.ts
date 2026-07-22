@@ -6,8 +6,7 @@ import { json, preflight, serialize } from "@/utils/response";
 export const dynamic = "force-dynamic";
 export const OPTIONS = preflight;
 
-// GET /api/banners         -> active slides for the homepage slider
-// GET /api/banners?all=1   -> every slide, incl. inactive (admin management view)
+
 export async function GET(req: Request) {
   await connectDB();
   const { searchParams } = new URL(req.url);

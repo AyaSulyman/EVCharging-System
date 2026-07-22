@@ -6,7 +6,7 @@ const StationSchema = new Schema(
     address: { type: String, required: true },
     location: {
       type: { type: String, enum: ["Point"], default: "Point" },
-      coordinates: { type: [Number], required: true }, // [lng, lat]
+      coordinates: { type: [Number], required: true }, 
     },
     description: { type: String, default: "" },
     amenities: { type: [String], default: [] },

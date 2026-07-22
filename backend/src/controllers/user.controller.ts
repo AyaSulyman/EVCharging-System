@@ -2,7 +2,6 @@ import { requireAdmin, requireAuth, AuthError } from "@/middleware/auth";
 import { json, serialize } from "@/utils/response";
 import { listUsers, getUserById, updateUser, deleteUser } from "@/services/user.service";
 
-/** GET /api/users — admin only: list every user (id, email, role, etc. — no password hashes). */
 export async function handleListUsers(req: Request) {
   try {
     requireAdmin(req);
@@ -15,7 +14,7 @@ export async function handleListUsers(req: Request) {
   }
 }
 
-/** PATCH /api/users — a user can update their own profile; admins can update anyone + change roles. */
+
 export async function handleUpdateUser(req: Request) {
   try {
     const auth = requireAuth(req);
@@ -37,7 +36,7 @@ export async function handleUpdateUser(req: Request) {
   }
 }
 
-/** DELETE /api/users?id=... — admin only. */
+
 export async function handleDeleteUser(req: Request) {
   try {
     requireAdmin(req);
