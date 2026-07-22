@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { StatusBadge } from "@/components/booking/StatusBadge";
 import { useToast } from "@/components/Toast";
+import { useApi } from "@/lib/useApi";
 import { formatDate, formatTime, formatCurrency } from "@/lib/utils";
 import type { BookingStatus } from "@/types";
 
@@ -32,6 +33,7 @@ type Tab = "upcoming" | "past" | "cancelled";
 
 export default function BookingsPage() {
   const { toast } = useToast();
+  const { call } = useApi();
   const [bookings, setBookings] = useState<BookingRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("upcoming");
@@ -39,7 +41,7 @@ export default function BookingsPage() {
   const [cancelling, setCancelling] = useState(false);
 
   async function load() {
-    const res = await fetch("/api/bookings");
+    const res = await call("/api/bookings");
     const data = await res.json();
     setBookings(data.bookings ?? []);
     setLoading(false);
@@ -64,7 +66,7 @@ export default function BookingsPage() {
   async function doCancel() {
     if (!cancelId) return;
     setCancelling(true);
-    const res = await fetch("/api/bookings", {
+    const res = await call("/api/bookings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: cancelId, status: "cancelled" }),

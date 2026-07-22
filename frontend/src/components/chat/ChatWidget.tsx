@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { MessageCircle, X, Send, Loader2 } from "lucide-react";
 import { BoltMark } from "@/components/ui/Primitives";
+import { useApi } from "@/lib/useApi";
 
 interface Msg {
   role: "user" | "bot";
@@ -17,6 +18,7 @@ const SUGGESTIONS = [
 ];
 
 export function ChatWidget() {
+  const { call } = useApi();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([
     {
@@ -38,9 +40,8 @@ export function ChatWidget() {
     setInput("");
     setLoading(true);
     try {
-      const res = await fetch("/api/chat", {
+      const res = await call("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text }),
       });
       const data = await res.json();

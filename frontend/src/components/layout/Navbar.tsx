@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Logo } from "@/components/ui/Primitives";
 import { cn } from "@/lib/utils";
+import { useApi } from "@/lib/useApi";
 
 const PUBLIC_LINKS = [
   { href: "/", label: "Home" },
@@ -31,6 +32,7 @@ const PUBLIC_LINKS = [
 export function Navbar() {
   const pathname = usePathname();
   const { data: session, status } = useSession();
+  const { call } = useApi();
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -53,7 +55,7 @@ export function Navbar() {
 
   useEffect(() => {
     if (!isAuthed) return;
-    fetch("/api/notifications")
+    call("/api/notifications")
       .then((r) => (r.ok ? r.json() : { notifications: [] }))
       .then((d) => setUnread((d.notifications ?? []).filter((n: { isRead: boolean }) => !n.isRead).length))
       .catch(() => {});

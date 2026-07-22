@@ -12,6 +12,7 @@ import {
 import { StatusBadge } from "@/components/booking/StatusBadge";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import type { BookingStatus } from "@/types";
+import { useApi } from "@/lib/useApi";
 
 interface AdminBooking {
   _id: string;
@@ -33,13 +34,14 @@ function isoDaysAgo(days: number) {
 }
 
 export default function AdminReportsPage() {
+  const { call } = useApi();
   const [bookings, setBookings] = useState<AdminBooking[]>([]);
   const [loading, setLoading] = useState(true);
   const [from, setFrom] = useState(isoDaysAgo(30));
   const [to, setTo] = useState(isoDaysAgo(0));
 
   useEffect(() => {
-    fetch("/api/bookings?all=1")
+    call("/api/bookings?all=1")
       .then((r) => r.json())
       .then((d) => {
         setBookings(d.bookings ?? []);

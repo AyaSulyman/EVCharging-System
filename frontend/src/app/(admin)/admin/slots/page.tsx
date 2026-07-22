@@ -5,6 +5,7 @@ import { Loader2, CalendarPlus, Zap, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { ConnectorBadge } from "@/components/ui/Primitives";
 import type { ConnectorType } from "@/types";
+import { useApi } from "@/lib/useApi";
 
 interface StationRow {
   _id: string;
@@ -19,6 +20,7 @@ interface StationRow {
 
 export default function AdminSlotsPage() {
   const { toast } = useToast();
+  const { call } = useApi();
   const [stations, setStations] = useState<StationRow[]>([]);
   const [chargerId, setChargerId] = useState("");
   const [startDate, setStartDate] = useState("");
@@ -27,13 +29,13 @@ export default function AdminSlotsPage() {
   const [lastResult, setLastResult] = useState<number | null>(null);
 
   useEffect(() => {
-    fetch("/api/stations")
+    call("/api/stations")
       .then((r) => r.json())
       .then(async (d) => {
         // stations endpoint doesn't include chargers; fetch chargers per station
         const withChargers = await Promise.all(
           (d.stations ?? []).map(async (s: { _id: string; name: string }) => {
-            const cr = await fetch(`/api/chargers?stationId=${s._id}`).then((r) => r.json());
+            const cr = await call(`/api/chargers?stationId=${s._id}`).then((r) => r.json());
             return { ...s, chargers: cr.chargers ?? [] };
           })
         );
@@ -55,7 +57,7 @@ export default function AdminSlotsPage() {
     }
     setGenerating(true);
     setLastResult(null);
-    const res = await fetch("/api/slots", {
+    const res = await call("/api/slots", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chargerId, startDate, endDate }),

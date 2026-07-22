@@ -13,6 +13,7 @@ import {
   CheckCheck,
 } from "lucide-react";
 import { timeAgo } from "@/lib/utils";
+import { useApi } from "@/lib/useApi";
 import type { NotificationType } from "@/types";
 
 interface Notif {
@@ -34,11 +35,12 @@ const ICONS: Record<NotificationType, { icon: React.ComponentType<{ className?: 
 };
 
 export default function NotificationsPage() {
+  const { call } = useApi();
   const [items, setItems] = useState<Notif[]>([]);
   const [loading, setLoading] = useState(true);
 
   async function load() {
-    const res = await fetch("/api/notifications");
+    const res = await call("/api/notifications");
     const data = await res.json();
     setItems(data.notifications ?? []);
     setLoading(false);
@@ -48,18 +50,16 @@ export default function NotificationsPage() {
   }, []);
 
   async function markAll() {
-    await fetch("/api/notifications", {
+    await call("/api/notifications", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ all: true }),
+      body: JSON.stringify({ markAllRead: true }),
     });
     load();
   }
 
   async function markOne(id: string) {
-    await fetch("/api/notifications", {
+    await call("/api/notifications", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
     });
     setItems((prev) => prev.map((n) => (n._id === id ? { ...n, isRead: true } : n)));

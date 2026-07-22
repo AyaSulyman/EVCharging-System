@@ -6,6 +6,7 @@ import { StatusBadge } from "@/components/booking/StatusBadge";
 import { useToast } from "@/components/Toast";
 import { formatDate, formatTime, formatCurrency } from "@/lib/utils";
 import type { BookingStatus } from "@/types";
+import { useApi } from "@/lib/useApi";
 
 interface AdminBooking {
   _id: string;
@@ -29,13 +30,14 @@ const FILTERS: (BookingStatus | "all")[] = [
 
 export default function AdminBookingsPage() {
   const { toast } = useToast();
+  const { call } = useApi();
   const [bookings, setBookings] = useState<AdminBooking[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<BookingStatus | "all">("all");
   const [query, setQuery] = useState("");
 
   async function load() {
-    const res = await fetch("/api/bookings?all=1");
+    const res = await call("/api/bookings?all=1");
     const data = await res.json();
     setBookings(data.bookings ?? []);
     setLoading(false);
@@ -45,7 +47,7 @@ export default function AdminBookingsPage() {
   }, []);
 
   async function updateStatus(id: string, status: BookingStatus) {
-    const res = await fetch("/api/bookings", {
+    const res = await call("/api/bookings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, status }),

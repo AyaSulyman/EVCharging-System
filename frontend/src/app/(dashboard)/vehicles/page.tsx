@@ -16,6 +16,7 @@ import { ConnectorBadge, BatteryGauge } from "@/components/ui/Primitives";
 import { useToast } from "@/components/Toast";
 import { vehicleSchema } from "@/lib/validations";
 import type { ConnectorType, ProviderKey } from "@/types";
+import { useApi } from "@/lib/useApi";
 
 interface VehicleRow {
   _id: string;
@@ -40,6 +41,7 @@ const PROVIDERS: { key: ProviderKey; label: string; note: string }[] = [
 
 export default function VehiclesPage() {
   const { toast } = useToast();
+  const { call } = useApi();
   const [vehicles, setVehicles] = useState<VehicleRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -48,7 +50,7 @@ export default function VehiclesPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   async function load() {
-    const res = await fetch("/api/vehicles");
+    const res = await call("/api/vehicles");
     const data = await res.json();
     setVehicles(data.vehicles ?? []);
     setLoading(false);
@@ -59,7 +61,7 @@ export default function VehiclesPage() {
 
   async function sync(id: string) {
     setSyncing(id);
-    const res = await fetch("/api/vehicles/sync", {
+    const res = await call("/api/vehicles/sync", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ vehicleId: id }),
@@ -75,7 +77,7 @@ export default function VehiclesPage() {
 
   async function remove() {
     if (!deleteId) return;
-    const res = await fetch("/api/vehicles", {
+    const res = await call("/api/vehicles", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: deleteId }),
@@ -234,6 +236,7 @@ function AddVehicleModal({
   onDone: () => void;
 }) {
   const { toast } = useToast();
+  const { call } = useApi();
   const [form, setForm] = useState({
     make: "Tesla",
     model: "",
@@ -252,9 +255,8 @@ function AddVehicleModal({
       return;
     }
     setSaving(true);
-    const res = await fetch("/api/vehicles", {
+    const res = await call("/api/vehicles", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form),
     });
     setSaving(false);
@@ -358,12 +360,13 @@ function ConnectModal({
   onDone: () => void;
 }) {
   const { toast } = useToast();
+  const { call } = useApi();
   const [provider, setProvider] = useState<ProviderKey>("mock");
   const [connecting, setConnecting] = useState(false);
 
   async function connect() {
     setConnecting(true);
-    const res = await fetch("/api/vehicles/connect", {
+    const res = await call("/api/vehicles/connect", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ vehicleId: vehicle._id, provider }),

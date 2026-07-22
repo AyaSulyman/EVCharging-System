@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, Search, Shield, User as UserIcon } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { useApi } from "@/lib/useApi";
 
 interface AdminUser {
   _id: string;
@@ -17,12 +18,13 @@ interface AdminUser {
 }
 
 export default function AdminUsersPage() {
+  const { call } = useApi();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
 
   useEffect(() => {
-    fetch("/api/users")
+    call("/api/users")
       .then((r) => r.json())
       .then((d) => setUsers(d.users ?? []))
       .finally(() => setLoading(false));

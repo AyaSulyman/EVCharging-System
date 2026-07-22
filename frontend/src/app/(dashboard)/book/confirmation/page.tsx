@@ -15,6 +15,7 @@ import {
   Zap,
 } from "lucide-react";
 import { formatDate, formatTime } from "@/lib/utils";
+import { useApi } from "@/lib/useApi";
 
 interface BookingData {
   bookingCode: string;
@@ -27,12 +28,13 @@ interface BookingData {
 function Confirmation() {
   const params = useSearchParams();
   const code = params.get("code");
+  const { call } = useApi();
   const [booking, setBooking] = useState<BookingData | null>(null);
   const [qr, setQr] = useState<string>("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/bookings")
+    call("/api/bookings")
       .then((r) => r.json())
       .then((d) => {
         const found = (d.bookings ?? []).find(

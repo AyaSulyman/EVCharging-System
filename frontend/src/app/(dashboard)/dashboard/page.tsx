@@ -10,46 +10,44 @@ import {
   ArrowRight,
   Clock,
 } from "lucide-react";
-import { dbConnect } from "@/lib/db";
-import Booking from "@/models/Booking";
-import Vehicle from "@/models/Vehicle";
-import { getSessionUser } from "@/lib/session";
+import { apiJson } from "@/lib/apiClient";
+import { getSessionUser, getBackendToken } from "@/lib/session";
 import { formatDate, formatTime, formatCurrency } from "@/lib/utils";
 import { StatusBadge } from "@/components/booking/StatusBadge";
 import type { IVehicle } from "@/types";
 
 export const dynamic = "force-dynamic";
 
+interface PopulatedBooking {
+  _id: string;
+  bookingCode: string;
+  status: import("@/types").BookingStatus;
+  startTime: string;
+  endTime: string;
+  totalAmount: number;
+  stationId?: { name: string; address: string };
+  chargerId?: { label: string; connectorType: string; powerKW: number };
+}
+
 export default async function DashboardPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
-  await dbConnect();
+  const token = await getBackendToken();
 
   const now = new Date();
-  const [allBookings, vehicles] = await Promise.all([
-    Booking.find({ userId: user.id })
-      .populate("stationId", "name address")
-      .populate("chargerId", "label connectorType powerKW")
-      .sort({ startTime: -1 })
-      .lean(),
-    Vehicle.find({ userId: user.id }).lean(),
+  const [bookingsData, vehiclesData] = await Promise.all([
+    apiJson<{ bookings: PopulatedBooking[] }>("/api/bookings", {}, token ?? undefined),
+    apiJson<{ vehicles: IVehicle[] }>("/api/vehicles", {}, token ?? undefined),
   ]);
-
-  const bookings = JSON.parse(JSON.stringify(allBookings));
-  const vehiclesData = JSON.parse(JSON.stringify(vehicles)) as IVehicle[];
+  const bookings = bookingsData.bookings;
+  const vehiclesList = vehiclesData.vehicles;
 
   const upcoming = bookings
-    .filter(
-      (b: { startTime: string; status: string }) =>
-        new Date(b.startTime) >= now && ["confirmed", "pending"].includes(b.status)
-    )
-    .sort(
-      (a: { startTime: string }, b: { startTime: string }) =>
-        new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
-    );
+    .filter((b) => new Date(b.startTime) >= now && ["confirmed", "pending"].includes(b.status))
+    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
   const nextBooking = upcoming[0];
   const activeCount = upcoming.length;
-  const lowVehicle = vehiclesData
+  const lowVehicle = vehiclesList
     .filter((v) => (v.currentBatteryLevel ?? 100) < 30)
     .sort((a, b) => (a.currentBatteryLevel ?? 100) - (b.currentBatteryLevel ?? 100))[0];
 
@@ -83,7 +81,7 @@ export default async function DashboardPage() {
       <div className="mt-6 grid gap-4 sm:grid-cols-3">
         <StatCard icon={CalendarCheck} label="Total bookings" value={bookings.length} />
         <StatCard icon={Clock} label="Active reservations" value={activeCount} />
-        <StatCard icon={Car} label="Vehicles" value={vehiclesData.length} />
+        <StatCard icon={Car} label="Vehicles" value={vehiclesList.length} />
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
@@ -136,15 +134,7 @@ export default async function DashboardPage() {
             <>
               <h2 className="mb-3 mt-8 text-lg font-bold text-ink">Recent bookings</h2>
               <div className="space-y-3">
-                {bookings.slice(0, 5).map((b: {
-                  _id: string;
-                  bookingCode: string;
-                  status: import("@/types").BookingStatus;
-                  startTime: string;
-                  totalAmount: number;
-                  stationId: { name: string };
-                  chargerId: { label: string };
-                }) => (
+                {bookings.slice(0, 5).map((b) => (
                   <div key={b._id} className="card flex items-center justify-between py-4">
                     <div>
                       <p className="text-sm font-semibold text-ink">{b.stationId?.name}</p>
