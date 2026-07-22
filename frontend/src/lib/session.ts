@@ -11,3 +11,9 @@ export async function requireUser() {
   if (!user) throw new Error("UNAUTHORIZED");
   return user;
 }
+
+/** The backend-issued JWT for the current session, used to call the real API as this user. */
+export async function getBackendToken(): Promise<string | null> {
+  const session = await getServerSession(authOptions);
+  return (session as { backendToken?: string } | null)?.backendToken ?? null;
+}

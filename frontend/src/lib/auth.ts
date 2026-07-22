@@ -1,8 +1,6 @@
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
-import bcrypt from "bcryptjs";
-import { dbConnect } from "@/lib/db";
-import User from "@/models/User";
+import { apiUrl } from "@/lib/apiClient";
 
 export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt" },
@@ -16,16 +14,21 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
-        await dbConnect();
-        const user = await User.findOne({ email: credentials.email.toLowerCase() });
-        if (!user) return null;
-        const valid = await bcrypt.compare(credentials.password, user.passwordHash);
-        if (!valid) return null;
+
+        const res = await fetch(apiUrl("/api/auth/login"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: credentials.email, password: credentials.password }),
+        });
+        if (!res.ok) return null;
+
+        const data = await res.json();
         return {
-          id: user._id.toString(),
-          name: user.name,
-          email: user.email,
-          role: user.role,
+          id: data.user.id,
+          name: data.user.name,
+          email: data.user.email,
+          role: data.user.role,
+          backendToken: data.token as string,
         };
       },
     }),
@@ -33,8 +36,10 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.id = (user as { id: string }).id;
-        token.role = (user as { role: string }).role;
+        const u = user as { id: string; role: string; backendToken: string };
+        token.id = u.id;
+        token.role = u.role;
+        token.backendToken = u.backendToken;
       }
       return token;
     },
@@ -43,6 +48,7 @@ export const authOptions: NextAuthOptions = {
         (session.user as { id?: string }).id = token.id as string;
         (session.user as { role?: string }).role = token.role as string;
       }
+      (session as { backendToken?: string }).backendToken = token.backendToken as string;
       return session;
     },
   },
