@@ -1,3 +1,7 @@
 
 # Word lock files
 ~$*
+
+# build tooling deps
+docs/_source/node_modules/
+docs/_source/package-lock.json
