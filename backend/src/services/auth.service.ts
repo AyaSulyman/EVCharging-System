@@ -30,7 +30,8 @@ export async function registerUser(input: {
 
 export async function loginUser(email: string, password: string) {
   await connectDB();
-  const user = await User.findOne({ email: email.toLowerCase() });
+  // passwordHash is select:false on the model, so the one place that needs it asks for it.
+  const user = await User.findOne({ email: email.toLowerCase() }).select("+passwordHash");
   if (!user) throw new Error("INVALID_CREDENTIALS");
 
   const valid = await bcrypt.compare(password, user.passwordHash);

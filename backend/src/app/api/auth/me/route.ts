@@ -9,7 +9,7 @@ export async function GET(req: Request) {
   try {
     const auth = requireAuth(req);
     await connectDB();
-    const user = await User.findById(auth.id).select("-passwordHash").lean();
+    const user = await User.findById(auth.id).lean();
     if (!user) return json({ error: "User not found" }, { status: 404 });
     return json({ user: serialize(user) });
   } catch (err) {
