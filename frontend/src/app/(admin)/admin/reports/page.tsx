@@ -34,13 +34,17 @@ function isoDaysAgo(days: number) {
 }
 
 export default function AdminReportsPage() {
-  const { call } = useApi();
+  const { call, token } = useApi();
   const [bookings, setBookings] = useState<AdminBooking[]>([]);
   const [loading, setLoading] = useState(true);
   const [from, setFrom] = useState(isoDaysAgo(30));
   const [to, setTo] = useState(isoDaysAgo(0));
 
   useEffect(() => {
+    // The session hydrates after first render, so the bearer token is not available
+    // on mount. Waiting for it prevents an unauthenticated first request that would
+    // never be retried, which made these screens load empty on a direct link or refresh.
+    if (!token) return;
     call("/api/bookings?all=1")
       .then((r) => r.json())
       .then((d) => {
@@ -48,7 +52,7 @@ export default function AdminReportsPage() {
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, []);
+  }, [token]);
 
   const filtered = useMemo(() => {
     const start = new Date(from).getTime();

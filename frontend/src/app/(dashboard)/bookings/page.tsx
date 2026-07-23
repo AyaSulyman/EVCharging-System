@@ -33,7 +33,7 @@ type Tab = "upcoming" | "past" | "cancelled";
 
 export default function BookingsPage() {
   const { toast } = useToast();
-  const { call } = useApi();
+  const { call, token } = useApi();
   const [bookings, setBookings] = useState<BookingRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("upcoming");
@@ -48,8 +48,12 @@ export default function BookingsPage() {
   }
 
   useEffect(() => {
+    // The session hydrates after first render, so the bearer token is not available
+    // on mount. Waiting for it prevents an unauthenticated first request that would
+    // never be retried, which made these screens load empty on a direct link or refresh.
+    if (!token) return;
     load();
-  }, []);
+  }, [token]);
 
   const now = Date.now();
   const filtered = bookings.filter((b) => {

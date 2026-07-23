@@ -25,16 +25,20 @@ interface Rec {
 }
 
 export default function RecommendationsPage() {
-  const { call } = useApi();
+  const { call, token } = useApi();
   const [recs, setRecs] = useState<Rec[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // The session hydrates after first render, so the bearer token is not available
+    // on mount. Waiting for it prevents an unauthenticated first request that would
+    // never be retried, which made these screens load empty on a direct link or refresh.
+    if (!token) return;
     call("/api/recommendations")
       .then((r) => r.json())
       .then((d) => setRecs(d.recommendations ?? []))
       .finally(() => setLoading(false));
-  }, []);
+  }, [token]);
 
   if (loading) {
     return (

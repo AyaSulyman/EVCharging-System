@@ -30,7 +30,7 @@ const FILTERS: (BookingStatus | "all")[] = [
 
 export default function AdminBookingsPage() {
   const { toast } = useToast();
-  const { call } = useApi();
+  const { call, token } = useApi();
   const [bookings, setBookings] = useState<AdminBooking[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<BookingStatus | "all">("all");
@@ -43,8 +43,12 @@ export default function AdminBookingsPage() {
     setLoading(false);
   }
   useEffect(() => {
+    // The session hydrates after first render, so the bearer token is not available
+    // on mount. Waiting for it prevents an unauthenticated first request that would
+    // never be retried, which made these screens load empty on a direct link or refresh.
+    if (!token) return;
     load();
-  }, []);
+  }, [token]);
 
   async function updateStatus(id: string, status: BookingStatus) {
     const res = await call("/api/bookings", {

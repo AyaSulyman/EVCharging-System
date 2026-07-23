@@ -35,7 +35,7 @@ const ICONS: Record<NotificationType, { icon: React.ComponentType<{ className?: 
 };
 
 export default function NotificationsPage() {
-  const { call } = useApi();
+  const { call, token } = useApi();
   const [items, setItems] = useState<Notif[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -46,8 +46,12 @@ export default function NotificationsPage() {
     setLoading(false);
   }
   useEffect(() => {
+    // The session hydrates after first render, so the bearer token is not available
+    // on mount. Waiting for it prevents an unauthenticated first request that would
+    // never be retried, which made these screens load empty on a direct link or refresh.
+    if (!token) return;
     load();
-  }, []);
+  }, [token]);
 
   async function markAll() {
     await call("/api/notifications", {

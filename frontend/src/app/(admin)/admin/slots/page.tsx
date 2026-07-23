@@ -20,7 +20,7 @@ interface StationRow {
 
 export default function AdminSlotsPage() {
   const { toast } = useToast();
-  const { call } = useApi();
+  const { call, token } = useApi();
   const [stations, setStations] = useState<StationRow[]>([]);
   const [chargerId, setChargerId] = useState("");
   const [startDate, setStartDate] = useState("");
@@ -29,6 +29,10 @@ export default function AdminSlotsPage() {
   const [lastResult, setLastResult] = useState<number | null>(null);
 
   useEffect(() => {
+    // The session hydrates after first render, so the bearer token is not available
+    // on mount. Waiting for it prevents an unauthenticated first request that would
+    // never be retried, which made these screens load empty on a direct link or refresh.
+    if (!token) return;
     call("/api/stations")
       .then((r) => r.json())
       .then(async (d) => {
@@ -47,7 +51,7 @@ export default function AdminSlotsPage() {
     week.setDate(week.getDate() + 7);
     setStartDate(today);
     setEndDate(week.toISOString().slice(0, 10));
-  }, []);
+  }, [token]);
 
   async function generate(e: React.FormEvent) {
     e.preventDefault();

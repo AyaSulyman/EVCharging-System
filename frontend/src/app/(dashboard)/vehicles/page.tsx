@@ -41,7 +41,7 @@ const PROVIDERS: { key: ProviderKey; label: string; note: string }[] = [
 
 export default function VehiclesPage() {
   const { toast } = useToast();
-  const { call } = useApi();
+  const { call, token } = useApi();
   const [vehicles, setVehicles] = useState<VehicleRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -56,8 +56,12 @@ export default function VehiclesPage() {
     setLoading(false);
   }
   useEffect(() => {
+    // The session hydrates after first render, so the bearer token is not available
+    // on mount. Waiting for it prevents an unauthenticated first request that would
+    // never be retried, which made these screens load empty on a direct link or refresh.
+    if (!token) return;
     load();
-  }, []);
+  }, [token]);
 
   async function sync(id: string) {
     setSyncing(id);
@@ -236,7 +240,7 @@ function AddVehicleModal({
   onDone: () => void;
 }) {
   const { toast } = useToast();
-  const { call } = useApi();
+  const { call, token } = useApi();
   const [form, setForm] = useState({
     make: "Tesla",
     model: "",
@@ -360,7 +364,7 @@ function ConnectModal({
   onDone: () => void;
 }) {
   const { toast } = useToast();
-  const { call } = useApi();
+  const { call, token } = useApi();
   const [provider, setProvider] = useState<ProviderKey>("mock");
   const [connecting, setConnecting] = useState(false);
 

@@ -23,7 +23,7 @@ function BookingWizard() {
   const params = useSearchParams();
   const router = useRouter();
   const { toast } = useToast();
-  const { call } = useApi();
+  const { call, token } = useApi();
 
   const [step, setStep] = useState(0);
   const [stations, setStations] = useState<StationWithChargers[]>([]);
@@ -39,6 +39,10 @@ function BookingWizard() {
 
   // Load stations + vehicles, honor URL prefill
   useEffect(() => {
+    // The session hydrates after first render, so the bearer token is not available
+    // on mount. Waiting for it prevents an unauthenticated first request that would
+    // never be retried, which made these screens load empty on a direct link or refresh.
+    if (!token) return;
     Promise.all([
       call("/api/stations").then((r) => r.json()),
       call("/api/vehicles").then((r) => r.json()),
@@ -69,10 +73,14 @@ function BookingWizard() {
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [token]);
 
   // Default date = today
   useEffect(() => {
+    // The session hydrates after first render, so the bearer token is not available
+    // on mount. Waiting for it prevents an unauthenticated first request that would
+    // never be retried, which made these screens load empty on a direct link or refresh.
+    if (!token) return;
     if (!date) {
       const d = new Date();
       setDate(d.toISOString().slice(0, 10));
@@ -101,7 +109,7 @@ function BookingWizard() {
       });
     }
     return days;
-  }, []);
+  }, [token]);
 
   const estCost = useMemo(() => {
     if (!charger) return 0;
