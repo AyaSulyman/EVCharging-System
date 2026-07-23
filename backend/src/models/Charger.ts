@@ -12,7 +12,11 @@ const ChargerSchema = new Schema(
       default: "available",
     },
     pricePerKWh: { type: Number, required: true },
-    qrCode: { type: String, required: true, unique: true },
+    // The identifier printed at the bay. Excluded from reads by default so it is not
+    // enumerable in bulk through the public station and charger listings — a caller
+    // that already holds a code (a QR scan) still matches on it, and an operator
+    // tool that needs to print codes opts in with .select("+qrCode").
+    qrCode: { type: String, required: true, unique: true, select: false },
   },
   { timestamps: true }
 );
