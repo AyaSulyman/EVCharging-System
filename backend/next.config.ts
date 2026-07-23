@@ -2,7 +2,8 @@ import path from "path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  reactCompiler: true,
+  // No reactCompiler here: this service is a headless API with a single static status
+  // page and no interactive components, so the React compiler only added compile cost.
   turbopack: {
     // Pin the workspace root to this application. Without it Next.js walks up looking
     // for a lockfile, finds one in the user's home directory, and infers that as the
