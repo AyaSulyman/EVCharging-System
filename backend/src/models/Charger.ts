@@ -6,6 +6,19 @@ const ChargerSchema = new Schema(
     label: { type: String, required: true },
     connectorType: { type: String, enum: ["CCS", "CHAdeMO", "Type2"], required: true },
     powerKW: { type: Number, required: true },
+    /**
+     * Serviceability of the physical charge point, and it is OPERATOR-DECLARED.
+     *
+     * It is deliberately not an occupancy signal: whether a bay is taken right now is
+     * carried by the interval, and a reservation never writes here. So a charger can
+     * read "available" while intervals on it are booked, which is correct — it means
+     * the unit is in service, not that it is free this minute.
+     *
+     * Precedence, for when hardware reporting arrives: a machine-reported state
+     * supersedes the operator's, except that "maintenance" and "offline" set by an
+     * operator always win, because taking a unit out of service is a human decision a
+     * charger cannot override.
+     */
     status: {
       type: String,
       enum: ["available", "in_use", "maintenance", "offline"],

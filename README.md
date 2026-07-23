@@ -1,187 +1,192 @@
 # ⚡ ChargeHub — EV Charging Station Reservation System
 
-A full-stack EV charging reservation platform for a company operating multiple
-charging branches. Drivers discover stations, check **live** charger
-availability, reserve time slots, manage their vehicles, get **battery-aware
-recommendations**, and access chargers via **QR codes**. Admins manage
-stations, chargers, bookings, slots, and view reports.
+A multi-station EV charging reservation platform. Drivers discover stations, check
+live charger availability, reserve a specific charger for a specific interval, manage
+their vehicles, get battery-aware recommendations, and reach a bay by scanning its QR
+code. Operators manage stations, chargers, reservations and bookable inventory, and
+report on usage.
 
-Built with **Next.js 14 (App Router)**, **TypeScript**, **Tailwind CSS**,
-**MongoDB/Mongoose**, and **NextAuth**.
+Built as **two Next.js applications** — a server-rendered client and a headless API
+service — over **MongoDB Atlas**, with **TypeScript** and **Tailwind CSS** throughout.
 
 ---
 
-## ✨ Features
+## 🧱 Repository layout
+
+```
+backend/    API service — Next.js route handlers only, no UI. Port 4000.
+frontend/   Client application — Next.js App Router. Port 3000.
+docs/       Proposal, specification, ER diagram, rendering notes.
+```
+
+The two are **separate installs** with their own `package.json`. There is no root
+package. The client holds no database access: every read and write crosses the API
+boundary, which keeps the service reusable by any future client.
+
+---
+
+## ✨ What it does
 
 **For drivers**
 - Browse stations with live "X of Y chargers free" availability
-- Filter stations by connector type (CCS / CHAdeMO / Type 2) and charging speed
-- 4-step booking wizard (Station → Charger → Time slot → Confirm)
-- Booking confirmation with **QR code** + add-to-calendar (`.ics`)
-- Manage bookings (upcoming / past / cancelled, with cancel)
-- Add vehicles and **connect them via a provider** (Tesla-ready architecture)
-- **Battery-aware recommendations** — combines battery %, range, location, and
-  live availability to suggest the best charger
-- In-app **AI assistant** grounded in real database data
-- Notifications
+- Filter by connector type (CCS / CHAdeMO / Type 2) and charging speed
+- Scan the QR code on a charger to reach its live status and start a reservation
+- Four-step reservation wizard, with incompatible chargers marked
+- Confirmation with a reservation code, QR image and calendar file
+- Manage reservations (upcoming / past / cancelled) and cancel, releasing the interval
+- Add vehicles and connect them to a manufacturer through the provider layer
+- Battery- and distance-aware charging recommendations
+- An assistant that answers from live platform data
+- In-app notifications
 
-**For admins**
-- Dashboard with KPIs and charts (bookings over time, status split, utilization)
-- Manage stations & chargers (status, pricing)
-- Bookings management (search, filter, update status)
-- Generate booking slots (rolling availability)
-- Users list
-- **Reports** with date-range filtering and **CSV export**
-
-**Under the hood**
-- **Vehicle Provider architecture** — a single `VehicleProvider` interface with
-  swappable implementations (`TeslaProvider`, `MockProvider`). Adding a new
-  manufacturer means adding one provider, not rewriting the app. See
-  [`src/providers`](src/providers).
-- **Double-booking prevention** — a unique compound index on
-  `(chargerId, startTime)` plus an atomic `findOneAndUpdate` slot claim, so two
-  users can never grab the same slot.
-- Auth with NextAuth (credentials + JWT sessions) and route protection via
-  middleware.
+**For operators**
+- Dashboard with operational metrics and charts
+- Manage stations, chargers, availability and pricing
+- Search, filter and resolve reservations
+- Publish bookable inventory across a date range
+- Registered driver list with per-account totals
+- Date-ranged reports with CSV export
 
 ---
 
-## 🧱 Tech stack
+## 🔑 Two things worth knowing about the design
 
-| Layer      | Choice                                        |
-| ---------- | --------------------------------------------- |
-| Framework  | Next.js 14 (App Router, Server Components)    |
-| Language   | TypeScript (strict)                           |
-| Styling    | Tailwind CSS (custom design system)           |
-| Database   | MongoDB + Mongoose                            |
-| Auth       | NextAuth (Credentials provider, JWT)          |
-| Charts     | Recharts                                      |
-| Icons      | lucide-react                                  |
-| Validation | Zod                                           |
+**Reservations are conflict-free, and the database enforces it.** Every reservable
+interval exists as a record before anyone books it, so claiming one is the allocation
+of a single identifiable row. A partial unique index on the reservation's interval
+reference makes a second live claim impossible regardless of which code path writes —
+partial because a cancelled reservation keeps its reference for history while releasing
+the interval. The reservation is written before the interval is flipped, so an
+interrupted claim fails recoverably rather than stranding capacity.
 
-> We intentionally use **Next.js full-stack** (API routes + server actions)
-> rather than a separate Express server — for this scope it removes a whole
-> layer without losing anything.
+**Vehicle integration is manufacturer-agnostic.** There is no universal EV data API, so
+the platform talks to vehicles only through one uniform interface resolved at runtime
+from a registry (`backend/src/providers`). Supporting a new manufacturer is one
+implementation plus one registry entry; no route handler, model or screen changes. The
+same key set drives both the registry and the database enum, so the two cannot drift
+apart.
+
+---
+
+## 🚧 Deliberately out of scope
+
+Stated plainly, because several are commonly assumed:
+
+- **No payment processing.** Reservations carry a cost estimate. Every monetary figure
+  in the interface and in exports is labelled as an estimate.
+- **No energy metering.** The platform reserves time at a charger; it does not measure
+  delivered energy.
+- **No hardware integration.** Charger serviceability is operator-declared.
+- **No live manufacturer telemetry.** The provider architecture is complete and
+  exercised end to end through a simulated provider; battery and range values are
+  generated, not measured.
+- **No language model.** The assistant runs real database queries and returns those
+  results. It generates no free text, so it cannot state anything the platform does not
+  hold.
+- **Notifications are not generated by platform activity** in this release; the store
+  and reading experience are complete.
 
 ---
 
 ## 🚀 Getting started
 
-### Prerequisites
-- **Node.js 18.17+**
-- **MongoDB** — either a local install (`mongod`) or a free
-  [MongoDB Atlas](https://www.mongodb.com/atlas) cluster
+**Prerequisites:** Node 18.17+ and a MongoDB database (local or Atlas).
 
-### 1. Install dependencies
 ```bash
-npm install
+cd backend     && npm install
+cd ../frontend && npm install
 ```
 
-### 2. Configure environment
-Copy the example env file and fill in your values:
-```bash
-cp .env.example .env.local
+**Configure environment**
+
+`backend/.env`
+
 ```
-Then edit `.env.local`:
+MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>/chargehub
+JWT_SECRET=<long random string>
+CORS_ORIGIN=http://localhost:3000
+PORT=4000
 ```
-MONGODB_URI=mongodb://localhost:27017/chargehub
-NEXTAUTH_SECRET=<run: openssl rand -base64 32>
+
+`frontend/.env.local`
+
+```
+NEXTAUTH_SECRET=<long random string>
 NEXTAUTH_URL=http://localhost:3000
-```
-> If you use MongoDB Atlas, paste your `mongodb+srv://…` connection string as
-> `MONGODB_URI` instead.
-
-### 3. Seed the database
-This creates the stations, chargers, demo users, vehicles, slots, and sample
-bookings:
-```bash
-npm run seed
+NEXT_PUBLIC_API_URL=http://localhost:4000
 ```
 
-### 4. Run the app
+**Seed the database** (from `backend/`)
+
 ```bash
-npm run dev
+npm run seed:all
 ```
+
+> ⚠️ `seed:all` **deletes every collection** before inserting. Do not run it against a
+> database whose state you want to keep — it also discards published inventory and any
+> reconciliation performed since.
+
+**Run both applications**
+
+```bash
+cd backend  && npm run dev     # API service on :4000
+cd frontend && npm run dev     # client on :3000
+```
+
 Open **http://localhost:3000**.
 
 ---
 
 ## 🔑 Demo accounts
 
-After seeding, log in with:
+Created by `npm run seed:all`:
 
-| Role  | Email                  | Password    |
-| ----- | ---------------------- | ----------- |
-| User  | `user@chargehub.com`   | `User123!`  |
-| Admin | `admin@chargehub.com`  | `Admin123!` |
+| Role     | Email                       | Password    |
+| -------- | --------------------------- | ----------- |
+| Driver   | `user@chargehub.com`        | `User123!`  |
+| Operator | `admin@chargehubsystem.com` | `Admin$123` |
 
-The admin panel is at **/admin** (visible in the account menu when logged in as
-the admin).
+The operator console is at **/admin**.
 
 ---
 
-## 📁 Project structure
+## 📜 Scripts
 
+Run from `backend/`:
+
+| Script                             | Description |
+| ---------------------------------- | ----------- |
+| `npm run dev`                       | API service on port 4000 |
+| `npm run seed:all`                  | **Destructive.** Wipe and recreate seed data |
+| `npm run ops:indexes`               | Build every declared index, including the constraints carrying the system's invariants |
+| `npm run ops:publish -- <endDate>`  | Publish bookable inventory for all chargers up to a date |
+| `npm run ops:reconcile`             | Report on agreement between reservations and intervals |
+| `npm run ops:reconcile -- --apply`  | Snapshot, then repair it |
+
+Run from `frontend/`: `npm run dev`, `npm run build`, `npm run lint`.
+
+---
+
+## 🗓️ Operating the platform
+
+**Inventory does not extend itself.** Reservable intervals are published by an
+operator, and when the published horizon passes the reservation wizard returns nothing
+for every date while still appearing to work. Publish ahead:
+
+```bash
+cd backend && npm run ops:publish -- 2026-12-31
 ```
-src/
-├── app/
-│   ├── (public)/       # Homepage, stations, FAQ, about, contact, legal, QR
-│   ├── (auth)/         # Login, register
-│   ├── (dashboard)/    # Dashboard, booking, vehicles, recommendations, profile
-│   ├── (admin)/        # Admin dashboard, stations, bookings, slots, reports
-│   ├── api/            # Route handlers (bookings, vehicles, chat, etc.)
-│   └── layout.tsx      # Root layout
-├── components/         # UI, layout, station, booking, admin, chat components
-├── lib/                # db, auth, session, data helpers, utils, validations
-├── models/             # Mongoose schemas
-├── providers/          # Vehicle provider interface + Tesla/Mock implementations
-├── seed/               # Database seed script
-├── types/              # Shared TypeScript types
-└── middleware.ts       # Route protection
-```
+
+Publication is idempotent — re-running over an overlapping range adds only what is
+missing.
 
 ---
 
-## 🔌 About the Tesla / vehicle integration
+## 📚 Documentation
 
-The platform is designed to talk to real EV manufacturer APIs through the
-**provider interface** in [`src/providers`](src/providers). The `TeslaProvider`
-is written against Tesla's Fleet API shape (connect, battery level, range,
-location, charge state).
+In `docs/`:
 
-**Honest note:** full end-to-end Tesla validation requires access to a real
-Tesla account and vehicle to authorize OAuth. Where a live vehicle isn't
-available, the `MockProvider` returns realistic data so the full flow —
-connection, sync, recommendations — is demonstrable. The architecture is the
-deliverable; swapping in verified live credentials is a configuration step, not
-a redesign.
-
----
-
-## 🤖 About the AI assistant
-
-The chat widget answers questions using **real database lookups** (your
-bookings, nearest station, charger availability, pricing, recommendations) — it
-does not make things up. If you set an optional `OPENAI_API_KEY` in `.env.local`,
-it uses the model to phrase answers over that same data; without a key it falls
-back to intent matching, so the feature works out of the box.
-
----
-
-## 📜 Available scripts
-
-| Script          | Description                        |
-| --------------- | ---------------------------------- |
-| `npm run dev`   | Start the dev server               |
-| `npm run build` | Production build                   |
-| `npm run start` | Run the production build           |
-| `npm run seed`  | Seed / reset the database          |
-| `npm run lint`  | Lint                               |
-
----
-
-## 📝 Notes
-
-- `node_modules` is **not** included in this archive — run `npm install` first.
-- Re-running `npm run seed` **wipes and recreates** the seed data.
-- Slots are seeded ~14 days ahead; use the admin **Slots** page to generate more.
+- **Project proposal** — full and condensed
+- **System specification** — entities, modules, ER diagram
+- **`NEXTJS_RENDERING.md`** — how rendering works in this project specifically
+- **`_source/`** — scripts that regenerate the documents and diagrams

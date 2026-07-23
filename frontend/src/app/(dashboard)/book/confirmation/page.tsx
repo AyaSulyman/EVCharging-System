@@ -121,7 +121,9 @@ function Confirmation() {
           <div className="mt-6 flex flex-col items-center">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={qr} alt="Booking QR code" className="rounded-xl border border-line" />
-            <p className="mt-2 text-xs text-ink-soft">Show this at the charger</p>
+            <p className="mt-2 text-xs text-ink-soft">
+              Your reservation reference — quote the code on arrival
+            </p>
           </div>
         )}
 
