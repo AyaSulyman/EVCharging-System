@@ -14,4 +14,9 @@ const VehicleConnectionSchema = new Schema(
   { timestamps: true }
 );
 
+// A vehicle has at most one manufacturer connection. The connect endpoint relies on
+// this for its upsert to be idempotent; without it, concurrent connects create two
+// records for one vehicle and credential state silently forks.
+VehicleConnectionSchema.index({ userId: 1, vehicleId: 1 }, { unique: true });
+
 export default models.VehicleConnection || model("VehicleConnection", VehicleConnectionSchema);
