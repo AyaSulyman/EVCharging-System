@@ -23,8 +23,34 @@ const BookingSchema = new Schema(
       default: "paid",
     },
     cancellationReason: { type: String },
+    // Pricing in force when the reservation was claimed. Captured so the total stays
+    // reproducible after an operator changes the charger's price; without it, historical
+    // revenue silently changes whenever pricing is edited.
+    appliedUnitPrice: { type: Number },
+    appliedPowerKW: { type: Number },
   },
   { timestamps: true }
+);
+
+/**
+ * The system's central invariant: one reservable interval is held by at most one
+ * live reservation. Enforced here rather than in application code so it holds for
+ * every write path, including ones not yet written.
+ *
+ * Partial, not plain unique: a cancelled reservation keeps its slotId for history,
+ * but cancellation releases the interval, so a plain unique index would collide with
+ * the cancelled record and make a released interval permanently unbookable. The
+ * filter encodes exactly the domain rule — every status except "cancelled" holds
+ * the interval.
+ */
+BookingSchema.index(
+  { slotId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      status: { $in: ["pending", "confirmed", "completed", "no_show"] },
+    },
+  }
 );
 
 export default models.Booking || model("Booking", BookingSchema);

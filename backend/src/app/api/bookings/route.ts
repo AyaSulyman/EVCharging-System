@@ -1,16 +1,12 @@
 import { connectDB } from "@/config/database";
 import Booking from "@/models/Booking";
 import Slot from "@/models/Slot";
-import Charger from "@/models/Charger";
 import { requireAuth, AuthError } from "@/middleware/auth";
+import { claimReservation } from "@/services/booking.service";
 import { json, preflight, serialize } from "@/utils/response";
 
 export const dynamic = "force-dynamic";
 export const OPTIONS = preflight;
-
-function genCode() {
-  return "CH-" + Math.random().toString(36).slice(2, 8).toUpperCase();
-}
 
 
 export async function GET(req: Request) {
@@ -33,45 +29,29 @@ export async function GET(req: Request) {
   }
 }
 
+/** Sentinel thrown by the claim, mapped to the response the client expects. */
+const CLAIM_ERRORS: Record<string, { status: number; error: string }> = {
+  SLOT_NOT_FOUND: { status: 404, error: "Slot not found" },
+  CHARGER_NOT_FOUND: { status: 404, error: "Charger not found" },
+  SLOT_UNAVAILABLE: { status: 409, error: "Slot is no longer available" },
+  VEHICLE_NOT_OWNED: { status: 404, error: "Vehicle not found" },
+  CODE_GENERATION_FAILED: { status: 500, error: "Could not allocate a booking code" },
+};
+
 export async function POST(req: Request) {
   try {
     const auth = await requireAuth(req);
-    await connectDB();
     const { vehicleId, slotId } = await req.json();
-
-    const slot = await Slot.findById(slotId);
-    if (!slot) return json({ error: "Slot not found" }, { status: 404 });
-    if (slot.status !== "available") {
-      return json({ error: "Slot is no longer available" }, { status: 409 });
+    if (!vehicleId || !slotId) {
+      return json({ error: "vehicleId and slotId are required" }, { status: 400 });
     }
 
-    const charger = await Charger.findById(slot.chargerId);
-    if (!charger) return json({ error: "Charger not found" }, { status: 404 });
-
-    const hours = (new Date(slot.endTime).getTime() - new Date(slot.startTime).getTime()) / 3.6e6;
-    const totalAmount = Math.round(charger.powerKW * hours * charger.pricePerKWh * 100) / 100;
-
-    const booking = await Booking.create({
-      userId: auth.id,
-      vehicleId,
-      slotId,
-      chargerId: charger._id,
-      stationId: charger.stationId,
-      bookingCode: genCode(),
-      bookingDate: slot.date,
-      startTime: slot.startTime,
-      endTime: slot.endTime,
-      status: "confirmed",
-      totalAmount,
-      paymentStatus: "paid",
-    });
-
-    slot.status = "booked";
-    await slot.save();
-
+    const booking = await claimReservation({ userId: auth.id, vehicleId, slotId });
     return json({ booking: serialize(booking) }, { status: 201 });
   } catch (err) {
     if (err instanceof AuthError) return json({ error: err.message }, { status: err.status });
+    const mapped = err instanceof Error ? CLAIM_ERRORS[err.message] : undefined;
+    if (mapped) return json({ error: mapped.error }, { status: mapped.status });
     console.error(err);
     return json({ error: "Failed to create booking" }, { status: 500 });
   }
