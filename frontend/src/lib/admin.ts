@@ -18,7 +18,8 @@ export interface AdminStats {
   monthBookings: number;
   activeChargers: number;
   totalChargers: number;
-  revenue: number;
+  /** Charge cost of reservations that were kept. Not billed — no payment processing exists. */
+  estimatedRevenue: number;
   totalUsers: number;
   statusDistribution: { name: string; value: number }[];
   bookingsOverTime: { date: string; bookings: number }[];

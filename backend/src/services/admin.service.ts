@@ -21,7 +21,8 @@ export interface AdminStats {
   monthBookings: number;
   activeChargers: number;
   totalChargers: number;
-  revenue: number;
+  /** Charge cost of reservations that were kept. Not billed — no payment processing exists. */
+  estimatedRevenue: number;
   totalUsers: number;
   statusDistribution: { name: string; value: number }[];
   bookingsOverTime: { date: string; bookings: number }[];
@@ -61,9 +62,14 @@ export async function getAdminStats(): Promise<AdminStats> {
   const weekBookings = b.filter((x: { createdAt: string }) => inRange(x.createdAt, weekStart)).length;
   const monthBookings = b.filter((x: { createdAt: string }) => inRange(x.createdAt, monthStart)).length;
 
-  const revenue = b
-    .filter((x: { paymentStatus: string }) => x.paymentStatus === "paid")
-    .reduce((sum: number, x: { totalAmount: number }) => sum + x.totalAmount, 0);
+  // Reservations that were kept. The previous filter used paymentStatus === "paid",
+  // which every reservation carries by default because no payment is ever taken — so it
+  // counted cancellations as revenue. Reservation status is the only honest signal
+  // available until a payment subsystem exists, and it matches what the reports screen
+  // already used, which had quietly disagreed with this figure.
+  const estimatedRevenue = b
+    .filter((x: { status: string }) => x.status === "confirmed" || x.status === "completed")
+    .reduce((sum: number, x: { totalAmount: number }) => sum + (x.totalAmount ?? 0), 0);
 
   const statuses = ["confirmed", "completed", "cancelled", "no_show", "pending"];
   const statusDistribution = statuses
@@ -90,10 +96,14 @@ export async function getAdminStats(): Promise<AdminStats> {
     });
   }
 
+  // Grouped on station identity. Matching on the display name meant renaming a station
+  // silently detached its history from it.
   const utilizationByStation = JSON.parse(JSON.stringify(stations)).map(
     (s: { _id: string; name: string }) => ({
       station: s.name.replace("ChargeHub — ", ""),
-      bookings: b.filter((x: { stationId?: { _id?: string } }) => x.stationId?._id === s._id).length,
+      bookings: b.filter(
+        (x: { stationId?: { _id?: string } }) => String(x.stationId?._id) === String(s._id)
+      ).length,
     })
   );
 
@@ -125,7 +135,7 @@ export async function getAdminStats(): Promise<AdminStats> {
     monthBookings,
     activeChargers,
     totalChargers,
-    revenue,
+    estimatedRevenue,
     totalUsers,
     statusDistribution,
     bookingsOverTime,

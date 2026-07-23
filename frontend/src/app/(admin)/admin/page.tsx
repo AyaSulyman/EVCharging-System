@@ -37,9 +37,9 @@ export default async function AdminDashboardPage() {
         />
         <StatCard
           icon={DollarSign}
-          label="Revenue"
-          value={formatCurrency(stats.revenue)}
-          sub={`${stats.monthBookings} bookings / month`}
+          label="Est. revenue"
+          value={formatCurrency(stats.estimatedRevenue)}
+          sub="estimated — not billed"
           tint="bg-volt-light text-volt"
         />
         <StatCard

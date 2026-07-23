@@ -102,7 +102,7 @@ export default function AdminReportsPage() {
       "Email",
       "Start",
       "End",
-      "Amount",
+      "Estimated Amount (unbilled)",
     ];
     const rows = filtered.map((b) => [
       b.bookingCode,
@@ -142,7 +142,7 @@ export default function AdminReportsPage() {
         <div>
           <h1 className="text-2xl font-bold text-ink">Reports</h1>
           <p className="mt-1 text-ink-soft">
-            Bookings and revenue over a date range.
+            Bookings and estimated revenue over a date range. Amounts are the charge cost of reservations that were kept; no payment is processed.
           </p>
         </div>
         <button onClick={exportCsv} className="btn-primary">
@@ -205,8 +205,9 @@ export default function AdminReportsPage() {
         />
         <SummaryCard
           icon={DollarSign}
-          label="Revenue"
+          label="Est. revenue"
           value={formatCurrency(summary.revenue)}
+          sub="estimated — not billed"
           tint="bg-volt-light text-volt"
         />
         <SummaryCard
@@ -321,11 +322,13 @@ function SummaryCard({
   icon: Icon,
   label,
   value,
+  sub,
   tint,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string;
+  sub?: string;
   tint: string;
 }) {
   return (
@@ -335,6 +338,7 @@ function SummaryCard({
       </span>
       <p className="mt-3 text-2xl font-bold text-ink">{value}</p>
       <p className="text-sm text-ink-soft">{label}</p>
+      {sub && <p className="mt-0.5 text-xs text-ink-soft">{sub}</p>}
     </div>
   );
 }
