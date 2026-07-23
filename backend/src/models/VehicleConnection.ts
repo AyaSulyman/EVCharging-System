@@ -1,10 +1,13 @@
 import { Schema, models, model } from "mongoose";
+import { PROVIDER_KEYS } from "@/providers/VehicleProvider";
 
 const VehicleConnectionSchema = new Schema(
   {
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     vehicleId: { type: Schema.Types.ObjectId, ref: "Vehicle", required: true, index: true },
-    provider: { type: String, enum: ["tesla", "hyundai", "bmw", "mock"], required: true },
+    // Enum shared with the provider registry, so a manufacturer the platform can resolve
+    // and a manufacturer the database will accept are the same set by construction.
+    provider: { type: String, enum: [...PROVIDER_KEYS], required: true },
     accessToken: { type: String },
     refreshToken: { type: String },
     externalVehicleId: { type: String },

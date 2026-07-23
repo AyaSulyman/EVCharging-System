@@ -10,6 +10,18 @@
  * the app never changes.
  */
 
+/**
+ * The manufacturers the platform can resolve. Single source of truth: the registry
+ * switches on these and the VehicleConnection schema uses this same array for its
+ * enum, so the persisted identity and the resolvable set cannot drift apart.
+ */
+export const PROVIDER_KEYS = ["tesla", "hyundai", "bmw", "mock"] as const;
+export type ProviderKey = (typeof PROVIDER_KEYS)[number];
+
+export function isProviderKey(value: unknown): value is ProviderKey {
+  return typeof value === "string" && (PROVIDER_KEYS as readonly string[]).includes(value);
+}
+
 export type ChargingStatus = "charging" | "not_charging" | "complete";
 
 export interface ConnectResult {
