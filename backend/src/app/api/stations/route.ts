@@ -2,7 +2,8 @@ import { connectDB } from "@/config/database";
 import Station from "@/models/Station";
 import Charger from "@/models/Charger";
 import { requireAdmin, AuthError } from "@/middleware/auth";
-import { json, preflight, serialize } from "@/utils/response";
+import { createStationSchema, parseBody } from "@/validation";
+import { errorResponse, json, preflight, serialize } from "@/utils/response";
 
 export const dynamic = "force-dynamic";
 export const OPTIONS = preflight;
@@ -27,12 +28,10 @@ export async function POST(req: Request) {
   try {
     await requireAdmin(req);
     await connectDB();
-    const body = await req.json();
+    const body = parseBody(createStationSchema, await req.json());
     const station = await Station.create(body);
     return json({ station: serialize(station) }, { status: 201 });
   } catch (err) {
-    if (err instanceof AuthError) return json({ error: err.message }, { status: err.status });
-    console.error(err);
-    return json({ error: "Failed to create station" }, { status: 500 });
+    return errorResponse(err, "Failed to create station");
   }
 }

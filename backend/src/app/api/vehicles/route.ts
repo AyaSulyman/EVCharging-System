@@ -1,7 +1,8 @@
 import { connectDB } from "@/config/database";
 import Vehicle from "@/models/Vehicle";
 import { requireAuth, AuthError } from "@/middleware/auth";
-import { json, preflight, serialize } from "@/utils/response";
+import { createVehicleSchema, parseBody, updateVehicleSchema } from "@/validation";
+import { errorResponse, json, preflight, serialize } from "@/utils/response";
 
 export const dynamic = "force-dynamic";
 export const OPTIONS = preflight;
@@ -23,7 +24,7 @@ export async function POST(req: Request) {
   try {
     const auth = await requireAuth(req);
     await connectDB();
-    const body = await req.json();
+    const body = parseBody(createVehicleSchema, await req.json());
     const vehicle = await Vehicle.create({ ...body, userId: auth.id });
     return json({ vehicle: serialize(vehicle) }, { status: 201 });
   } catch (err) {
@@ -37,11 +38,11 @@ export async function PATCH(req: Request) {
   try {
     const auth = await requireAuth(req);
     await connectDB();
-    const { id, ...updates } = await req.json();
+    const { id, ...updates } = parseBody(updateVehicleSchema, await req.json());
     const vehicle = await Vehicle.findOneAndUpdate(
       { _id: id, userId: auth.id },
       updates,
-      { new: true }
+      { returnDocument: "after" }
     ).lean();
     if (!vehicle) return json({ error: "Vehicle not found" }, { status: 404 });
     return json({ vehicle: serialize(vehicle) });

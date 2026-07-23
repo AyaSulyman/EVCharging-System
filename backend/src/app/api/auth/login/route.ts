@@ -1,14 +1,12 @@
 import { loginUser } from "@/services/auth.service";
-import { json, preflight, serialize } from "@/utils/response";
+import { loginSchema, parseBody } from "@/validation";
+import { errorResponse, json, preflight, serialize } from "@/utils/response";
 
 export const OPTIONS = preflight;
 
 export async function POST(req: Request) {
   try {
-    const { email, password } = await req.json();
-    if (!email || !password) {
-      return json({ error: "email and password are required" }, { status: 400 });
-    }
+    const { email, password } = parseBody(loginSchema, await req.json());
 
     const { token, user } = await loginUser(email, password);
 
@@ -22,10 +20,8 @@ export async function POST(req: Request) {
       }),
     });
   } catch (err) {
-    if (err instanceof Error && err.message === "INVALID_CREDENTIALS") {
-      return json({ error: "Invalid email or password" }, { status: 401 });
-    }
-    console.error(err);
-    return json({ error: "Login failed" }, { status: 500 });
+    return errorResponse(err, "Login failed", {
+      INVALID_CREDENTIALS: { status: 401, error: "Invalid email or password" },
+    });
   }
 }

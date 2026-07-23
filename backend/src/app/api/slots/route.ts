@@ -1,8 +1,9 @@
 import { connectDB } from "@/config/database";
 import Slot from "@/models/Slot";
-import { requireAdmin, AuthError } from "@/middleware/auth";
+import { requireAdmin } from "@/middleware/auth";
 import { publishInventory } from "@/services/slot.service";
-import { json, preflight, serialize } from "@/utils/response";
+import { parseBody, publishSlotsSchema, updateSlotSchema } from "@/validation";
+import { errorResponse, json, preflight, serialize } from "@/utils/response";
 
 export const dynamic = "force-dynamic";
 export const OPTIONS = preflight;
@@ -33,17 +34,15 @@ export async function POST(req: Request) {
   try {
     await requireAdmin(req);
     await connectDB();
-    const { chargerId, startDate, endDate, duration = 30 } = await req.json();
-    if (!chargerId || !startDate || !endDate) {
-      return json({ error: "Missing fields" }, { status: 400 });
-    }
+    const { chargerId, startDate, endDate, duration } = parseBody(
+      publishSlotsSchema,
+      await req.json()
+    );
 
     const { created } = await publishInventory({ chargerId, startDate, endDate, duration });
     return json({ created });
   } catch (err) {
-    if (err instanceof AuthError) return json({ error: err.message }, { status: err.status });
-    console.error(err);
-    return json({ error: "Failed to generate slots" }, { status: 500 });
+    return errorResponse(err, "Failed to generate slots");
   }
 }
 
@@ -51,13 +50,11 @@ export async function PATCH(req: Request) {
   try {
     await requireAdmin(req);
     await connectDB();
-    const { id, ...updates } = await req.json();
-    const slot = await Slot.findByIdAndUpdate(id, updates, { new: true }).lean();
+    const { id, ...updates } = parseBody(updateSlotSchema, await req.json());
+    const slot = await Slot.findByIdAndUpdate(id, updates, { returnDocument: "after" }).lean();
     if (!slot) return json({ error: "Slot not found" }, { status: 404 });
     return json({ slot: serialize(slot) });
   } catch (err) {
-    if (err instanceof AuthError) return json({ error: err.message }, { status: err.status });
-    console.error(err);
-    return json({ error: "Failed to update slot" }, { status: 500 });
+    return errorResponse(err, "Failed to update slot");
   }
 }

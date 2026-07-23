@@ -1,7 +1,8 @@
 import { connectDB } from "@/config/database";
 import Banner from "@/models/Banner";
 import { requireAdmin, AuthError } from "@/middleware/auth";
-import { json, preflight, serialize } from "@/utils/response";
+import { createBannerSchema, parseBody, updateBannerSchema } from "@/validation";
+import { errorResponse, json, preflight, serialize } from "@/utils/response";
 
 export const dynamic = "force-dynamic";
 export const OPTIONS = preflight;
@@ -20,13 +21,11 @@ export async function POST(req: Request) {
   try {
     await requireAdmin(req);
     await connectDB();
-    const body = await req.json();
+    const body = parseBody(createBannerSchema, await req.json());
     const banner = await Banner.create(body);
     return json({ banner: serialize(banner) }, { status: 201 });
   } catch (err) {
-    if (err instanceof AuthError) return json({ error: err.message }, { status: err.status });
-    console.error(err);
-    return json({ error: "Failed to create banner" }, { status: 500 });
+    return errorResponse(err, "Failed to create banner");
   }
 }
 
@@ -34,14 +33,12 @@ export async function PATCH(req: Request) {
   try {
     await requireAdmin(req);
     await connectDB();
-    const { id, ...updates } = await req.json();
-    const banner = await Banner.findByIdAndUpdate(id, updates, { new: true }).lean();
+    const { id, ...updates } = parseBody(updateBannerSchema, await req.json());
+    const banner = await Banner.findByIdAndUpdate(id, updates, { returnDocument: "after" }).lean();
     if (!banner) return json({ error: "Banner not found" }, { status: 404 });
     return json({ banner: serialize(banner) });
   } catch (err) {
-    if (err instanceof AuthError) return json({ error: err.message }, { status: err.status });
-    console.error(err);
-    return json({ error: "Failed to update banner" }, { status: 500 });
+    return errorResponse(err, "Failed to update banner");
   }
 }
 

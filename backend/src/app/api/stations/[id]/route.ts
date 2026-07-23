@@ -2,7 +2,8 @@ import { connectDB } from "@/config/database";
 import Station from "@/models/Station";
 import Charger from "@/models/Charger";
 import { requireAdmin, AuthError } from "@/middleware/auth";
-import { json, preflight, serialize } from "@/utils/response";
+import { parseBody, updateStationSchema } from "@/validation";
+import { errorResponse, json, preflight, serialize } from "@/utils/response";
 
 export const dynamic = "force-dynamic";
 export const OPTIONS = preflight;
@@ -28,14 +29,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     await requireAdmin(req);
     const { id } = await params;
     await connectDB();
-    const updates = await req.json();
-    const station = await Station.findByIdAndUpdate(id, updates, { new: true }).lean();
+    const updates = parseBody(updateStationSchema, await req.json());
+    const station = await Station.findByIdAndUpdate(id, updates, { returnDocument: "after" }).lean();
     if (!station) return json({ error: "Station not found" }, { status: 404 });
     return json({ station: serialize(station) });
   } catch (err) {
-    if (err instanceof AuthError) return json({ error: err.message }, { status: err.status });
-    console.error(err);
-    return json({ error: "Failed to update station" }, { status: 500 });
+    return errorResponse(err, "Failed to update station");
   }
 }
 

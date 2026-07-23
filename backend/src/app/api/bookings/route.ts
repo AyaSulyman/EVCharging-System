@@ -2,7 +2,8 @@ import { connectDB } from "@/config/database";
 import Booking from "@/models/Booking";
 import { requireAuth, AuthError } from "@/middleware/auth";
 import { claimReservation, updateReservation } from "@/services/booking.service";
-import { json, preflight, serialize } from "@/utils/response";
+import { createBookingSchema, parseBody, updateBookingSchema } from "@/validation";
+import { errorResponse, json, preflight, serialize } from "@/utils/response";
 
 export const dynamic = "force-dynamic";
 export const OPTIONS = preflight;
@@ -40,19 +41,12 @@ const CLAIM_ERRORS: Record<string, { status: number; error: string }> = {
 export async function POST(req: Request) {
   try {
     const auth = await requireAuth(req);
-    const { vehicleId, slotId } = await req.json();
-    if (!vehicleId || !slotId) {
-      return json({ error: "vehicleId and slotId are required" }, { status: 400 });
-    }
+    const { vehicleId, slotId } = parseBody(createBookingSchema, await req.json());
 
     const booking = await claimReservation({ userId: auth.id, vehicleId, slotId });
     return json({ booking: serialize(booking) }, { status: 201 });
   } catch (err) {
-    if (err instanceof AuthError) return json({ error: err.message }, { status: err.status });
-    const mapped = err instanceof Error ? CLAIM_ERRORS[err.message] : undefined;
-    if (mapped) return json({ error: mapped.error }, { status: mapped.status });
-    console.error(err);
-    return json({ error: "Failed to create booking" }, { status: 500 });
+    return errorResponse(err, "Failed to create booking", CLAIM_ERRORS);
   }
 }
 
@@ -67,8 +61,7 @@ const UPDATE_ERRORS: Record<string, { status: number; error: string }> = {
 export async function PATCH(req: Request) {
   try {
     const auth = await requireAuth(req);
-    const { id, ...updates } = await req.json();
-    if (!id) return json({ error: "id is required" }, { status: 400 });
+    const { id, ...updates } = parseBody(updateBookingSchema, await req.json());
 
     const booking = await updateReservation({
       id,
@@ -78,10 +71,6 @@ export async function PATCH(req: Request) {
     });
     return json({ booking: serialize(booking) });
   } catch (err) {
-    if (err instanceof AuthError) return json({ error: err.message }, { status: err.status });
-    const mapped = err instanceof Error ? UPDATE_ERRORS[err.message] : undefined;
-    if (mapped) return json({ error: mapped.error }, { status: mapped.status });
-    console.error(err);
-    return json({ error: "Failed to update booking" }, { status: 500 });
+    return errorResponse(err, "Failed to update booking", UPDATE_ERRORS);
   }
 }

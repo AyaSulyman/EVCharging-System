@@ -1,5 +1,6 @@
 import { requireAdmin, requireAuth, AuthError } from "@/middleware/auth";
-import { json, serialize } from "@/utils/response";
+import { parseBody, updateUserSchema } from "@/validation";
+import { errorResponse, json, serialize } from "@/utils/response";
 import { listUsers, getUserById, updateUser, deleteUser } from "@/services/user.service";
 
 export async function handleListUsers(req: Request) {
@@ -18,7 +19,7 @@ export async function handleListUsers(req: Request) {
 export async function handleUpdateUser(req: Request) {
   try {
     const auth = await requireAuth(req);
-    const { id, ...updates } = await req.json();
+    const { id, ...updates } = parseBody(updateUserSchema, await req.json());
     const targetId = id || auth.id;
 
     if (targetId !== auth.id && auth.role !== "admin") {
