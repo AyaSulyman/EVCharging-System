@@ -1,6 +1,7 @@
 import { connectDB } from "@/config/database";
 import Slot from "@/models/Slot";
 import { requireAdmin, AuthError } from "@/middleware/auth";
+import { publishInventory } from "@/services/slot.service";
 import { json, preflight, serialize } from "@/utils/response";
 
 export const dynamic = "force-dynamic";
@@ -37,34 +38,7 @@ export async function POST(req: Request) {
       return json({ error: "Missing fields" }, { status: 400 });
     }
 
-    const start = new Date(startDate);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(endDate);
-    end.setHours(0, 0, 0, 0);
-
-    const docs: Record<string, unknown>[] = [];
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      const day = new Date(d);
-      for (let h = 8; h < 22; h++) {
-        for (let m = 0; m < 60; m += duration) {
-          const s = new Date(day);
-          s.setHours(h, m, 0, 0);
-          const e = new Date(s);
-          e.setMinutes(e.getMinutes() + duration);
-          docs.push({ chargerId, date: day, startTime: s, endTime: e, duration, status: "available" });
-        }
-      }
-    }
-
- 
-    let created = 0;
-    try {
-      const res = await Slot.insertMany(docs, { ordered: false });
-      created = res.length;
-    } catch (e: unknown) {
-      const err = e as { insertedDocs?: unknown[] };
-      created = err.insertedDocs?.length ?? 0;
-    }
+    const { created } = await publishInventory({ chargerId, startDate, endDate, duration });
     return json({ created });
   } catch (err) {
     if (err instanceof AuthError) return json({ error: err.message }, { status: err.status });

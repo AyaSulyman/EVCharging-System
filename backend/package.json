@@ -10,7 +10,8 @@
     "seed:banners": "tsx src/seed/seed-banners.ts",
     "seed:stations": "tsx src/seed/seed-stations.ts",
     "seed:all": "tsx src/seed/seed-all.ts",
-    "ops:indexes": "tsx scripts/ensure-indexes.ts"
+    "ops:indexes": "tsx scripts/ensure-indexes.ts",
+    "ops:publish": "tsx scripts/publish-inventory.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
