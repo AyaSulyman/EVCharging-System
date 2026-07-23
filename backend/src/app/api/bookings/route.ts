@@ -1,8 +1,7 @@
 import { connectDB } from "@/config/database";
 import Booking from "@/models/Booking";
-import Slot from "@/models/Slot";
 import { requireAuth, AuthError } from "@/middleware/auth";
-import { claimReservation } from "@/services/booking.service";
+import { claimReservation, updateReservation } from "@/services/booking.service";
 import { json, preflight, serialize } from "@/utils/response";
 
 export const dynamic = "force-dynamic";
@@ -58,28 +57,30 @@ export async function POST(req: Request) {
 }
 
 
+const UPDATE_ERRORS: Record<string, { status: number; error: string }> = {
+  NOT_FOUND: { status: 404, error: "Booking not found" },
+  FORBIDDEN: { status: 403, error: "Forbidden" },
+  NO_UPDATABLE_FIELDS: { status: 400, error: "No updatable fields supplied" },
+  INVALID_TRANSITION: { status: 400, error: "That status change is not allowed" },
+};
+
 export async function PATCH(req: Request) {
   try {
     const auth = await requireAuth(req);
-    await connectDB();
     const { id, ...updates } = await req.json();
+    if (!id) return json({ error: "id is required" }, { status: 400 });
 
-    const booking = await Booking.findById(id);
-    if (!booking) return json({ error: "Booking not found" }, { status: 404 });
-    if (String(booking.userId) !== auth.id && auth.role !== "admin") {
-      return json({ error: "Forbidden" }, { status: 403 });
-    }
-
-    Object.assign(booking, updates);
-    await booking.save();
-
-    if (updates.status === "cancelled") {
-      await Slot.findByIdAndUpdate(booking.slotId, { status: "available" });
-    }
-
+    const booking = await updateReservation({
+      id,
+      actorId: auth.id,
+      actorRole: auth.role,
+      updates,
+    });
     return json({ booking: serialize(booking) });
   } catch (err) {
     if (err instanceof AuthError) return json({ error: err.message }, { status: err.status });
+    const mapped = err instanceof Error ? UPDATE_ERRORS[err.message] : undefined;
+    if (mapped) return json({ error: mapped.error }, { status: mapped.status });
     console.error(err);
     return json({ error: "Failed to update booking" }, { status: 500 });
   }

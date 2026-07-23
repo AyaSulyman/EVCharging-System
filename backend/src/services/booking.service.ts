@@ -138,3 +138,79 @@ export async function claimReservation({ userId, vehicleId, slotId }: ClaimReser
 export async function releaseReservationSlot(slotId: unknown): Promise<void> {
   await Slot.findOneAndUpdate({ _id: slotId, status: "booked" }, { $set: { status: "available" } });
 }
+
+/**
+ * Permitted reservation lifecycle. Anything not listed is refused.
+ *
+ * Previously any status could become any other, so a cancelled reservation could be
+ * returned to confirmed after its interval had already been released to another
+ * driver — producing two live reservations over one interval by a route the claim
+ * path never sees.
+ */
+const ALLOWED_TRANSITIONS: Record<string, readonly string[]> = {
+  pending: ["confirmed", "cancelled", "no_show"],
+  confirmed: ["completed", "cancelled", "no_show"],
+  completed: [],
+  cancelled: [],
+  no_show: [],
+};
+
+/** The only fields a reservation update may change. Everything else is ignored. */
+const UPDATABLE_FIELDS = ["status", "cancellationReason"] as const;
+
+export interface UpdateReservationInput {
+  id: string;
+  actorId: string;
+  actorRole: string;
+  updates: Record<string, unknown>;
+}
+
+/**
+ * Applies an operator or owner change to a reservation.
+ *
+ * Replaces an unfiltered Object.assign of the request body, which let a driver write
+ * their own totalAmount, paymentStatus or booking code. Only the status and the
+ * cancellation reason are writable, and only along a permitted transition: a driver
+ * may cancel their own reservation, an operator may also complete it or mark a no-show.
+ *
+ * Throws: NOT_FOUND · FORBIDDEN · NO_UPDATABLE_FIELDS · INVALID_TRANSITION
+ */
+export async function updateReservation({ id, actorId, actorRole, updates }: UpdateReservationInput) {
+  await connectDB();
+
+  const booking = await Booking.findById(id);
+  if (!booking) throw new Error("NOT_FOUND");
+
+  const isOwner = String(booking.userId) === actorId;
+  const isAdmin = actorRole === "admin";
+  if (!isOwner && !isAdmin) throw new Error("FORBIDDEN");
+
+  const applied: Record<string, unknown> = {};
+  for (const field of UPDATABLE_FIELDS) {
+    if (updates[field] !== undefined) applied[field] = updates[field];
+  }
+  if (Object.keys(applied).length === 0) throw new Error("NO_UPDATABLE_FIELDS");
+
+  const nextStatus = applied.status as string | undefined;
+  if (nextStatus && nextStatus !== booking.status) {
+    const permitted = ALLOWED_TRANSITIONS[booking.status] ?? [];
+    if (!permitted.includes(nextStatus)) throw new Error("INVALID_TRANSITION");
+    // A driver may only cancel; the remaining transitions are operator actions.
+    if (!isAdmin && nextStatus !== "cancelled") throw new Error("FORBIDDEN");
+  }
+
+  Object.assign(booking, applied);
+  await booking.save();
+
+  if (nextStatus === "cancelled") {
+    await releaseReservationSlot(booking.slotId);
+  } else if (nextStatus === "completed" || nextStatus === "no_show") {
+    // The interval is spent: it is neither free nor still held for a future arrival.
+    await Slot.findOneAndUpdate(
+      { _id: booking.slotId, status: "booked" },
+      { $set: { status: "completed" } }
+    );
+  }
+
+  return booking;
+}
