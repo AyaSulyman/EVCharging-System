@@ -10,8 +10,10 @@ const UserSchema = new Schema(
     passwordHash: { type: String, required: true, select: false },
     role: { type: String, enum: ["admin", "user"], default: "user" },
     avatar: { type: String },
-    // Incrementing this invalidates every token issued before the change.
-    sessionGeneration: { type: Number, default: 0 },
+    // Incrementing this invalidates every token issued before the change. Internal
+    // machinery, so excluded from reads by default like the credential hash — the
+    // authorisation check opts in with .select("+sessionGeneration").
+    sessionGeneration: { type: Number, default: 0, select: false },
   },
   { timestamps: true }
 );

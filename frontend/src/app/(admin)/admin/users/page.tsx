@@ -14,7 +14,8 @@ interface AdminUser {
   createdAt: string;
   bookingCount: number;
   vehicleCount: number;
-  totalSpent: number;
+  /** Charge estimate for kept reservations. Not billed — no payment processing exists. */
+  estimatedSpend: number;
 }
 
 export default function AdminUsersPage() {
@@ -74,7 +75,7 @@ export default function AdminUsersPage() {
                 <th className="pb-2 pr-4 font-medium">Role</th>
                 <th className="pb-2 pr-4 font-medium">Bookings</th>
                 <th className="pb-2 pr-4 font-medium">Vehicles</th>
-                <th className="pb-2 pr-4 font-medium">Spent</th>
+                <th className="pb-2 pr-4 font-medium">Est. spent</th>
                 <th className="pb-2 font-medium">Joined</th>
               </tr>
             </thead>
@@ -107,7 +108,7 @@ export default function AdminUsersPage() {
                   </td>
                   <td className="py-3 pr-4">{u.bookingCount}</td>
                   <td className="py-3 pr-4">{u.vehicleCount}</td>
-                  <td className="py-3 pr-4">{formatCurrency(u.totalSpent)}</td>
+                  <td className="py-3 pr-4">{formatCurrency(u.estimatedSpend)}</td>
                   <td className="py-3 text-ink-soft">{formatDate(u.createdAt)}</td>
                 </tr>
               ))}

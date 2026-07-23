@@ -28,7 +28,7 @@ export async function requireAuth(req: Request): Promise<TokenPayload> {
 
   await connectDB();
   const account = await User.findById(user.id)
-    .select("sessionGeneration")
+    .select("+sessionGeneration")
     .lean<{ sessionGeneration?: number } | null>();
 
   // The account was deleted after the token was issued.
