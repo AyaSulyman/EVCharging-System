@@ -25,7 +25,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    requireAdmin(req);
+    await requireAdmin(req);
     const { id } = await params;
     await connectDB();
     const updates = await req.json();
@@ -41,7 +41,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    requireAdmin(req);
+    await requireAdmin(req);
     const { id } = await params;
     await connectDB();
     await Station.findByIdAndUpdate(id, { isActive: false });

@@ -15,7 +15,7 @@ function genCode() {
 
 export async function GET(req: Request) {
   try {
-    const auth = requireAuth(req);
+    const auth = await requireAuth(req);
     await connectDB();
     const { searchParams } = new URL(req.url);
     const all = searchParams.get("all");
@@ -35,7 +35,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const auth = requireAuth(req);
+    const auth = await requireAuth(req);
     await connectDB();
     const { vehicleId, slotId } = await req.json();
 
@@ -80,7 +80,7 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    const auth = requireAuth(req);
+    const auth = await requireAuth(req);
     await connectDB();
     const { id, ...updates } = await req.json();
 

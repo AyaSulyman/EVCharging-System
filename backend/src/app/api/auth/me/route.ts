@@ -7,7 +7,7 @@ export const OPTIONS = preflight;
 
 export async function GET(req: Request) {
   try {
-    const auth = requireAuth(req);
+    const auth = await requireAuth(req);
     await connectDB();
     const user = await User.findById(auth.id).lean();
     if (!user) return json({ error: "User not found" }, { status: 404 });

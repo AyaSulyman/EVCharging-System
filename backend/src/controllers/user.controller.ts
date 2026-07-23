@@ -4,7 +4,7 @@ import { listUsers, getUserById, updateUser, deleteUser } from "@/services/user.
 
 export async function handleListUsers(req: Request) {
   try {
-    requireAdmin(req);
+    await requireAdmin(req);
     const users = await listUsers();
     return json({ users: serialize(users) });
   } catch (err) {
@@ -17,7 +17,7 @@ export async function handleListUsers(req: Request) {
 
 export async function handleUpdateUser(req: Request) {
   try {
-    const auth = requireAuth(req);
+    const auth = await requireAuth(req);
     const { id, ...updates } = await req.json();
     const targetId = id || auth.id;
 
@@ -39,7 +39,7 @@ export async function handleUpdateUser(req: Request) {
 
 export async function handleDeleteUser(req: Request) {
   try {
-    requireAdmin(req);
+    await requireAdmin(req);
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
     if (!id) return json({ error: "Missing id" }, { status: 400 });

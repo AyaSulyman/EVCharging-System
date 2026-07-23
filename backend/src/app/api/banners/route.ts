@@ -18,7 +18,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    requireAdmin(req);
+    await requireAdmin(req);
     await connectDB();
     const body = await req.json();
     const banner = await Banner.create(body);
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    requireAdmin(req);
+    await requireAdmin(req);
     await connectDB();
     const { id, ...updates } = await req.json();
     const banner = await Banner.findByIdAndUpdate(id, updates, { new: true }).lean();
@@ -47,7 +47,7 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    requireAdmin(req);
+    await requireAdmin(req);
     await connectDB();
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");

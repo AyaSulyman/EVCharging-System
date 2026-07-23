@@ -8,7 +8,7 @@ export const OPTIONS = preflight;
 
 export async function GET(req: Request) {
   try {
-    const auth = requireAuth(req);
+    const auth = await requireAuth(req);
     await connectDB();
     const vehicles = await Vehicle.find({ userId: auth.id }).lean();
     return json({ vehicles: serialize(vehicles) });
@@ -21,7 +21,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const auth = requireAuth(req);
+    const auth = await requireAuth(req);
     await connectDB();
     const body = await req.json();
     const vehicle = await Vehicle.create({ ...body, userId: auth.id });
@@ -35,7 +35,7 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    const auth = requireAuth(req);
+    const auth = await requireAuth(req);
     await connectDB();
     const { id, ...updates } = await req.json();
     const vehicle = await Vehicle.findOneAndUpdate(
@@ -54,7 +54,7 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const auth = requireAuth(req);
+    const auth = await requireAuth(req);
     await connectDB();
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");

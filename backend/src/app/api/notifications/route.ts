@@ -8,7 +8,7 @@ export const OPTIONS = preflight;
 
 export async function GET(req: Request) {
   try {
-    const auth = requireAuth(req);
+    const auth = await requireAuth(req);
     await connectDB();
     const notifications = await Notification.find({ userId: auth.id })
       .sort({ createdAt: -1 })
@@ -24,7 +24,7 @@ export async function GET(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    const auth = requireAuth(req);
+    const auth = await requireAuth(req);
     await connectDB();
     const body = await req.json();
 

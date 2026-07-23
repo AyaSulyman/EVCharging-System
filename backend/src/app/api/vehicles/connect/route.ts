@@ -9,7 +9,7 @@ export const OPTIONS = preflight;
 
 export async function POST(req: Request) {
   try {
-    const auth = requireAuth(req);
+    const auth = await requireAuth(req);
     await connectDB();
     const { vehicleId, provider } = await req.json();
 

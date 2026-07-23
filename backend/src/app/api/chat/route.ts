@@ -15,7 +15,7 @@ const USER_LOCATION: [number, number] = [35.4955, 33.8886];
 
 export async function POST(req: Request) {
   try {
-    const auth = requireAuth(req);
+    const auth = await requireAuth(req);
     const { message } = (await req.json()) as { message: string };
     await connectDB();
 

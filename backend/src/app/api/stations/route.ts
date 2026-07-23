@@ -25,7 +25,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    requireAdmin(req);
+    await requireAdmin(req);
     await connectDB();
     const body = await req.json();
     const station = await Station.create(body);

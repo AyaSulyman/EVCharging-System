@@ -10,6 +10,8 @@ export interface TokenPayload {
   id: string;
   email: string;
   role: "admin" | "user";
+  /** Session generation at issue time. Compared against the account on every request. */
+  gen?: number;
 }
 
 export function signToken(payload: TokenPayload): string {

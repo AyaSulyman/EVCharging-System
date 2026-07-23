@@ -30,7 +30,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    requireAdmin(req);
+    await requireAdmin(req);
     await connectDB();
     const { chargerId, startDate, endDate, duration = 30 } = await req.json();
     if (!chargerId || !startDate || !endDate) {
@@ -75,7 +75,7 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    requireAdmin(req);
+    await requireAdmin(req);
     await connectDB();
     const { id, ...updates } = await req.json();
     const slot = await Slot.findByIdAndUpdate(id, updates, { new: true }).lean();

@@ -17,7 +17,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    requireAdmin(req);
+    await requireAdmin(req);
     await connectDB();
     const body = await req.json();
     const charger = await Charger.create(body);
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    requireAdmin(req);
+    await requireAdmin(req);
     await connectDB();
     const { id, ...updates } = await req.json();
     const charger = await Charger.findByIdAndUpdate(id, updates, { new: true }).lean();

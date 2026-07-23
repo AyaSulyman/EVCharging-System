@@ -7,7 +7,7 @@ export const OPTIONS = preflight;
 
 export async function GET(req: Request) {
   try {
-    requireAdmin(req);
+    await requireAdmin(req);
     const stats = await getAdminStats();
     return json({ stats });
   } catch (err) {

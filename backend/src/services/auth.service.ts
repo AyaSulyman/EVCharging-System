@@ -24,7 +24,12 @@ export async function registerUser(input: {
     role: "user",
   });
 
-  const token = signToken({ id: user._id.toString(), email: user.email, role: user.role });
+  const token = signToken({
+    id: user._id.toString(),
+    email: user.email,
+    role: user.role,
+    gen: user.sessionGeneration ?? 0,
+  });
   return { token, user };
 }
 
@@ -37,6 +42,11 @@ export async function loginUser(email: string, password: string) {
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) throw new Error("INVALID_CREDENTIALS");
 
-  const token = signToken({ id: user._id.toString(), email: user.email, role: user.role });
+  const token = signToken({
+    id: user._id.toString(),
+    email: user.email,
+    role: user.role,
+    gen: user.sessionGeneration ?? 0,
+  });
   return { token, user };
 }

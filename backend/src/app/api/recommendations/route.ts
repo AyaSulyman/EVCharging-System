@@ -35,7 +35,7 @@ interface VehicleLean {
 
 export async function GET(req: Request) {
   try {
-    const auth = requireAuth(req);
+    const auth = await requireAuth(req);
     await connectDB();
 
     const vehicles = serialize<VehicleLean[]>(await Vehicle.find({ userId: auth.id }).lean());
