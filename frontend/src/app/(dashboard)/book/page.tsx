@@ -14,9 +14,16 @@ import {
   Sparkles,
 } from "lucide-react";
 import { ConnectorBadge } from "@/components/ui/Primitives";
+import { FlexibilitySelector } from "@/components/booking/FlexibilitySelector";
 import { useToast } from "@/components/Toast";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import type { StationWithChargers, ICharger, ISlot, IVehicle } from "@/types";
+import type {
+  StationWithChargers,
+  ICharger,
+  ISlot,
+  IVehicle,
+  FlexibilityType,
+} from "@/types";
 import { useApi } from "@/lib/useApi";
 
 const STEPS = ["Station", "Charger", "Time", "Confirm"];
@@ -38,6 +45,8 @@ function BookingWizard() {
   const [vehicleId, setVehicleId] = useState<string>("");
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // STRICT until the driver says otherwise. Permission to re-time is never pre-selected.
+  const [flexibility, setFlexibility] = useState<FlexibilityType>("STRICT");
 
   // Load stations + vehicles, honor URL prefill
   useEffect(() => {
@@ -132,6 +141,7 @@ function BookingWizard() {
         chargerId: charger._id,
         slotId: slot._id,
         vehicleId,
+        flexibilityType: flexibility,
       }),
     });
     const data = await res.json();
@@ -437,6 +447,22 @@ function BookingWizard() {
                 <span className="text-lg font-bold text-primary">
                   {formatCurrency(estCost)}
                 </span>
+              </div>
+            </div>
+
+            {/*
+              Asked at the point of confirming, where the driver has a concrete time in front of
+              them and can judge whether they would mind it changing. Asking earlier — before they
+              know what time they are getting — would be an abstract question with a worse answer.
+            */}
+            <div className="card mt-4">
+              <h3 className="text-sm font-semibold text-ink">Can we move this if we need to?</h3>
+              <p className="mt-1 text-xs text-ink-soft">
+                Allowing a little flexibility helps us fit more drivers in — and it&apos;s the
+                only way we&apos;ll ever change your time.
+              </p>
+              <div className="mt-3">
+                <FlexibilitySelector value={flexibility} onChange={setFlexibility} />
               </div>
             </div>
 

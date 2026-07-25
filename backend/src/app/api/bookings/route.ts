@@ -64,9 +64,17 @@ const CLAIM_ERRORS: Record<string, { status: number; error: string }> = {
 export async function POST(req: Request) {
   try {
     const auth = await requireAuth(req);
-    const { vehicleId, slotId } = parseBody(createBookingSchema, await req.json());
+    const { vehicleId, slotId, flexibilityType } = parseBody(
+      createBookingSchema,
+      await req.json()
+    );
 
-    const booking = await claimReservation({ userId: auth.id, vehicleId, slotId });
+    const booking = await claimReservation({
+      userId: auth.id,
+      vehicleId,
+      slotId,
+      flexibilityType,
+    });
     return json({ booking: serialize(booking) }, { status: 201 });
   } catch (err) {
     return errorResponse(err, "Failed to create booking", CLAIM_ERRORS);

@@ -22,7 +22,8 @@ same commit.**
 | Reservation commitment / deposit system | **Code done. Migration NOT applied** |
 | Mock payment gateway + webhook path | Done |
 | `reservationevents` append-only log | Written to; **no consumers exist** |
-| **Flexibility windows** (`reservationrequests` + candidate scoring) | **Done** — first slice of the optimization engine |
+| **Flexibility windows — pre-booking** (`reservationrequests` + candidate scoring) | **Done** — first slice of the optimization engine |
+| **Flexibility windows — post-booking** (`flexibilityType` + scheduler moves) | **Done** — the consent mechanism for RESCHEDULE |
 | Waitlists | **Not built.** Design only — extend `ReservationRequest`, do not add a new collection |
 | Extensions, overstay, delay propagation | **Not built.** Design only |
 | Reservation Optimization Engine | **Design only** — `docs/RESERVATION_OPTIMIZATION_ENGINE.md` |
@@ -77,6 +78,8 @@ cd backend
 | `npm run ops:migrate-v2 -- --apply` | |
 | `npm run ops:migrate-commitments` | Run second — refuses until v2 is applied |
 | `npm run ops:migrate-commitments -- --apply` | |
+| `npm run ops:migrate-flexibility` | Run third — also refuses until v2 is applied |
+| `npm run ops:migrate-flexibility -- --apply` | Backfills every booking as STRICT |
 
 ### Routine operations
 
@@ -94,7 +97,7 @@ npm run seed:all && npm run ops:indexes && npm run ops:publish -- 2026-12-31
 **The correct sequence on the existing database (owner only):**
 
 ```bash
-npm run ops:migrate-v2 -- --apply && npm run ops:migrate-commitments -- --apply && npm run ops:indexes
+npm run ops:migrate-v2 -- --apply && npm run ops:migrate-commitments -- --apply && npm run ops:migrate-flexibility -- --apply && npm run ops:indexes
 ```
 
 ---
@@ -225,6 +228,48 @@ booking.
 `ops:expire-commitments` now sweeps stale requests too, emitting `reservation.released` with
 `basis: "request_expired_unfulfilled"` — demand the platform failed to serve, which nothing in
 `bookings` can reconstruct.
+
+## 6c. Flexibility on the reservation — the consent to be moved
+
+**Two different axes, and conflating them would grant permission drivers never gave.** The window
+in §6b decides which slot a driver *gets* and is spent the moment one is chosen. `flexibilityType`
+on the booking is standing permission for the scheduler to *re-time an interval they already hold*.
+A driver can be relaxed about the first and firm about the second.
+
+| Path | Role |
+|---|---|
+| `backend/src/models/flexibilityPolicy.ts` | Pure: the enum, `movableWindow`, `assertMoveAllowed`, refusal messages |
+| `backend/src/services/reservationMove.service.ts` | `findMoveTargets`, the atomic `moveReservation`, `setFlexibility` |
+| `frontend/src/components/booking/FlexibilitySelector.tsx` | Driver consent UI |
+| `frontend/src/components/staff/MovePanel.tsx` | Operator move UI, incl. explained refusals |
+
+**Endpoints:** `GET|PATCH /api/bookings/flexibility` (driver) · `GET
+/api/reservations/move/targets?bookingId=` · `POST /api/reservations/move` (staff/admin only).
+
+**Values:** `STRICT` (default, always) · `FLEXIBLE_30_MIN` · `FLEXIBLE_60_MIN` ·
+`FLEXIBLE_120_MIN` · `FLEXIBLE_SAME_DAY`.
+
+Rules the policy enforces, all verified:
+
+- **`preferredStart` is the anchor and never changes.** The window is computed from what the driver
+  originally asked for, not from where the reservation currently sits — otherwise repeated small
+  moves would walk a reservation arbitrarily far from the request, each step legal on its own.
+- **A 30-minute notice floor** clamps the window's lower bound. A move landing four minutes from now
+  is inside the tolerance and useless — the driver may already be en route.
+- **`ARRIVED` / `CHARGING` are immovable** regardless of consent. The car is plugged in.
+- **The station cannot change**, and the new interval **cannot be shorter**. Every value is about
+  *when*; consenting to a later time is not consenting to drive elsewhere or charge for less time.
+- **Moving is staff/admin only.** A driver who wants a different time cancels and rebooks, which runs
+  the refund policy. A driver-facing move would be a way to escape the cancellation cutoff.
+- **Deposits are never touched by a move**, and a move never counts against the driver's reliability.
+
+`moveReservation` re-points the booking **first** (the partial unique index arbitrates), then flips
+the new interval, then releases the old — the same ordering discipline as `claimReservation`, so a
+crash leaves a repairable over-reservation rather than an invisible orphaned interval. A failed slot
+flip rolls the booking back, so the driver keeps exactly what they had.
+
+`ops:migrate-flexibility` backfills existing bookings as **STRICT with no exceptions** — no
+existing driver was ever asked, so none has consented. It refuses to run before `ops:migrate-v2`.
 
 ---
 

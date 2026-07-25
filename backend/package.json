@@ -15,6 +15,7 @@
     "ops:reconcile": "tsx scripts/reconcile-inventory.ts",
     "ops:migrate-v2": "tsx scripts/migrate-reservation-v2.ts",
     "ops:migrate-commitments": "tsx scripts/migrate-reservation-commitments.ts",
+    "ops:migrate-flexibility": "tsx scripts/migrate-reservation-flexibility.ts",
     "ops:expire-commitments": "tsx scripts/expire-commitments.ts"
   },
   "dependencies": {

@@ -12,10 +12,11 @@ import {
   CalendarDays,
   Info,
 } from "lucide-react";
+import { FlexibilitySelector } from "@/components/booking/FlexibilitySelector";
 import { useToast } from "@/components/Toast";
 import { useApi } from "@/lib/useApi";
 import { formatDate } from "@/lib/utils";
-import type { StationWithChargers, IVehicle } from "@/types";
+import type { StationWithChargers, IVehicle, FlexibilityType } from "@/types";
 
 /**
  * Flexible booking — describe a window, let the system pick the interval.
@@ -71,6 +72,8 @@ export default function FlexibleBookingPage() {
   const [fromHour, setFromHour] = useState(9);
   const [toHour, setToHour] = useState(17);
   const [duration, setDuration] = useState(30);
+  // Independent of the window above: whether we may re-time the slot after it is booked.
+  const [flexibility, setFlexibility] = useState<FlexibilityType>("STRICT");
 
   const [searching, setSearching] = useState(false);
   const [requestId, setRequestId] = useState<string | null>(null);
@@ -125,6 +128,7 @@ export default function FlexibleBookingPage() {
         latestStart: at(date, toHour).toISOString(),
         durationMinutes: duration,
         stationFlex: stationIds.length > 1,
+        flexibilityType: flexibility,
       }),
     });
     const data = await res.json();
@@ -276,6 +280,15 @@ export default function FlexibleBookingPage() {
             </button>
           ))}
         </div>
+
+        {/*
+          A second, independent question. The window above decides which slot the driver *gets*;
+          this decides whether we may change it afterwards. A driver can be relaxed about the first
+          and firm about the second, so collapsing them into one control would grant permission
+          they never gave.
+        */}
+        <label className="label mt-4">Once booked, can we move it?</label>
+        <FlexibilitySelector value={flexibility} onChange={setFlexibility} compact />
 
         <label className="label mt-4">Stations you&apos;d accept</label>
         <div className="flex flex-wrap gap-2">

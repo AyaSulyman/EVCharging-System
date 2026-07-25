@@ -187,6 +187,15 @@ behavioural log) · `reservationrequests` (flexible demand).
 - **A waitlist entry is just an unfulfilled request.** When waitlists are built, extend this
   model — do not add a parallel `waitlistentries` collection. See
   `docs/RESERVATION_OPTIMIZATION_ENGINE.md` §1.
+- **`bookings.flexibilityType` is consent, not configuration.** It records the driver's standing
+  permission for the scheduler to re-time a reservation they already hold. **`STRICT` is always
+  the default** — never backfill, infer, or pre-select anything looser, because that manufactures
+  consent nobody gave. `bookings.preferredStart` is the anchor the permitted window is computed
+  from and must never be rewritten by a move; anchoring on `scheduledStart` instead would let
+  repeated small moves walk a reservation arbitrarily far from what the driver asked for. All
+  movement decisions go through `models/flexibilityPolicy.ts` — never compare times by hand.
+  Moving is **staff/admin only**: a driver-facing move would be a route around the cancellation
+  cutoff.
 
 - **Central invariant:** `slots.status === "booked"` corresponds one-to-one with a live
   reservation, in both directions. An ops script reconciles this; the claim path

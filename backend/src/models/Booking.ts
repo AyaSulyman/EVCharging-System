@@ -5,6 +5,7 @@ import {
   legacyStatusToLifecycle,
 } from "./reservationLifecycle";
 import { REFUND_CUTOFF_HOURS } from "./commitmentPolicy";
+import { FLEXIBILITY_TYPES, DEFAULT_FLEXIBILITY } from "./flexibilityPolicy";
 
 const BookingSchema = new Schema(
   {
@@ -77,6 +78,36 @@ const BookingSchema = new Schema(
     actualArrival: { type: Date, default: null },
     actualStart: { type: Date, default: null },
     actualEnd: { type: Date, default: null },
+    /* ----------------------------------------------------------------------------
+     * Scheduling flexibility — the driver's standing permission for the scheduler to
+     * re-time this reservation. ADDITIVE.
+     *
+     * `preferredStart` is what the driver actually asked for and never changes once set;
+     * `scheduledStart` is where the reservation currently sits and moves when the scheduler
+     * moves it. Keeping both is what makes drift measurable ("we moved this driver 40
+     * minutes from what they wanted") and what anchors the permitted window — deriving the
+     * window from scheduledStart instead would let repeated small moves walk a reservation
+     * arbitrarily far from the original request, each step legal on its own.
+     * -------------------------------------------------------------------------- */
+    preferredStart: {
+      type: Date,
+      default: function (this: { startTime?: Date }) {
+        return this.startTime;
+      },
+    },
+    // STRICT by default, deliberately: a reservation that never granted permission — including
+    // every reservation that predates this field — is never moved. See models/flexibilityPolicy.
+    flexibilityType: {
+      type: String,
+      enum: FLEXIBILITY_TYPES,
+      default: DEFAULT_FLEXIBILITY,
+    },
+    // How many times the scheduler has actually moved it, and how far from the original request
+    // it has ended up. Both are driver-visible fairness signals: a reservation that has already
+    // been moved twice should be a less attractive candidate for moving a third time.
+    moveCount: { type: Number, default: 0 },
+    lastMovedAt: { type: Date, default: null },
+
     // Grace snapshotted at claim time, so a later policy change never rewrites history.
     gracePeriodMinutes: { type: Number, default: DEFAULT_GRACE_PERIOD_MINUTES },
     extensionCount: { type: Number, default: 0 },
@@ -163,5 +194,13 @@ BookingSchema.index({ lifecycle: 1, scheduledStart: 1 });
  * grows, because each match is a bay being held off the market by an abandoned checkout.
  */
 BookingSchema.index({ lifecycle: 1, commitmentExpiresAt: 1 });
+
+/**
+ * Supports the scheduler's core question: "which reservations at this station, in this period, am I
+ * allowed to move?" Filtering on flexibilityType in the index rather than loading every reservation
+ * and discarding the STRICT ones matters because STRICT is the default — most rows are not
+ * candidates, and a planner that reads them all scales with the wrong number.
+ */
+BookingSchema.index({ stationId: 1, flexibilityType: 1, scheduledStart: 1 });
 
 export default models.Booking || model("Booking", BookingSchema);

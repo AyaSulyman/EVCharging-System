@@ -4,6 +4,7 @@ import Slot from "@/models/Slot";
 import Charger from "@/models/Charger";
 import Vehicle from "@/models/Vehicle";
 import { DEFAULT_GRACE_PERIOD_MINUTES } from "@/models/reservationLifecycle";
+import { DEFAULT_FLEXIBILITY } from "@/models/flexibilityPolicy";
 import {
   REFUND_CUTOFF_HOURS,
   assessRefund,
@@ -61,6 +62,11 @@ export interface ClaimReservationInput {
    * created event so the conversion from a flexible request to a held bay is measurable.
    */
   requestId?: string;
+  /**
+   * How far the driver permits the scheduler to re-time this reservation. Omitted means STRICT —
+   * consent to be moved is always explicit, never assumed from silence.
+   */
+  flexibilityType?: string;
 }
 
 /**
@@ -92,6 +98,7 @@ export async function claimReservation({
   createdByStaffId = undefined,
   commitmentCompleted = false,
   requestId = undefined,
+  flexibilityType = DEFAULT_FLEXIBILITY,
 }: ClaimReservationInput) {
   await connectDB();
 
@@ -164,6 +171,11 @@ export async function claimReservation({
         lifecycle: commitmentCompleted ? "RESERVED" : "PENDING_PAYMENT",
         scheduledStart: slot.startTime,
         scheduledEnd: slot.endTime,
+        // What the driver asked for, fixed here and never rewritten. The scheduler moves
+        // scheduledStart; preferredStart stays put so drift from the original request stays
+        // measurable and so repeated small moves cannot walk a reservation away from it.
+        preferredStart: slot.startTime,
+        flexibilityType,
         gracePeriodMinutes: DEFAULT_GRACE_PERIOD_MINUTES,
         createdVia,
         createdByStaffId: createdByStaffId ?? null,

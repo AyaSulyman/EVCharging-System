@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { PROVIDER_KEYS } from "@/providers/VehicleProvider";
 import { RESERVATION_LIFECYCLE } from "@/models/reservationLifecycle";
+import { FLEXIBILITY_TYPES } from "@/models/flexibilityPolicy";
+import { OPERATOR_FAULT_REASONS } from "@/models/commitmentPolicy";
 
 /** Rejects anything that is not a Mongo ObjectId, before it reaches a query. */
 export const objectId = z.string().regex(/^[a-f\d]{24}$/i, "Must be a valid id");
@@ -14,6 +16,13 @@ export const objectId = z.string().regex(/^[a-f\d]{24}$/i, "Must be a valid id")
  * stripped from any client update automatically, exactly as before.
  */
 export const reservationLifecycleEnum = z.enum(RESERVATION_LIFECYCLE);
+
+/**
+ * The flexibility vocabulary, derived from the policy module rather than restated, so a value
+ * cannot be added to the domain and silently rejected at the boundary. Declared here, above its
+ * first use, because both the flexible-request schema and the flexibility schema depend on it.
+ */
+export const flexibilityTypeEnum = z.enum(FLEXIBILITY_TYPES);
 
 const CONNECTOR_TYPES = ["CCS", "CHAdeMO", "Type2"] as const;
 
@@ -36,6 +45,12 @@ export const loginSchema = z.object({
 export const createBookingSchema = z.object({
   vehicleId: objectId,
   slotId: objectId,
+  /**
+   * Permission for the scheduler to re-time this reservation. Optional, and omitting it means
+   * STRICT — the schema does not default it, so a client that never sends the field gets the
+   * safe answer from the service rather than an implied grant from the boundary.
+   */
+  flexibilityType: flexibilityTypeEnum.optional(),
 });
 
 /**
@@ -113,6 +128,8 @@ export const createReservationRequestSchema = z
     // spanning consecutive intervals is a separate feature (multi-slot reservations).
     durationMinutes: z.coerce.number().int().min(15).max(60).optional(),
     stationFlex: z.boolean().optional(),
+    /** Ongoing consent to be re-timed after fulfilment — a separate axis from the window above. */
+    flexibilityType: flexibilityTypeEnum.optional(),
   })
   .superRefine((v, ctx) => {
     if (v.latestStart < v.earliestStart) {
@@ -140,6 +157,31 @@ export const fulfillReservationRequestSchema = z.object({
 /** Withdrawing a request. */
 export const cancelReservationRequestSchema = z.object({
   requestId: objectId,
+});
+
+/* ------------------------------------------------------------------ flexibility & moves */
+
+/** A driver granting (or withdrawing) permission for the scheduler to re-time their reservation. */
+export const setFlexibilitySchema = z.object({
+  bookingId: objectId,
+  flexibilityType: flexibilityTypeEnum,
+});
+
+/**
+ * An operator moving a reservation.
+ *
+ * `reason` is constrained to the operator-fault vocabulary plus a plain scheduler move — free text
+ * would be a poor fit here because the value decides how the move is attributed, and an
+ * unrecognised string would silently fall through to "system" fault. There is deliberately no
+ * field for a new start time: the target is a real interval id, so a move can only ever land on
+ * capacity that actually exists.
+ */
+export const moveReservationSchema = z.object({
+  bookingId: objectId,
+  targetSlotId: objectId,
+  reason: z
+    .enum([...OPERATOR_FAULT_REASONS, "scheduler_move", "optimizer_plan"])
+    .optional(),
 });
 
 /* ------------------------------------------------------------------ vehicles */

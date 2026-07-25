@@ -16,6 +16,17 @@ export type BookingStatus =
  */
 export type PaymentStatus = "pending" | "paid" | "refunded" | "forfeited";
 
+/**
+ * How far a driver permits the scheduler to re-time their reservation. STRICT is always the
+ * default — consent to be moved is explicit, never assumed.
+ */
+export type FlexibilityType =
+  | "STRICT"
+  | "FLEXIBLE_30_MIN"
+  | "FLEXIBLE_60_MIN"
+  | "FLEXIBLE_120_MIN"
+  | "FLEXIBLE_SAME_DAY";
+
 /** Intent states exposed by the mock gateway. Mirrors Stripe's, minus 3D Secure. */
 export type PaymentIntentStatus =
   | "requires_confirmation"
@@ -151,6 +162,11 @@ export interface IBooking {
   refundedAt?: string | null;
   refundCutoffHours?: number;
   refundQuote?: RefundQuote;
+  /** What the driver originally asked for. Never rewritten, so drift stays measurable. */
+  preferredStart?: string;
+  flexibilityType?: FlexibilityType;
+  moveCount?: number;
+  lastMovedAt?: string | null;
 }
 
 export interface INotification {

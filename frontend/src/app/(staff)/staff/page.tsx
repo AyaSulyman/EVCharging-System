@@ -10,7 +10,9 @@ import {
   AlertTriangle,
   ShieldAlert,
   ShieldCheck,
+  Shuffle,
 } from "lucide-react";
+import { MovePanel } from "@/components/staff/MovePanel";
 import { useApi } from "@/lib/useApi";
 import { cn } from "@/lib/utils";
 
@@ -28,6 +30,8 @@ interface BoardReservation {
   paymentStatus: string;
   depositAmount: number;
   commitmentExpiresAt: string | null;
+  flexibilityType: string;
+  moveCount: number;
 }
 interface BoardStation {
   _id: string;
@@ -74,6 +78,8 @@ export default function StaffBoardPage() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  // Which reservation the move panel is open for.
+  const [moveId, setMoveId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -201,6 +207,17 @@ export default function StaffBoardPage() {
                         {heldFor(r.commitmentExpiresAt)}
                       </p>
                     )}
+                    {/*
+                      Flexibility is shown here because it decides whether the Move action below is
+                      available at all — an operator should be able to see why before clicking.
+                    */}
+                    {r.flexibilityType && r.flexibilityType !== "STRICT" && (
+                      <p className="mt-1 flex items-center gap-1 text-xs text-primary">
+                        <Shuffle className="h-3 w-3" />
+                        {r.flexibilityType.replace("FLEXIBLE_", "±").replace(/_/g, " ").toLowerCase()}
+                        {r.moveCount > 0 && ` · moved ${r.moveCount}×`}
+                      </p>
+                    )}
                   </td>
                   <td className="py-3 text-right">
                     {/*
@@ -249,9 +266,40 @@ export default function StaffBoardPage() {
                     ) : (
                       <span className="text-xs text-ink-soft">—</span>
                     )}
+
+                    {/*
+                      Offered for anything still re-timeable. The panel itself decides whether the
+                      driver's flexibility actually permits a move and explains a refusal, so the
+                      button stays available rather than silently disappearing.
+                    */}
+                    {["PENDING_PAYMENT", "RESERVED"].includes(r.lifecycle) && (
+                      <button
+                        onClick={() => setMoveId(moveId === r._id ? null : r._id)}
+                        className="btn-ghost ml-auto mt-1.5 inline-flex items-center gap-1.5 text-ink-soft"
+                      >
+                        <Shuffle className="h-4 w-4" />
+                        {moveId === r._id ? "Close" : "Move"}
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
+              {/* The move panel gets its own full-width row so it is not cramped into a cell. */}
+              {board.reservations
+                .filter((r) => r._id === moveId)
+                .map((r) => (
+                  <tr key={`${r._id}-move`}>
+                    <td colSpan={5} className="py-3">
+                      <MovePanel
+                        bookingId={r._id}
+                        onMoved={() => {
+                          setMoveId(null);
+                          load();
+                        }}
+                      />
+                    </td>
+                  </tr>
+                ))}
             </tbody>
           </table>
         )}

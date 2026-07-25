@@ -45,6 +45,10 @@ export const RESERVATION_EVENT_TYPES = [
   "reservation.confirmed", // lifecycle reached RESERVED — the bay is firmly taken
   "session.started", // charging began; carries delayMinutes against the promised start
   "session.ended", // charging finished; carries scheduled vs actual end
+  // The scheduler re-timed a reservation within the flexibility its driver granted. Carries the
+  // drift from what the driver originally asked for, which is the fairness signal: a driver moved
+  // repeatedly, or moved far, should become a less attractive candidate for being moved again.
+  "reservation.rescheduled",
   // Commitment lifecycle
   "commitment.required", // reservation claimed, commitment outstanding
   "commitment.succeeded", // commitment made; the reservation is now held firm

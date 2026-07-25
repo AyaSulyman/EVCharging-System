@@ -1,4 +1,5 @@
 import { Schema, models, model } from "mongoose";
+import { FLEXIBILITY_TYPES, DEFAULT_FLEXIBILITY } from "./flexibilityPolicy";
 
 /**
  * A flexible reservation request — what a driver *wants*, as distinct from what they *hold*.
@@ -102,6 +103,21 @@ const ReservationRequestSchema = new Schema(
     },
     /** Narrows to one bay when the driver genuinely wants it. Implies chargerFlex is ignored. */
     chargerId: { type: Schema.Types.ObjectId, ref: "Charger", default: null },
+
+    /**
+     * Ongoing permission to be re-timed *after* the request becomes a reservation, copied onto the
+     * booking at fulfilment.
+     *
+     * Distinct from the window above, which is spent the moment an interval is chosen. A driver can
+     * be flexible about which slot they get and then want it fixed (window wide, STRICT), or pick a
+     * specific time and still tolerate being nudged (window narrow, FLEXIBLE_30_MIN). Conflating
+     * the two would silently grant the scheduler permission the driver never gave.
+     */
+    flexibilityType: {
+      type: String,
+      enum: FLEXIBILITY_TYPES,
+      default: DEFAULT_FLEXIBILITY,
+    },
 
     /* ------------------------------------------------------------------ lifecycle */
 

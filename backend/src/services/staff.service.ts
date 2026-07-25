@@ -96,6 +96,10 @@ export async function getStaffBoard(auth: StaffAuth) {
       paymentStatus: b.paymentStatus ?? "pending",
       depositAmount: b.depositAmount ?? 0,
       commitmentExpiresAt: b.commitmentExpiresAt ?? null,
+      // Whether the scheduler may re-time this one, and how often it already has — the desk needs
+      // both to decide whether moving it again is reasonable.
+      flexibilityType: b.flexibilityType ?? "STRICT",
+      moveCount: b.moveCount ?? 0,
       customerName: user?.name ?? "—",
       customerEmail: user?.email ?? "—",
       vehicle: vehicle ? `${vehicle.make ?? ""} ${vehicle.model ?? ""}`.trim() : "—",

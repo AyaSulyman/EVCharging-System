@@ -21,6 +21,7 @@ import Slot from "@/models/Slot";
 import Station from "@/models/Station";
 import Vehicle from "@/models/Vehicle";
 import { claimReservation } from "@/services/booking.service";
+import { DEFAULT_FLEXIBILITY } from "@/models/flexibilityPolicy";
 import { emitReservationEvent } from "@/services/reservationEvents.service";
 import { scoreCandidates, type Candidate, type ScoredCandidate } from "@/services/optimization/scoring";
 
@@ -37,6 +38,8 @@ export interface CreateRequestInput {
   preferredStart?: Date | null;
   durationMinutes?: number;
   stationFlex?: boolean;
+  /** Ongoing consent to be re-timed after fulfilment. Defaults to STRICT. */
+  flexibilityType?: string;
   origin?: "self" | "staff_onsite";
   createdByStaffId?: string | null;
 }
@@ -77,6 +80,7 @@ export async function createRequest(input: CreateRequestInput) {
     durationMinutes: input.durationMinutes ?? 30,
     // More than one station listed only means anything if the driver accepts the alternatives.
     stationFlex: input.stationFlex ?? input.stationIds.length > 1,
+    flexibilityType: input.flexibilityType ?? DEFAULT_FLEXIBILITY,
     origin: input.origin ?? "self",
     createdByStaffId: input.createdByStaffId ?? null,
     status: "OPEN",
@@ -96,6 +100,7 @@ interface RequestShape {
   preferredStart?: Date;
   durationMinutes: number;
   status: string;
+  flexibilityType?: string;
 }
 
 /**
@@ -280,6 +285,9 @@ export async function fulfillRequest({
     // Carried onto the created event, so the conversion from flexible demand to a held bay is
     // measurable without joining collections.
     requestId: String(request._id),
+    // The window is spent once an interval is chosen; this is the driver's *ongoing* consent to
+    // be re-timed afterwards, which the request carried and the booking now owns.
+    flexibilityType: request.flexibilityType,
   });
 
   request.status = "FULFILLED";

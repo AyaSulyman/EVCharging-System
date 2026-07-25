@@ -11,13 +11,15 @@ import {
   RotateCcw,
   Inbox,
   ShieldCheck,
+  Shuffle,
 } from "lucide-react";
 import { StatusBadge } from "@/components/booking/StatusBadge";
 import { DepositPanel } from "@/components/booking/DepositPanel";
+import { FlexibilitySelector, flexibilityLabel } from "@/components/booking/FlexibilitySelector";
 import { useToast } from "@/components/Toast";
 import { useApi } from "@/lib/useApi";
 import { formatDate, formatTime, formatCurrency } from "@/lib/utils";
-import type { BookingStatus, PaymentStatus, RefundQuote } from "@/types";
+import type { BookingStatus, PaymentStatus, RefundQuote, FlexibilityType } from "@/types";
 
 interface BookingRow {
   _id: string;
@@ -33,6 +35,9 @@ interface BookingRow {
   commitmentExpiresAt?: string | null;
   refundCutoffHours?: number;
   refundQuote?: RefundQuote;
+  flexibilityType?: FlexibilityType;
+  preferredStart?: string;
+  moveCount?: number;
   stationId?: { name: string; address: string };
   chargerId?: { label: string; powerKW: number };
 }
@@ -57,6 +62,26 @@ export default function BookingsPage() {
   const [cancelling, setCancelling] = useState(false);
   // Which reservation's deposit panel is open, if any.
   const [payId, setPayId] = useState<string | null>(null);
+  // Which reservation's flexibility editor is open.
+  const [flexId, setFlexId] = useState<string | null>(null);
+  const [savingFlex, setSavingFlex] = useState(false);
+
+  async function saveFlexibility(bookingId: string, flexibilityType: FlexibilityType) {
+    setSavingFlex(true);
+    const res = await call("/api/bookings/flexibility", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bookingId, flexibilityType }),
+    });
+    setSavingFlex(false);
+    if (!res.ok) {
+      const data = await res.json();
+      toast(data.error ?? "Could not update flexibility", "error");
+      return;
+    }
+    toast("Flexibility updated", "success");
+    load();
+  }
 
   async function load() {
     const res = await call("/api/bookings");
@@ -178,6 +203,23 @@ export default function BookingsPage() {
                       {formatCurrency(b.depositAmount)}
                     </p>
                   ) : null}
+                  {/*
+                    Shown only where it still means something — an upcoming reservation. And when
+                    the reservation has actually been moved, say so plainly with the original time,
+                    because a driver who agreed to be flexible is still owed a clear account of
+                    what changed.
+                  */}
+                  {tab === "upcoming" && (
+                    <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-ink-soft">
+                      <Shuffle className="h-3 w-3" />
+                      {flexibilityLabel(b.flexibilityType)}
+                      {(b.moveCount ?? 0) > 0 && b.preferredStart && (
+                        <span className="font-medium text-amber-700">
+                          · moved from {formatTime(b.preferredStart)}
+                        </span>
+                      )}
+                    </p>
+                  )}
                 </div>
                 <div className="text-right">
                   <span className="font-mono text-xs font-bold text-primary">
@@ -216,8 +258,25 @@ export default function BookingsPage() {
                   </button>
                 ))}
 
+              {/* Flexibility editor — a driver can change their mind either way. */}
+              {tab === "upcoming" && flexId === b._id && (
+                <div className="mt-4 rounded-xl2 bg-canvas p-3.5">
+                  <p className="text-xs font-medium text-ink">
+                    Can we move this reservation if we need to?
+                  </p>
+                  <div className="mt-2">
+                    <FlexibilitySelector
+                      value={b.flexibilityType ?? "STRICT"}
+                      onChange={(v) => saveFlexibility(b._id, v)}
+                      disabled={savingFlex}
+                      compact
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Actions */}
-              <div className="mt-4 flex gap-2 border-t border-line pt-4">
+              <div className="mt-4 flex flex-wrap gap-2 border-t border-line pt-4">
                 {tab === "upcoming" && (
                   <button
                     onClick={() => setCancelId(b._id)}
@@ -225,6 +284,15 @@ export default function BookingsPage() {
                   >
                     <X className="h-4 w-4" />
                     Cancel
+                  </button>
+                )}
+                {tab === "upcoming" && (
+                  <button
+                    onClick={() => setFlexId(flexId === b._id ? null : b._id)}
+                    className="btn-ghost text-ink-soft hover:bg-canvas"
+                  >
+                    <Shuffle className="h-4 w-4" />
+                    {flexId === b._id ? "Done" : "Flexibility"}
                   </button>
                 )}
                 {tab === "past" && (
