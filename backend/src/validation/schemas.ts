@@ -86,6 +86,62 @@ export const depositActionSchema = z.object({
   bookingId: objectId,
 });
 
+/* ------------------------------------------------------------------ flexible requests */
+
+/** ISO datetime, coerced to a Date so the service never parses strings itself. */
+const isoDate = z.coerce.date();
+
+/**
+ * A flexible reservation request: a window rather than an exact interval.
+ *
+ * Cross-field rules (latestStart after earliestStart, preferredStart inside the window) are
+ * checked here with `superRefine` so a malformed window is rejected at the boundary with a
+ * field-level message, rather than reaching the service. Relational checks that need the database
+ * — vehicle ownership, stations existing, the window still being reachable — stay in the service.
+ */
+export const createReservationRequestSchema = z
+  .object({
+    vehicleId: objectId,
+    // Preference order is meaningful: the scorer penalises falling back to a later entry.
+    stationIds: z.array(objectId).min(1, "Choose at least one station").max(5),
+    /** Narrows to one bay. Optional — most drivers do not care which physical unit. */
+    chargerId: objectId.optional(),
+    earliestStart: isoDate,
+    latestStart: isoDate,
+    preferredStart: isoDate.optional(),
+    // Capped at a single interval's length for now: one reservation holds one interval, and
+    // spanning consecutive intervals is a separate feature (multi-slot reservations).
+    durationMinutes: z.coerce.number().int().min(15).max(60).optional(),
+    stationFlex: z.boolean().optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.latestStart < v.earliestStart) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["latestStart"],
+        message: "The latest start must be after the earliest start",
+      });
+    }
+    if (v.preferredStart && (v.preferredStart < v.earliestStart || v.preferredStart > v.latestStart)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["preferredStart"],
+        message: "Your preferred time must fall inside the window",
+      });
+    }
+  });
+
+/** Fulfilling a request by choosing one of the ranked candidate intervals. */
+export const fulfillReservationRequestSchema = z.object({
+  requestId: objectId,
+  slotId: objectId,
+});
+
+/** Withdrawing a request. */
+export const cancelReservationRequestSchema = z.object({
+  requestId: objectId,
+});
+
 /* ------------------------------------------------------------------ vehicles */
 
 export const createVehicleSchema = z.object({

@@ -36,6 +36,7 @@ async function run() {
   // MONGODB_URI at module-evaluation time and throws on an empty environment. Same reason
   // ensure-indexes.ts imports its models this way.
   const { expirePendingCommitments } = await import("@/services/commitment.service");
+  const { expireRequests } = await import("@/services/reservationRequest.service");
 
   await mongoose.connect(uri);
   const db = mongoose.connection;
@@ -48,23 +49,37 @@ async function run() {
       lifecycle: "PENDING_PAYMENT",
       commitmentExpiresAt: { $lt: now },
     });
+    const staleRequests = await db.collection("reservationrequests").countDocuments({
+      status: "OPEN",
+      expiresAt: { $lt: now },
+    });
     console.log(`\nMODE: dry run`);
-    console.log(`  holds past their window : ${due}`);
-    console.log("\nNothing released. Re-run without --dry-run to release them.");
+    console.log(`  holds past their window     : ${due}`);
+    console.log(`  requests past their window  : ${staleRequests}`);
+    console.log("\nNothing changed. Re-run without --dry-run to process them.");
     await mongoose.disconnect();
     return;
   }
 
   const { found, released } = await expirePendingCommitments(now);
 
-  console.log("\nSweep");
-  console.log(`  holds past their window : ${found}`);
+  console.log("\nCommitment holds");
+  console.log(`  past their window       : ${found}`);
   console.log(`  released                : ${released}`);
   // A gap means another writer resolved them first — a driver's late confirmation, or a
   // concurrent sweep. Expected under load, and worth surfacing rather than hiding.
   if (found !== released) {
     console.log(`  resolved elsewhere      : ${found - released} (raced by another writer)`);
   }
+
+  // Swept in the same job because both are "a window closed, stop holding it open". An unfulfilled
+  // request expiring is recorded as an event: it is demand the platform failed to serve, which no
+  // amount of looking at bookings can reconstruct.
+  const requests = await expireRequests(now);
+
+  console.log("\nFlexible requests");
+  console.log(`  past their window       : ${requests.found}`);
+  console.log(`  expired unfulfilled     : ${requests.expired}`);
 
   await mongoose.disconnect();
 }

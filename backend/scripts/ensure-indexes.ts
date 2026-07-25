@@ -35,6 +35,9 @@ async function run() {
     import("@/models/PaymentIntent"),
     import("@/models/Refund"),
     import("@/models/ReservationEvent"),
+    // Flexible demand. Its indexes are read paths, not constraints — a request holds nothing, so
+    // there is no uniqueness to enforce here.
+    import("@/models/ReservationRequest"),
   ]);
 
   await mongoose.connect(uri);

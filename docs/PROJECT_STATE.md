@@ -1,6 +1,7 @@
 # PROJECT_STATE.md — what is built, what is not, what to do next
 
-**Last updated: 2026-07-25.** Read this after `CLAUDE.md` and `AGENTS.md`, before writing code.
+**Last updated: 2026-07-25 (flexibility windows).** Read this after `CLAUDE.md` and `AGENTS.md`,
+before writing code.
 
 This file exists so a teammate — or a teammate's AI assistant — can pick the project up without
 re-deriving what has already been decided, re-implementing what already exists, or "fixing"
@@ -21,7 +22,8 @@ same commit.**
 | Reservation commitment / deposit system | **Code done. Migration NOT applied** |
 | Mock payment gateway + webhook path | Done |
 | `reservationevents` append-only log | Written to; **no consumers exist** |
-| Waitlists | **Not built.** Design only |
+| **Flexibility windows** (`reservationrequests` + candidate scoring) | **Done** — first slice of the optimization engine |
+| Waitlists | **Not built.** Design only — extend `ReservationRequest`, do not add a new collection |
 | Extensions, overstay, delay propagation | **Not built.** Design only |
 | Reservation Optimization Engine | **Design only** — `docs/RESERVATION_OPTIMIZATION_ENGINE.md` |
 | Reliability score / customer behaviour tracking | **Not built.** The event log feeds it when it is |
@@ -104,10 +106,14 @@ Be precise about these. Do not describe them as finished.
 - **Charging session check-in is collapsed.** `startCharging` moves
   `RESERVED → CHARGING` in one step and stamps `actualArrival` itself. The designed flow has an
   explicit `ARRIVED` check-in between them. Splitting it is outstanding work.
-- **`reservationevents` has no consumers.** `commitment.expired`, `reservation.released`,
-  `reservation.no_show` and the rest are written and indexed. Nothing reads them. Waitlist
-  notification, optimizer invalidation and reliability scoring are the intended consumers; per
-  `CLAUDE.md` §7 they must stay **consumers** and never be called inline from a domain service.
+- **`reservationevents` has no consumers.** 13 event types are written and indexed; nothing reads
+  them. Waitlist notification, optimizer invalidation and reliability scoring are the intended
+  consumers; per `CLAUDE.md` §7 they must stay **consumers** and never be called inline from a
+  domain service. Emission sites: `reservation.created` / `reservation.confirmed` (claim path,
+  plus `confirmed` again on the gateway path for self-service), `session.started` /
+  `session.ended` (session transitions), `commitment.*` (commitment service),
+  `reservation.cancelled` / `no_show` / `released` (update, expiry, early departure, request
+  expiry).
 - **Event emission is best-effort.** `emitReservationEvent` never throws — a committed
   reservation must not be reported as failed because its audit write was. So the log is suitable
   for behavioural history and analytics, **not** as the system of record for reservation state.
@@ -184,6 +190,44 @@ reports expired holds as free.
 
 ---
 
+## 6b. Flexibility windows — orientation
+
+A driver can now describe a **window** ("about 30 minutes, between 09:00 and 17:00, at either of
+these stations") instead of naming one exact interval, and get a ranked shortlist back.
+
+| Path | Role |
+|---|---|
+| `backend/src/models/ReservationRequest.ts` | Flexible demand. Holds nothing |
+| `backend/src/services/reservationRequest.service.ts` | Create, match, fulfil, expire |
+| `backend/src/services/optimization/scoring.ts` | Pure candidate ranking + the objective `WEIGHTS` |
+| `frontend/src/app/(dashboard)/book/flexible/page.tsx` | Driver-facing flexible booking |
+
+**Endpoints:** `POST|GET|PATCH /api/reservations/requests` · `GET
+/api/reservations/requests/candidates?requestId=` · `POST /api/reservations/requests/fulfill`.
+
+**Ranking** trades four terms (weights in `scoring.ts`): time drift from the preferred start,
+station preference order, a **fragmentation reward** for booking beside existing occupancy, and a
+small **penalty on charger power** — giving a 50 kW car the 150 kW bay costs the station its
+ability to serve the next driver who needs it. Fragmentation deliberately dominates modest drift:
+a slot 30 minutes off that keeps the afternoon contiguous beats a perfect one that strands an
+unbookable gap. Ranking is pure, reproducible and returns its reasoning, which the UI shows.
+
+**Hard constraints are filtered, not scored** — connector compatibility, charger serviceability,
+and any interval overlapping something the driver already holds. An incompatible bay is not a
+worse option; it is not an option.
+
+**Deliberately not built:** multi-slot reservations (a 60-minute request is satisfied by one
+interval of at least 60 minutes, never by two consecutive ones — that would mean several bookings
+holding one logical reservation). `powerFlex` and `durationFlex` from the engine design are not
+collected. Only three flexibility controls are asked for, because each extra question costs a
+booking.
+
+`ops:expire-commitments` now sweeps stale requests too, emitting `reservation.released` with
+`basis: "request_expired_unfulfilled"` — demand the platform failed to serve, which nothing in
+`bookings` can reconstruct.
+
+---
+
 ## 7. Suggested next work, in dependency order
 
 1. **Apply the two migrations** (owner) and schedule `ops:expire-commitments`.
@@ -191,11 +235,21 @@ reports expired holds as free.
    accurate arrival analytics.
 3. **First `reservationevents` consumer** — the reliability score is the highest-value one and
    the event log already carries `fault` and `penalize` for exactly this.
-4. **Waitlists** — `docs/RESERVATION_V2_ROADMAP.md` Phase 3. Note the optimization architecture
-   supersedes the standalone `waitlistentries` collection with `ReservationRequest`; read
-   `docs/RESERVATION_OPTIMIZATION_ENGINE.md` §1 before building it.
-5. **Extensions & overstay** — Roadmap Phase 4.
+4. **Waitlists** — now a much smaller job than the roadmap assumed: `ReservationRequest` already
+   *is* the waitlist entry (an `OPEN` request), the matcher already ranks candidates, and
+   `reservation.released` already fires when capacity frees up. What is missing is the offer
+   lifecycle (offer → time-limited acceptance → expiry) and the consumer that reacts to a release.
+   **Before writing that consumer, settle the delivery guarantee** — `emitReservationEvent` is
+   deliberately best-effort and never throws, which is right for analytics and wrong for an offer:
+   a dropped `reservation.released` means a waitlisted driver is never told a bay came free. That
+   needs an outbox or a reconciling sweep, and retrofitting it under a live consumer is the worst
+   time to do it.
+5. **Extensions & overstay** — Roadmap Phase 4. `PaymentIntent.purpose` already accepts
+   `extension_commitment`, and `session.ended` already records `minutesOverstayed`.
 6. **Admin deposit reporting** — small, demo-visible.
+7. **Multi-slot reservations** — would let a flexible request span consecutive intervals. Needs a
+   decision first: one booking per interval breaks "one reservation", so it likely needs a
+   reservation-to-interval join. Do not improvise this inside the matcher.
 
 Design docs, in the order they were written:
 `RESERVATION_ARCHITECTURE_V2.md` → `RESERVATION_V2_IMPACT_REPORT.md` →

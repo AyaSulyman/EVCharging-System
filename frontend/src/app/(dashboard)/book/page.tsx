@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Check,
   Zap,
@@ -10,6 +11,7 @@ import {
   ArrowLeft,
   Loader2,
   CalendarDays,
+  Sparkles,
 } from "lucide-react";
 import { ConnectorBadge } from "@/components/ui/Primitives";
 import { useToast } from "@/components/Toast";
@@ -153,6 +155,31 @@ function BookingWizard() {
   return (
     <div className="mx-auto max-w-3xl">
       <h1 className="text-2xl font-bold text-ink">Reserve a charger</h1>
+
+      {/*
+        Offered at the top of step 1, where a driver who does not have one exact time in mind is
+        still deciding how to approach this. Once they have picked a station and a charger the
+        flexible path would throw that work away, so it is not repeated on later steps.
+      */}
+      {step === 0 && (
+        <Link
+          href="/book/flexible"
+          className="card mt-5 flex items-center justify-between gap-3 transition-shadow hover:shadow-lift"
+        >
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-light text-primary">
+              <Sparkles className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="font-semibold text-ink">Not fussy about the exact time?</p>
+              <p className="text-sm text-ink-soft">
+                Give us a window and we&apos;ll find the best slot for you.
+              </p>
+            </div>
+          </div>
+          <ArrowRight className="h-4 w-4 shrink-0 text-ink-soft" />
+        </Link>
+      )}
 
       {/* Progress */}
       <div className="mt-6 flex items-center">

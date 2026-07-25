@@ -171,12 +171,22 @@ discovery pages are server-rendered and `force-dynamic` for live availability. S
 
 ---
 
-## 4. Data model (12 collections)
+## 4. Data model (13 collections)
 
 `users` · `vehicles` · `vehicleconnections` · `stations` · `chargers` · `slots`
 (reservable intervals) · `bookings` (reservations) · `notifications` · `banners` ·
 `paymentintents` (commitment attempts) · `refunds` · `reservationevents` (append-only
-behavioural log).
+behavioural log) · `reservationrequests` (flexible demand).
+
+- **`reservationrequests` holds nothing.** A request is a *desire* — a window, a duration,
+  acceptable stations. Only a `booking` holds capacity, and fulfilling a request goes
+  through `claimReservation` like every other claim, so the partial unique index stays the
+  sole arbiter of conflicts. Never let this collection become a second source of truth
+  about who has what. A candidate shortlist is a **snapshot** and can lose a race; that
+  surfaces as `SLOT_UNAVAILABLE` and the request stays `OPEN`.
+- **A waitlist entry is just an unfulfilled request.** When waitlists are built, extend this
+  model — do not add a parallel `waitlistentries` collection. See
+  `docs/RESERVATION_OPTIMIZATION_ENGINE.md` §1.
 
 - **Central invariant:** `slots.status === "booked"` corresponds one-to-one with a live
   reservation, in both directions. An ops script reconciles this; the claim path
