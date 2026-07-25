@@ -3,6 +3,7 @@ import { PROVIDER_KEYS } from "@/providers/VehicleProvider";
 import { RESERVATION_LIFECYCLE } from "@/models/reservationLifecycle";
 import { FLEXIBILITY_TYPES } from "@/models/flexibilityPolicy";
 import { OPERATOR_FAULT_REASONS } from "@/models/commitmentPolicy";
+import { ALLOWED_DURATIONS_MINUTES } from "@/models/occupancyPolicy";
 
 /** Rejects anything that is not a Mongo ObjectId, before it reaches a query. */
 export const objectId = z.string().regex(/^[a-f\d]{24}$/i, "Must be a valid id");
@@ -101,6 +102,36 @@ export const depositActionSchema = z.object({
   bookingId: objectId,
 });
 
+/**
+ * Supported reservation durations, derived from the occupancy policy rather than restated.
+ *
+ * An explicit set, not a numeric range: every value is an exact multiple of the 15-minute occupancy
+ * atom, and a free-form number would let a request for 37 minutes through to be silently rounded —
+ * the kind of quiet substitution that makes a driver distrust the whole system.
+ */
+export const durationEnum = z.union(
+  ALLOWED_DURATIONS_MINUTES.map((d) => z.literal(d)) as [
+    z.ZodLiteral<number>,
+    z.ZodLiteral<number>,
+    ...z.ZodLiteral<number>[]
+  ]
+);
+
+/**
+ * A duration-aware reservation: a charger, a start time and a length.
+ *
+ * No `slotId` — that is the point. Occupancy is a time range now, and the start must sit on the
+ * 15-minute grid. Alignment is enforced in the service rather than here so the rejection can explain
+ * which rule failed; a schema can only say the shape was wrong.
+ */
+export const createRangeReservationSchema = z.object({
+  vehicleId: objectId,
+  chargerId: objectId,
+  startTime: z.coerce.date(),
+  durationMinutes: durationEnum,
+  flexibilityType: flexibilityTypeEnum.optional(),
+});
+
 /* ------------------------------------------------------------------ flexible requests */
 
 /** ISO datetime, coerced to a Date so the service never parses strings itself. */
@@ -124,9 +155,10 @@ export const createReservationRequestSchema = z
     earliestStart: isoDate,
     latestStart: isoDate,
     preferredStart: isoDate.optional(),
-    // Capped at a single interval's length for now: one reservation holds one interval, and
-    // spanning consecutive intervals is a separate feature (multi-slot reservations).
-    durationMinutes: z.coerce.number().int().min(15).max(60).optional(),
+    // Any supported duration. Previously capped at 60 because a reservation held exactly one
+    // 30-minute slot, which made 45 and 60 unsatisfiable in practice — the matcher could never find
+    // a slot long enough. Occupancy is a range now, so every offered duration is genuinely bookable.
+    durationMinutes: durationEnum.optional(),
     stationFlex: z.boolean().optional(),
     /** Ongoing consent to be re-timed after fulfilment — a separate axis from the window above. */
     flexibilityType: flexibilityTypeEnum.optional(),

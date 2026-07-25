@@ -33,8 +33,8 @@ ChargeHub is a **multi-station EV charging reservation platform**, built as **tw
 Next.js applications** — a server-rendered client and a headless REST API service — over
 **MongoDB Atlas**.
 
-A driver reserves a specific charger for a specific 30-minute interval and arrives
-holding a reservation code. An operator publishes bookable inventory, controls charger
+A driver reserves a specific charger for a duration of their choosing (15/30/45/60/90
+minutes) and arrives holding a reservation code. An operator publishes bookable inventory, controls charger
 availability, resolves reservations, and reports on usage.
 
 **Two engineering ideas define the project. Do not undermine either:**
@@ -58,6 +58,17 @@ Breaking any of these is a regression, even if a task seems to ask for it.
   partial index with a plain unique index — it is partial so a *cancelled* reservation
   keeps its `slotId` for history while the interval is released; a plain unique index
   would make released intervals permanently unbookable.
+- **Duration-aware reservations are enforced by a second unique index.** Reservations are time
+  ranges (15/30/45/60/90 min). Occupancy is recorded as 15-minute atoms in
+  **`reservationoccupancy`**, with a **unique index on `(chargerId, atomStart)`** — the direct
+  equivalent of the `slotId` index and equally load-bearing. **Never make it non-unique and never
+  move the overlap check into application code**: MongoDB has no range-exclusion constraint, and
+  transactions do not prevent the phantom (two concurrent inserts of *different* documents never
+  conflict), so the atom index is the only thing that can guarantee this. Occupancy rows are the
+  **lease** — release means delete. Both mechanisms are live at once: `slotId` protects historical
+  slot-based reservations, occupancy protects range ones. `durationMinutes` present/absent
+  distinguishes them. Note the `slotId` partial filter now also requires `slotId: { $exists: true }`,
+  without which every range reservation would collide on `slotId: null`.
 - **Ownership scoping on every private record.** Reads and writes of vehicles,
   reservations, notifications and connections are scoped to the owner *in the query*
   (e.g. `findOne({ _id, userId })`), not fetched-then-compared. Copy this pattern; never
@@ -180,12 +191,13 @@ discovery pages are server-rendered and `force-dynamic` for live availability. S
 
 ---
 
-## 4. Data model (13 collections)
+## 4. Data model (14 collections)
 
 `users` · `vehicles` · `vehicleconnections` · `stations` · `chargers` · `slots`
 (reservable intervals) · `bookings` (reservations) · `notifications` · `banners` ·
 `paymentintents` (commitment attempts) · `refunds` · `reservationevents` (append-only
-behavioural log) · `reservationrequests` (flexible demand).
+behavioural log) · `reservationrequests` (flexible demand) · `reservationoccupancy` (charger time, one row per
+15-minute atom).
 
 - **`reservationrequests` holds nothing.** A request is a *desire* — a window, a duration,
   acceptable stations. Only a `booking` holds capacity, and fulfilling a request goes

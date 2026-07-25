@@ -17,14 +17,37 @@ import { ConnectorBadge } from "@/components/ui/Primitives";
 import { FlexibilitySelector } from "@/components/booking/FlexibilitySelector";
 import { useToast } from "@/components/Toast";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { useApi } from "@/lib/useApi";
 import type {
   StationWithChargers,
   ICharger,
-  ISlot,
   IVehicle,
   FlexibilityType,
 } from "@/types";
-import { useApi } from "@/lib/useApi";
+
+/** Durations the platform offers. Mirrors ALLOWED_DURATIONS_MINUTES on the server. */
+const DURATIONS = [15, 30, 45, 60, 90] as const;
+
+interface OccupiedBlock {
+  start: string;
+  end: string;
+}
+
+interface ChargerAvailability {
+  chargerId: string;
+  chargerLabel: string;
+  connectorType: string;
+  powerKW: number;
+  starts: string[];
+  occupied: OccupiedBlock[];
+}
+
+function hhmm(iso: string) {
+  return new Date(iso).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
 const STEPS = ["Station", "Charger", "Time", "Confirm"];
 
@@ -40,8 +63,10 @@ function BookingWizard() {
   const [station, setStation] = useState<StationWithChargers | null>(null);
   const [charger, setCharger] = useState<ICharger | null>(null);
   const [date, setDate] = useState<string>("");
-  const [slots, setSlots] = useState<ISlot[]>([]);
-  const [slot, setSlot] = useState<ISlot | null>(null);
+  // Duration is now a first-class choice, not an artefact of how inventory was published.
+  const [duration, setDuration] = useState<number>(30);
+  const [availability, setAvailability] = useState<ChargerAvailability | null>(null);
+  const [startTime, setStartTime] = useState<string | null>(null);
   const [vehicleId, setVehicleId] = useState<string>("");
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -98,15 +123,30 @@ function BookingWizard() {
     }
   }, [date]);
 
-  // Load slots when charger + date ready
+  /**
+   * Load availability whenever the charger, the date OR THE DURATION changes.
+   *
+   * Duration is in the dependency list because availability is a function of it — the same free hour
+   * offers four 15-minute starts but only one 60-minute start. With fixed slots this was a static
+   * list; with ranges there is no single answer to cache.
+   */
   useEffect(() => {
-    if (!charger || !date || step !== 2) return;
+    if (!charger || !station || !date || step !== 2) return;
     setLoadingSlots(true);
-    call(`/api/slots?chargerId=${charger._id}&date=${date}`)
+    setStartTime(null);
+    call(
+      `/api/availability?stationId=${station._id}&date=${date}&duration=${duration}`
+    )
       .then((r) => r.json())
-      .then((d) => setSlots(d.slots ?? []))
+      .then((d) => {
+        const forCharger = (d.chargers ?? []).find(
+          (c: ChargerAvailability) => c.chargerId === charger._id
+        );
+        setAvailability(forCharger ?? null);
+      })
       .finally(() => setLoadingSlots(false));
-  }, [charger, date, step]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [charger, station, date, duration, step]);
 
   const next14Days = useMemo(() => {
     const days: { value: string; label: string; dow: string }[] = [];
@@ -122,25 +162,29 @@ function BookingWizard() {
     return days;
   }, [token]);
 
+  // Scales with the chosen duration rather than assuming half an hour — the whole point of
+  // duration-aware reservations is that a 15-minute top-up and a 90-minute charge differ.
   const estCost = useMemo(() => {
     if (!charger) return 0;
-    return Math.round(charger.powerKW * 0.5 * charger.pricePerKWh * 100) / 100;
-  }, [charger]);
+    return (
+      Math.round(charger.powerKW * (duration / 60) * charger.pricePerKWh * 100) / 100
+    );
+  }, [charger, duration]);
 
   async function confirm() {
-    if (!station || !charger || !slot || !vehicleId) {
+    if (!station || !charger || !startTime || !vehicleId) {
       toast("Please complete all steps and select a vehicle.", "error");
       return;
     }
     setSubmitting(true);
-    const res = await call("/api/bookings", {
+    const res = await call("/api/reservations/range", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        stationId: station._id,
         chargerId: charger._id,
-        slotId: slot._id,
         vehicleId,
+        startTime,
+        durationMinutes: duration,
         flexibilityType: flexibility,
       }),
     });
@@ -149,12 +193,10 @@ function BookingWizard() {
 
     if (!res.ok) {
       toast(data.error ?? "Could not create booking", "error");
-      // slot may be gone — refresh slots
-      if (res.status === 409 && charger && date) {
-        call(`/api/slots?chargerId=${charger._id}&date=${date}`)
-          .then((r) => r.json())
-          .then((d) => setSlots(d.slots ?? []));
-        setSlot(null);
+      // The time may have gone while they were deciding. Re-read availability and send them back to
+      // the time step rather than leaving a start selected that nobody can book.
+      if (res.status === 409) {
+        setStartTime(null);
         setStep(2);
       }
       return;
@@ -276,7 +318,7 @@ function BookingWizard() {
                     disabled={!available}
                     onClick={() => {
                       setCharger(c);
-                      setSlot(null);
+                      setStartTime(null);
                       setStep(2);
                     }}
                     className={`card text-left transition-shadow ${
@@ -326,6 +368,28 @@ function BookingWizard() {
               Pick a time for <strong>{charger.label}</strong>
             </StepHeader>
 
+            {/* How long — asked before the times, because it changes which times exist. */}
+            <label className="label">How long do you need?</label>
+            <div className="flex flex-wrap gap-2">
+              {DURATIONS.map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setDuration(d)}
+                  className={`min-w-[4.5rem] rounded-lg border py-2 text-sm font-medium transition-colors ${
+                    duration === d
+                      ? "border-primary bg-primary text-white"
+                      : "border-line bg-white text-ink hover:border-primary"
+                  }`}
+                >
+                  {d < 60 ? `${d} min` : d === 60 ? "1 hr" : "1½ hr"}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 mb-4 text-xs text-ink-soft">
+              Longer sessions have fewer possible start times.
+            </p>
+
             {/* Date scroller */}
             <div className="flex gap-2 overflow-x-auto pb-2">
               {next14Days.map((d) => (
@@ -333,7 +397,7 @@ function BookingWizard() {
                   key={d.value}
                   onClick={() => {
                     setDate(d.value);
-                    setSlot(null);
+                    setStartTime(null);
                   }}
                   className={`flex min-w-[3.75rem] flex-col items-center rounded-xl border px-2 py-2.5 transition-colors ${
                     date === d.value
@@ -347,48 +411,61 @@ function BookingWizard() {
               ))}
             </div>
 
-            {/* Slots */}
+            {/* Start times that fit the chosen duration */}
             <div className="mt-5">
               {loadingSlots ? (
                 <div className="flex justify-center py-10">
                   <Loader2 className="h-6 w-6 animate-spin text-primary" />
                 </div>
-              ) : slots.length === 0 ? (
-                <p className="py-10 text-center text-sm text-ink-soft">
-                  No slots for this day.
-                </p>
-              ) : (
-                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                  {slots.map((s) => {
-                    const avail = s.status === "available";
-                    const selected = slot?._id === s._id;
-                    const time = new Date(s.startTime).toLocaleTimeString("en-US", {
-                      hour: "numeric",
-                      minute: "2-digit",
-                      hour12: true,
-                    });
-                    return (
-                      <button
-                        key={s._id}
-                        disabled={!avail}
-                        onClick={() => setSlot(s)}
-                        className={`rounded-lg border py-2 text-sm font-medium transition-colors ${
-                          selected
-                            ? "border-primary bg-primary text-white"
-                            : avail
-                              ? "border-line bg-white text-ink hover:border-primary"
-                              : "cursor-not-allowed border-line bg-canvas text-ink-soft/50 line-through"
-                        }`}
-                      >
-                        {time}
-                      </button>
-                    );
-                  })}
+              ) : !availability || availability.starts.length === 0 ? (
+                <div className="py-8 text-center">
+                  <p className="text-sm text-ink-soft">
+                    No {duration}-minute openings on this charger that day.
+                  </p>
+                  {/* Actionable, because a shorter session very often does fit. */}
+                  <p className="mt-1 text-xs text-ink-soft">
+                    Try a shorter session, another day, or a different charger.
+                  </p>
                 </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                    {availability.starts.map((iso) => {
+                      const selected = startTime === iso;
+                      return (
+                        <button
+                          key={iso}
+                          onClick={() => setStartTime(iso)}
+                          className={`rounded-lg border py-2 text-sm font-medium transition-colors ${
+                            selected
+                              ? "border-primary bg-primary text-white"
+                              : "border-line bg-white text-ink hover:border-primary"
+                          }`}
+                        >
+                          {hhmm(iso)}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/*
+                    Show what is already taken, not only what is free. A driver who can see that
+                    15:00–16:00 is booked understands why their 90 minutes will not fit; one shown an
+                    unexplained gap assumes the system is broken.
+                  */}
+                  {availability.occupied.length > 0 && (
+                    <p className="mt-3 text-xs text-ink-soft">
+                      Already booked:{" "}
+                      {availability.occupied
+                        .map((o) => `${hhmm(o.start)}–${hhmm(o.end)}`)
+                        .join(", ")}
+                    </p>
+                  )}
+                </>
               )}
             </div>
 
-            {slot && (
+            {startTime && (
               <div className="mt-6 flex justify-end">
                 <button onClick={() => setStep(3)} className="btn-primary">
                   Continue
@@ -400,7 +477,7 @@ function BookingWizard() {
         )}
 
         {/* STEP 4 — CONFIRM */}
-        {step === 3 && station && charger && slot && (
+        {step === 3 && station && charger && startTime && (
           <div>
             <StepHeader onBack={() => setStep(2)}>Review &amp; confirm</StepHeader>
 
@@ -410,16 +487,16 @@ function BookingWizard() {
                 label="Charger"
                 value={`${charger.label} · ${charger.connectorType} · ${charger.powerKW} kW`}
               />
-              <Row label="Date" value={formatDate(slot.startTime)} />
+              <Row label="Date" value={formatDate(startTime)} />
               <Row
                 label="Time"
-                value={`${new Date(slot.startTime).toLocaleTimeString("en-US", {
-                  hour: "numeric",
-                  minute: "2-digit",
-                })} – ${new Date(slot.endTime).toLocaleTimeString("en-US", {
-                  hour: "numeric",
-                  minute: "2-digit",
-                })}`}
+                value={`${hhmm(startTime)} – ${hhmm(
+                  new Date(new Date(startTime).getTime() + duration * 60000).toISOString()
+                )}`}
+              />
+              <Row
+                label="Duration"
+                value={duration < 60 ? `${duration} minutes` : `${duration / 60} hour${duration > 60 ? "s" : ""}`}
               />
 
               {/* Vehicle select */}

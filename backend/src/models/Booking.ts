@@ -11,7 +11,24 @@ const BookingSchema = new Schema(
   {
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     vehicleId: { type: Schema.Types.ObjectId, ref: "Vehicle", required: true },
-    slotId: { type: Schema.Types.ObjectId, ref: "Slot", required: true },
+    /**
+     * The fixed interval this reservation was booked against — LEGACY.
+     *
+     * No longer required. Duration-aware reservations are time ranges and hold capacity through
+     * `reservationoccupancy` instead; only reservations created through the older slot path carry a
+     * slotId. It is kept, never removed, because the partial unique index on it is what guarantees
+     * those historical reservations remain conflict-free.
+     *
+     * NOTE the index below now also filters on `slotId: { $exists: true }`. Without that clause every
+     * range reservation would index as `slotId: null` and the second one would collide with the first
+     * — the unique index would reject legitimate bookings. See ops:migrate-occupancy.
+     */
+    slotId: { type: Schema.Types.ObjectId, ref: "Slot", default: null },
+    /**
+     * Requested length in minutes. Present on duration-aware reservations, absent on legacy
+     * slot-based ones — which is also how the two are told apart without a flag.
+     */
+    durationMinutes: { type: Number, default: null },
     chargerId: { type: Schema.Types.ObjectId, ref: "Charger", required: true },
     stationId: { type: Schema.Types.ObjectId, ref: "Station", required: true },
     bookingCode: { type: String, required: true, unique: true },
@@ -177,9 +194,21 @@ BookingSchema.index(
     unique: true,
     partialFilterExpression: {
       status: { $in: ["pending", "confirmed", "completed", "no_show"] },
+      // Added when reservations became duration-aware. Range reservations carry no slotId, so
+      // without this clause they would all index as `slotId: null` and the second one would be
+      // rejected as a duplicate of the first — the index would start refusing valid bookings.
+      // Changing an existing index is not additive: ops:migrate-occupancy drops and rebuilds it.
+      slotId: { $exists: true },
     },
   }
 );
+
+/**
+ * The duration-aware equivalent of the guarantee above lives on a different collection:
+ * `reservationoccupancy` holds one row per 15-minute atom with a unique index on
+ * (chargerId, atomStart). Both mechanisms are live at once — the slot index protects historical
+ * reservations, the occupancy index protects range ones. Neither may be weakened.
+ */
 
 /**
  * Supports the v2 time-driven sweep (later phase): "find reservations in a given lifecycle

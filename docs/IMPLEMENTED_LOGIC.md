@@ -4,7 +4,7 @@
 the presentation, the demo script and any slide deck can be built from one place — and so nobody has
 to reverse-engineer the reasoning out of the code under time pressure.
 
-**Last updated: 2026-07-25 (schedule quality KPIs).** Read alongside:
+**Last updated: 2026-07-25 (duration-aware reservations).** Read alongside:
 - [`../CLAUDE.md`](../CLAUDE.md) — what the project is, and the invariants that must not break
 - [`../AGENTS.md`](../AGENTS.md) — how to work here
 - [`PROJECT_STATE.md`](PROJECT_STATE.md) — what is built vs. not, and the ops commands
@@ -697,7 +697,99 @@ problem; a poor preference match rate is a capacity or scheduling problem.
 
 ---
 
-# 11. Money & reporting
+# 11. Duration-aware reservations ⭐
+
+Fixed slots are no longer the bookable unit. A driver asks for **15, 30, 45, 60 or 90 minutes** and
+the system models charger occupancy as time ranges.
+
+### 11.1 Why there is still a discrete unit underneath ⭐
+- **Rule:** Reservations are continuous ranges to the user. Underneath, occupancy is recorded as
+  **15-minute atoms**, and uniqueness is enforced per atom by
+  `reservationoccupancy { chargerId, atomStart }`.
+- **Where:** `backend/src/models/occupancyPolicy.ts`, `ReservationOccupancy.ts`
+- **Why it matters — the central constraint:** MongoDB has **no range-exclusion constraint** (no
+  equivalent of PostgreSQL's `EXCLUDE USING gist (range WITH &&)`). Transactions do not close the gap
+  either: two concurrent transactions can both read "no overlap" and insert two *different*
+  documents, and because they never write the same document **neither aborts**. That is a phantom read,
+  and it is exactly the double-booking this platform refuses to allow. A discrete unit is what can
+  actually carry a unique index, so the *enforcement* substrate is discrete even though the *model*
+  is continuous.
+- **Why 15 minutes:** the greatest common divisor of every supported duration, so each is an exact
+  whole number of atoms with no rounding and no wasted time. 1-minute atoms would multiply index
+  writes fifteenfold for precision nothing needs; 30-minute atoms cannot express 15 or 45 at all.
+- **The cost, stated plainly:** start times are constrained to :00/:15/:30/:45. Arbitrary **duration**
+  is fully supported; arbitrary **start precision** is not. Removing that limit means abandoning
+  database-enforced exclusion for a transaction plus a per-charger serialisation document.
+
+### 11.2 The half-open boundary ⭐
+- **Rule:** A range covering 15:00–16:00 occupies atoms 15:00–15:45 and **not** the atom starting
+  at 16:00.
+- **Why it matters:** Get this wrong in the other direction and **every back-to-back pair of
+  reservations becomes unbookable** — the single most likely bug in a range model. It lives in one
+  function (`atomsForRange`) rather than as arithmetic repeated at each call site.
+- **Verified:** 15:00–16:00 vs 16:00–16:30 → no overlap, atom sets disjoint. 15:00–16:00 vs
+  15:45–16:15 → overlap.
+
+### 11.3 Availability is a function of the requested duration ⭐
+- **Rule:** `availableStarts` computes openings per duration. There is no stored `available` flag.
+- **Why it matters:** The same free hour offers **four** 15-minute starts but **one** 60-minute start
+  and **none** for 90 minutes. No single boolean can answer the question for every driver — which is
+  precisely why the fixed-slot status field had to go. Verified on one 15:00–16:00 booking in a
+  14:00–17:00 window: 15 min → 8 starts, 30 → 6, 45 → 4, 60 → 2, 90 → 0.
+- **Demo:** on the booking wizard's time step, switch duration and watch the start times change.
+
+### 11.4 The index change — the only non-additive change in the project ⭐
+- **Rule:** The partial unique index on `bookings.slotId` gains `slotId: { $exists: true }` to its
+  filter. MongoDB cannot alter a partial filter in place, so it is dropped and recreated.
+- **Why it matters:** Range reservations carry **no** `slotId`. Without the clause every one of them
+  indexes as `slotId: null`, and the *second* range reservation is rejected as a duplicate of the
+  first — **the index would start refusing valid bookings**, the worst possible failure for the
+  constraint that guarantees correctness.
+- **The risk, stated:** between the drop and the create, uniqueness on slot-based reservations does
+  not exist. `ops:migrate-occupancy` therefore verifies **no duplicates exist before dropping** (a
+  duplicate would make the recreate fail and leave no index at all), recreates immediately, then
+  verifies the new index is unique and carries both filter clauses, exiting non-zero otherwise.
+
+### 11.5 Both mechanisms coexist, deliberately ⭐
+- **Rule:** Slot-based reservations keep the `slotId` index; range reservations use the occupancy
+  index. `durationMinutes` present/absent is how the two are told apart — no flag needed.
+- **Why it matters:** Rewriting the five existing reservations onto ranges would mean altering stored
+  history to fit a newer model. Coexistence costs one nullable field. **Neither index may ever be
+  weakened.**
+- **The step that makes coexistence safe:** the migration backfills occupancy rows for existing live
+  slot-based reservations, so range-aware availability sees them as busy. Without it a range booking
+  could be sold on top of a slot booking — each mechanism internally consistent, collectively wrong.
+
+### 11.6 Occupancy rows are the lease ⭐
+- **Rule:** A row exists only while the reservation holds that time. Release = delete.
+- **Why it matters:** The slot index needed a *partial* filter because status and occupancy shared one
+  field. Here they are separate: history stays on the booking, the lease is the row. That removes the
+  subtlety — there is no status to filter on and no way for released time to stay indexed. It also
+  makes early departure genuinely return capacity rather than only recording that it happened.
+
+### 11.7 Cost scales with real duration
+- **Rule:** `totalAmount = powerKW × (durationMinutes / 60) × pricePerKWh`.
+- **Why it matters:** Previously every reservation was charged as half an hour because that was the
+  slot length. A 15-minute top-up and a 90-minute charge are now priced differently, which is the
+  minimum honesty a duration-aware model owes.
+
+### 11.8 Rejected, never silently snapped ⭐
+- **Rule:** A 15:07 start or a 37-minute duration is **refused with the specific rule that failed**,
+  not rounded to fit.
+- **Why it matters:** Quietly substituting a different reservation than the one asked for is exactly
+  the behaviour the flexibility-consent work exists to prevent. Verified: off-grid, bad duration,
+  past, before opening, and running past closing each report their own reason — and 20:30 for 90
+  minutes is accepted because it ends exactly at 22:00.
+
+### 11.9 Utilization must merge before it counts ⭐
+- **Rule:** `mergeRanges` then sum minutes. Never count rows.
+- **Why it matters:** Two adjacent 15-minute reservations and one 30-minute reservation occupy
+  **identical time** but produce different row counts. Verified: both report 30 minutes, and two
+  overlapping hour-long ranges report 90 minutes rather than 120.
+
+---
+
+# 12. Money & reporting
 
 ### 8.1 Cost basis captured per reservation
 - **Rule:** `appliedUnitPrice` and `appliedPowerKW` are snapshotted at claim time.
@@ -714,7 +806,7 @@ problem; a poor preference match rate is a capacity or scheduling problem.
 
 ---
 
-# 12. Operational safety
+# 13. Operational safety
 
 ### 9.1 Every migration is dry-run first, snapshots, and self-verifies
 - **Rule:** Dry run by default; `--apply` snapshots to `backups/<timestamp>/` then writes, then
@@ -745,7 +837,7 @@ problem; a poor preference match rate is a capacity or scheduling problem.
 
 ---
 
-# 13. What is simulated — never misrepresent this ⭐
+# 14. What is simulated — never misrepresent this ⭐
 
 Stating this plainly is more credible than overclaiming, and the architecture is the real
 contribution either way.
@@ -762,9 +854,11 @@ contribution either way.
 
 ---
 
-# 14. Suggested demo running order
+# 15. Suggested demo running order
 
-1. **Conflict-free claim** (§1.1) — two browsers, one slot. The core claim.
+1. **Conflict-free claim** (§1.1, §11.1) — two browsers, same charger and time. The core claim.
+1b. **Duration-aware booking** (§11.3) — on the time step, switch 15/30/45/60/90 and watch the
+   available start times change. No stored flag could do this.
 2. **Deposit flow** (§3.1, §3.12) — book, see the countdown, **simulate a decline**, then pay.
 3. **Refund honesty** (§3.4) — open the cancel modal >24h out, then <24h out. Different, truthful.
 4. **Flexible booking** (§6.1, §9) — a window, the ranked options *with their reasons*, then
@@ -777,7 +871,7 @@ contribution either way.
    sample sizes. Hover one to show what it excludes.
 9. **Behaviour** (§8.11) — `/admin/behavior`, then a driver detail: delay distribution,
    cancellation lead-time breakdown, and the raw timeline the numbers came from.
-11. **Operational safety** (§12.1) — a migration dry run refusing to run out of order.
+12. **Operational safety** (§13.1) — a migration dry run refusing to run out of order.
 
 **Closing point for the presentation:** the recurring theme is *choosing where correctness lives*.
 The database arbitrates conflicts; a pure policy module decides money and movement; an append-only

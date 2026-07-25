@@ -1,6 +1,6 @@
 # PROJECT_STATE.md — what is built, what is not, what to do next
 
-**Last updated: 2026-07-25 (schedule quality KPIs).** Read this after `CLAUDE.md` and
+**Last updated: 2026-07-25 (duration-aware reservations).** Read this after `CLAUDE.md` and
 `AGENTS.md`, before writing code.
 
 See also **[`IMPLEMENTED_LOGIC.md`](IMPLEMENTED_LOGIC.md)** — the canonical register of every
@@ -18,6 +18,7 @@ same commit.**
 | Area | State |
 |---|---|
 | Reservation core (atomic claim, partial unique index) | **Done, shipped, do not redesign** |
+| **Duration-aware reservations** (15/30/45/60/90 min, range occupancy) | **Done** — fixed slots are no longer the bookable unit |
 | Vehicle provider abstraction (Mock/Tesla) | Done. Tesla errors by design |
 | Reservation v2 domain foundation (`lifecycle`, scheduled/actual times, grace) | **Code done. Migration NOT applied to the live DB** |
 | Staff accounts + station-scoped RBAC | Code done |
@@ -44,7 +45,7 @@ same commit.**
 The working database is `chargehub` on MongoDB Atlas. As of the date above it holds **6
 bookings** (5 `paid`, 1 `refunded`; statuses: 2 confirmed, 3 completed, 1 cancelled).
 
-**Three migrations are written, verified by dry run, and NOT YET APPLIED:**
+**Four migrations are written, verified by dry run, and NOT YET APPLIED:**
 
 1. `ops:migrate-v2` — backfills the v2 lifecycle fields. Dry run reports 6 bookings needing it.
 2. `ops:migrate-commitments` — backfills the deposit/commitment fields. **Refuses to run until
@@ -91,6 +92,8 @@ cd backend
 | `npm run ops:migrate-commitments -- --apply` | |
 | `npm run ops:migrate-flexibility` | Run third — also refuses until v2 is applied |
 | `npm run ops:migrate-flexibility -- --apply` | Backfills every booking as STRICT |
+| `npm run ops:migrate-occupancy` | Run fourth — **rebuilds the `slotId` partial index** and backfills occupancy. The only non-additive migration; read its header before applying |
+| `npm run ops:migrate-occupancy -- --apply` | |
 
 ### Routine operations
 
@@ -110,7 +113,7 @@ npm run seed:all && npm run ops:indexes && npm run ops:publish -- 2026-12-31
 **The correct sequence on the existing database (owner only):**
 
 ```bash
-npm run ops:migrate-v2 -- --apply && npm run ops:migrate-commitments -- --apply && npm run ops:migrate-flexibility -- --apply && npm run ops:indexes
+npm run ops:migrate-v2 -- --apply && npm run ops:migrate-commitments -- --apply && npm run ops:migrate-flexibility -- --apply && npm run ops:migrate-occupancy -- --apply && npm run ops:indexes
 ```
 
 ---

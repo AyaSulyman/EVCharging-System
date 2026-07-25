@@ -5,6 +5,8 @@ import Charger from "@/models/Charger";
 import Vehicle from "@/models/Vehicle";
 import { DEFAULT_GRACE_PERIOD_MINUTES } from "@/models/reservationLifecycle";
 import { DEFAULT_FLEXIBILITY } from "@/models/flexibilityPolicy";
+import { endOfRange, validateRange } from "@/models/occupancyPolicy";
+import { claimOccupancy, releaseOccupancy } from "@/services/occupancy.service";
 import {
   REFUND_CUTOFF_HOURS,
   assessRefund,
@@ -406,7 +408,11 @@ export async function updateReservation({ id, actorId, actorRole, updates }: Upd
   await booking.save();
 
   if (nextStatus === "cancelled") {
+    // Both release paths run. Each is a no-op for the other kind of reservation — a range booking has
+    // no slotId, a slot booking has no occupancy rows — so the terminating path never has to branch
+    // on which model a reservation uses.
     await releaseReservationSlot(booking.slotId);
+    await releaseOccupancy(booking._id);
     // The capacity consequence, emitted separately from the reservation outcome above. The
     // waitlist matcher and the optimizer care that an interval came back, not why — so they can
     // subscribe to this one event type without knowing anything about commitments.
@@ -427,6 +433,9 @@ export async function updateReservation({ id, actorId, actorRole, updates }: Upd
       { _id: booking.slotId, status: "booked" },
       { $set: { status: "completed" } }
     );
+    // A range reservation's time is likewise spent. Occupancy rows are the lease, so releasing them
+    // is correct — the reservation's own record is what preserves the history.
+    await releaseOccupancy(booking._id);
   }
 
   return booking;
@@ -533,6 +542,9 @@ export async function endCharging(bookingId: string) {
     { _id: booking.slotId, status: "booked" },
     { $set: { status: "completed" } }
   );
+  // For a range reservation, ending the session frees the remaining time immediately. This is what
+  // makes early departure genuinely return capacity rather than only recording that it happened.
+  await releaseOccupancy(booking._id);
 
   const scheduledEnd = booking.scheduledEnd ?? booking.endTime;
   const minutesEarly = scheduledEnd
@@ -586,4 +598,209 @@ export async function endCharging(bookingId: string) {
   }
 
   return booking;
+}
+
+/* ============================================================================
+ * Duration-aware reservations
+ *
+ * Reservations as TIME RANGES rather than fixed slots. The legacy `claimReservation` above stays
+ * exactly as it was — historical reservations reference a slot and are protected by the partial
+ * unique index on `bookings.slotId`. New reservations declare a start and a duration, and hold
+ * capacity through `reservationoccupancy`, whose unique index on (chargerId, atomStart) is the
+ * arbiter.
+ *
+ * Both mechanisms coexist deliberately. Rewriting the existing reservations onto ranges would mean
+ * altering stored history to fit a newer model; keeping the old path costs one nullable field. See
+ * models/occupancyPolicy.ts for why occupancy is atomised at all.
+ * ========================================================================== */
+
+export interface ClaimRangeReservationInput {
+  userId: string;
+  vehicleId: string;
+  chargerId: string;
+  /** Must sit on the 15-minute grid. Rejected, never silently snapped. */
+  startTime: Date;
+  durationMinutes: number;
+  createdVia?: "self" | "staff_onsite";
+  createdByStaffId?: string;
+  commitmentCompleted?: boolean;
+  requestId?: string;
+  flexibilityType?: string;
+}
+
+/**
+ * Claims a reservation for an arbitrary duration.
+ *
+ * Ordering mirrors the slot path exactly, and for the same reason: the reservation is written first,
+ * then the occupancy claimed. A crash between the two leaves a reservation with no occupancy — which
+ * reconciliation detects and repairs — rather than occupancy nobody holds, which no query can see and
+ * no driver can book. If the occupancy claim loses a race the reservation is deleted, which is safe
+ * because nothing can reference a document created microseconds earlier.
+ *
+ * The vehicle's connector must match the charger. That check was unnecessary on the slot path because
+ * the wizard only ever offered compatible chargers; a range request names a charger directly, so the
+ * boundary has to enforce it here.
+ *
+ * Throws: CHARGER_NOT_FOUND · VEHICLE_NOT_OWNED · CONNECTOR_MISMATCH · INVALID_RANGE ·
+ *         CHARGER_BUSY · CODE_GENERATION_FAILED
+ */
+export async function claimRangeReservation({
+  userId,
+  vehicleId,
+  chargerId,
+  startTime,
+  durationMinutes,
+  createdVia = "self",
+  createdByStaffId = undefined,
+  commitmentCompleted = false,
+  requestId = undefined,
+  flexibilityType = DEFAULT_FLEXIBILITY,
+}: ClaimRangeReservationInput) {
+  await connectDB();
+
+  const structural = validateRange({ start: startTime, durationMinutes });
+  if (!structural.valid) {
+    const err = new Error("INVALID_RANGE") as Error & { detail?: string };
+    err.detail = structural.detail;
+    throw err;
+  }
+
+  const charger = await Charger.findById(chargerId).lean<{
+    _id: unknown;
+    stationId: unknown;
+    connectorType: string;
+    powerKW: number;
+    pricePerKWh: number;
+    status: string;
+  } | null>();
+  if (!charger) throw new Error("CHARGER_NOT_FOUND");
+  // Operator-declared serviceability. A bay in maintenance holds no reservations even when its time
+  // is unoccupied — charger status and occupancy are different things.
+  if (charger.status !== "available") throw new Error("CHARGER_NOT_FOUND");
+
+  const vehicle = await Vehicle.findOne({ _id: vehicleId, userId })
+    .select("_id connectorType")
+    .lean<{ _id: unknown; connectorType: string } | null>();
+  if (!vehicle) throw new Error("VEHICLE_NOT_OWNED");
+  if (vehicle.connectorType !== charger.connectorType) throw new Error("CONNECTOR_MISMATCH");
+
+  const endTime = endOfRange(startTime, durationMinutes);
+  // Cost scales with real duration now rather than with a fixed half-hour. This is what makes the
+  // estimate honest for a 15-minute top-up against a 90-minute charge.
+  const hours = durationMinutes / 60;
+  const totalAmount = Math.round(charger.powerKW * hours * charger.pricePerKWh * 100) / 100;
+
+  const now = new Date();
+  const depositAmount = computeCommitmentAmount(totalAmount);
+  const commitment = commitmentCompleted
+    ? { paymentStatus: "paid", depositPaidAt: now, commitmentExpiresAt: null }
+    : {
+        paymentStatus: "pending",
+        depositPaidAt: null,
+        commitmentExpiresAt: computeCommitmentExpiry(startTime, now),
+      };
+
+  const bookingDate = new Date(startTime);
+  bookingDate.setHours(0, 0, 0, 0);
+
+  let booking;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      booking = await Booking.create({
+        userId,
+        vehicleId,
+        // No slotId: this reservation is a range. The partial index filters on slotId existing, so
+        // omitting it keeps range reservations out of the legacy uniqueness check entirely.
+        chargerId: charger._id,
+        stationId: charger.stationId,
+        bookingCode: generateCode(),
+        bookingDate,
+        startTime,
+        endTime,
+        durationMinutes,
+        status: commitmentCompleted ? "confirmed" : "pending",
+        lifecycle: commitmentCompleted ? "RESERVED" : "PENDING_PAYMENT",
+        scheduledStart: startTime,
+        scheduledEnd: endTime,
+        preferredStart: startTime,
+        flexibilityType,
+        gracePeriodMinutes: DEFAULT_GRACE_PERIOD_MINUTES,
+        createdVia,
+        createdByStaffId: createdByStaffId ?? null,
+        totalAmount,
+        appliedUnitPrice: charger.pricePerKWh,
+        appliedPowerKW: charger.powerKW,
+        depositAmount,
+        refundCutoffHours: REFUND_CUTOFF_HOURS,
+        ...commitment,
+      });
+      break;
+    } catch (err) {
+      if (duplicateOn(err, "bookingCode") && attempt < CODE_ATTEMPTS - 1) continue;
+      if (duplicateOn(err, "bookingCode")) throw new Error("CODE_GENERATION_FAILED");
+      throw err;
+    }
+  }
+
+  // Step 2 — take the time. The unique index on (chargerId, atomStart) decides; a collision means
+  // someone else already holds part of this range.
+  try {
+    await claimOccupancy({
+      bookingId: booking._id,
+      chargerId: charger._id,
+      stationId: charger.stationId,
+      userId,
+      start: startTime,
+      durationMinutes,
+    });
+  } catch (err) {
+    await Booking.deleteOne({ _id: booking._id });
+    throw err;
+  }
+
+  await emitReservationEvent({
+    type: "reservation.created",
+    bookingId: booking._id,
+    requestId: requestId ?? undefined,
+    userId,
+    stationId: charger.stationId,
+    lifecycle: booking.lifecycle,
+    fault: "customer",
+    basis: createdVia,
+    amount: depositAmount,
+    actorId: createdByStaffId ?? userId,
+    actorRole: createdVia === "staff_onsite" ? "staff" : "user",
+    metadata: { scheduledStart: startTime, scheduledEnd: endTime, durationMinutes },
+  });
+
+  if (commitmentCompleted) {
+    await emitReservationEvent({
+      type: "reservation.confirmed",
+      bookingId: booking._id,
+      requestId: requestId ?? undefined,
+      userId,
+      stationId: charger.stationId,
+      lifecycle: booking.lifecycle,
+      fault: "customer",
+      basis: "committed_at_creation",
+      amount: depositAmount,
+      actorId: createdByStaffId ?? userId,
+      actorRole: createdVia === "staff_onsite" ? "staff" : "user",
+      metadata: { durationMinutes },
+    });
+  }
+
+  return booking;
+}
+
+/**
+ * Releases a duration-aware reservation's occupancy.
+ *
+ * The range-model counterpart to `releaseReservationSlot`. Both are called on the same terminal
+ * transitions — cancellation, expiry, no-show — and each is a no-op for the other kind of
+ * reservation, so the terminating paths can call both without branching on which model a booking
+ * uses.
+ */
+export async function releaseReservationRange(bookingId: unknown): Promise<void> {
+  await releaseOccupancy(bookingId);
 }

@@ -16,6 +16,7 @@
     "ops:migrate-v2": "tsx scripts/migrate-reservation-v2.ts",
     "ops:migrate-commitments": "tsx scripts/migrate-reservation-commitments.ts",
     "ops:migrate-flexibility": "tsx scripts/migrate-reservation-flexibility.ts",
+    "ops:migrate-occupancy": "tsx scripts/migrate-occupancy.ts",
     "ops:expire-commitments": "tsx scripts/expire-commitments.ts",
     "ops:reliability": "tsx scripts/recompute-reliability.ts",
     "ops:behavior": "tsx scripts/recompute-behavior.ts"

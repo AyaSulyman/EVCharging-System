@@ -22,6 +22,7 @@
 import { connectDB } from "@/config/database";
 import Booking from "@/models/Booking";
 import Slot from "@/models/Slot";
+import { releaseOccupancy } from "@/services/occupancy.service";
 import PaymentIntent from "@/models/PaymentIntent";
 import Refund from "@/models/Refund";
 import type { RefundAssessment } from "@/models/commitmentPolicy";
@@ -379,6 +380,9 @@ async function releaseExpired(booking: {
     { _id: booking.slotId, status: "booked" },
     { $set: { status: "available" } }
   );
+  // Range reservations hold time in `reservationoccupancy` rather than on a slot. Releasing both is
+  // safe: each is a no-op for the other kind, so expiry needs no branch on the reservation's model.
+  await releaseOccupancy(booking._id);
 
   // Any attempt still in flight is void — the reservation it was securing no longer exists.
   await PaymentIntent.updateMany(

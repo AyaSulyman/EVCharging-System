@@ -42,6 +42,10 @@ async function run() {
     // customerbehaviorprofiles is a real constraint — two profiles for one driver would mean two
     // different answers to the same question.
     import("@/models/CustomerBehaviorProfile"),
+    // Duration-aware occupancy. The unique index on (chargerId, atomStart) is THE arbiter of
+    // conflicts for range reservations — the direct equivalent of the partial unique index on
+    // bookings.slotId. It is an invariant, not tuning.
+    import("@/models/ReservationOccupancy"),
   ]);
 
   await mongoose.connect(uri);
