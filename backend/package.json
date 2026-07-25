@@ -12,7 +12,10 @@
     "seed:all": "tsx src/seed/seed-all.ts",
     "ops:indexes": "tsx scripts/ensure-indexes.ts",
     "ops:publish": "tsx scripts/publish-inventory.ts",
-    "ops:reconcile": "tsx scripts/reconcile-inventory.ts"
+    "ops:reconcile": "tsx scripts/reconcile-inventory.ts",
+    "ops:migrate-v2": "tsx scripts/migrate-reservation-v2.ts",
+    "ops:migrate-commitments": "tsx scripts/migrate-reservation-commitments.ts",
+    "ops:expire-commitments": "tsx scripts/expire-commitments.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

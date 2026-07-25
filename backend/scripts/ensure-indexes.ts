@@ -29,6 +29,12 @@ async function run() {
     import("@/models/Booking"),
     import("@/models/Notification"),
     import("@/models/Banner"),
+    // Commitment ledger. The sparse-unique idempotency key on paymentintents is an invariant,
+    // not tuning: without it in the database, a double-submitted confirmation creates two
+    // competing attempts against one reservation.
+    import("@/models/PaymentIntent"),
+    import("@/models/Refund"),
+    import("@/models/ReservationEvent"),
   ]);
 
   await mongoose.connect(uri);

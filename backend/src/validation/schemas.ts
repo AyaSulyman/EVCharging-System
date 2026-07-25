@@ -1,8 +1,19 @@
 import { z } from "zod";
 import { PROVIDER_KEYS } from "@/providers/VehicleProvider";
+import { RESERVATION_LIFECYCLE } from "@/models/reservationLifecycle";
 
 /** Rejects anything that is not a Mongo ObjectId, before it reaches a query. */
 export const objectId = z.string().regex(/^[a-f\d]{24}$/i, "Must be a valid id");
+
+/**
+ * The v2 reservation lifecycle, exposed to the validation layer for reuse by the
+ * session/clock schemas added in later phases. Deliberately NOT wired into
+ * updateBookingSchema below: lifecycle transitions are server-driven, so a client cannot
+ * set them — and because that schema is the allowlist, the new v2 fields (lifecycle,
+ * scheduled*, actual*, delayMinutes, extensionCount, noShow, releasedEarly) are all
+ * stripped from any client update automatically, exactly as before.
+ */
+export const reservationLifecycleEnum = z.enum(RESERVATION_LIFECYCLE);
 
 const CONNECTOR_TYPES = ["CCS", "CHAdeMO", "Type2"] as const;
 
@@ -29,13 +40,50 @@ export const createBookingSchema = z.object({
 
 /**
  * Status and cancellation reason are the only writable fields. Everything else the
- * client might send — amount, payment status, booking code, the interval reference —
- * is stripped before it reaches the service.
+ * client might send — amount, payment status, booking code, the interval reference,
+ * every commitment field — is stripped before it reaches the service.
+ *
+ * `cancellationReason` is free text and therefore cannot be trusted here: certain reasons
+ * ("charger_failure", "maintenance", …) attribute fault to the operator and waive deposit
+ * forfeiture, so a driver who could set one arbitrarily could refund their own deposit at
+ * will. The service enforces that only an operator or staff member may claim operator fault
+ * (FORBIDDEN_FAULT_CLAIM) — the check belongs there because it depends on the actor's role,
+ * which this schema cannot see.
  */
 export const updateBookingSchema = z.object({
   id: objectId,
   status: z.enum(["pending", "confirmed", "cancelled", "completed", "no_show"]).optional(),
   cancellationReason: z.string().trim().max(500).optional(),
+});
+
+/**
+ * Opening a deposit commitment.
+ *
+ * NO PAYMENT DETAILS, BY CONSTRUCTION. There is no field for a card, a token or an amount, and
+ * because the schema *is* the allowlist, one cannot be smuggled in — the amount is read from the
+ * reservation's snapshotted terms, so a client cannot under-pay its own deposit.
+ */
+export const openCommitmentSchema = z.object({
+  bookingId: objectId,
+  /** Makes a double-submitted request resolve to one attempt rather than two. */
+  idempotencyKey: z.string().trim().min(8).max(128).optional(),
+});
+
+/**
+ * Confirming a deposit commitment.
+ *
+ * `simulate` chooses the mock gateway's outcome. It is a simulation control, not payment data —
+ * a real gateway ignores it. Constrained to the two supported outcomes so it cannot become a
+ * channel for arbitrary values; `requires_action` (3D Secure) is deliberately not offered.
+ */
+export const confirmCommitmentSchema = z.object({
+  intentId: objectId,
+  simulate: z.enum(["success", "declined"]).optional(),
+});
+
+/** Staff records a deposit taken at the desk, by reservation id. */
+export const depositActionSchema = z.object({
+  bookingId: objectId,
 });
 
 /* ------------------------------------------------------------------ vehicles */
@@ -120,7 +168,45 @@ export const updateUserSchema = z.object({
   name: z.string().trim().min(2).optional(),
   phone: z.string().trim().max(30).optional(),
   avatar: z.string().trim().optional(),
-  role: z.enum(["admin", "user"]).optional(),
+  role: z.enum(["admin", "staff", "user"]).optional(),
+});
+
+/* ------------------------------------------------------------------ staff (Phase 2) */
+
+/** Admin creates a staff account and assigns it to one or more stations. */
+export const createStaffSchema = z.object({
+  name: z.string().trim().min(2, "Name must be at least 2 characters"),
+  email: z.email("Enter a valid email"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  phone: z.string().trim().max(30).optional(),
+  stationIds: z.array(objectId).min(1, "Assign at least one station"),
+});
+
+/** Admin updates a staff account: reassign stations, edit profile, or revoke access. */
+export const updateStaffSchema = z.object({
+  name: z.string().trim().min(2).optional(),
+  phone: z.string().trim().max(30).optional(),
+  stationIds: z.array(objectId).optional(),
+  active: z.boolean().optional(),
+});
+
+/** Staff creates a reservation for a customer standing at the desk. */
+export const onSiteReservationSchema = z.object({
+  customerEmail: z.email("Enter a valid customer email"),
+  vehicleId: objectId,
+  slotId: objectId,
+  /**
+   * Whether the deposit was taken at the desk. Defaults to true: the customer is physically
+   * present, so the normal case is that it is settled there and then. Passing false creates
+   * the reservation in PENDING_PAYMENT with the usual payment window, for a customer who
+   * wants to settle on their phone.
+   */
+  depositCollected: z.boolean().optional(),
+});
+
+/** Staff starts or ends a charging session by reservation id. */
+export const sessionActionSchema = z.object({
+  bookingId: objectId,
 });
 
 /* ------------------------------------------------------------------ stations */

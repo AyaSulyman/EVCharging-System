@@ -2,6 +2,7 @@ import { connectDB } from "@/config/database";
 import Booking from "@/models/Booking";
 import { requireAuth, AuthError } from "@/middleware/auth";
 import { claimReservation, updateReservation } from "@/services/booking.service";
+import { assessRefund } from "@/models/commitmentPolicy";
 import { createBookingSchema, parseBody, updateBookingSchema } from "@/validation";
 import { errorResponse, json, preflight, serialize } from "@/utils/response";
 
@@ -21,7 +22,29 @@ export async function GET(req: Request) {
       .populate("chargerId", "label connectorType powerKW")
       .sort({ createdAt: -1 })
       .lean();
-    return json({ bookings: serialize(bookings) });
+
+    // Attach what cancelling right now would do to each deposit. Computed server-side with the
+    // same function the cancellation path uses, so the figure a driver is shown before they
+    // confirm cannot disagree with the one they actually get. Re-implementing the 24-hour rule
+    // in the client would be exactly that divergence waiting to happen.
+    //
+    // No `reason` is passed: this quote is for a *driver-initiated* cancellation, and the
+    // operator-fault waiver is not something a driver can invoke. Quoting a full refund here on
+    // the strength of a reason the driver cannot legitimately claim would promise money the
+    // cancellation path would then refuse to return.
+    const now = new Date();
+    const withQuotes = serialize<Record<string, unknown>[]>(bookings).map((b) => ({
+      ...b,
+      refundQuote: assessRefund({
+        commitmentAmount: b.depositAmount as number | undefined,
+        paymentStatus: b.paymentStatus as string | undefined,
+        scheduledStart: (b.scheduledStart ?? b.startTime) as string | undefined,
+        cutoffHours: b.refundCutoffHours as number | undefined,
+        now,
+      }),
+    }));
+
+    return json({ bookings: withQuotes });
   } catch (err) {
     if (err instanceof AuthError) return json({ error: err.message }, { status: err.status });
     console.error(err);
@@ -56,6 +79,14 @@ const UPDATE_ERRORS: Record<string, { status: number; error: string }> = {
   FORBIDDEN: { status: 403, error: "Forbidden" },
   NO_UPDATABLE_FIELDS: { status: 400, error: "No updatable fields supplied" },
   INVALID_TRANSITION: { status: 400, error: "That status change is not allowed" },
+  USE_COMMITMENT_ENDPOINT: {
+    status: 409,
+    error: "Confirm this reservation by completing its deposit, not by changing its status",
+  },
+  FORBIDDEN_FAULT_CLAIM: {
+    status: 403,
+    error: "Only an operator can record a cancellation as caused by a station fault",
+  },
 };
 
 export async function PATCH(req: Request) {

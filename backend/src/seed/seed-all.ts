@@ -24,6 +24,7 @@ import Slot from "@/models/Slot";
 import Booking from "@/models/Booking";
 import Notification from "@/models/Notification";
 import Banner from "@/models/Banner";
+import { computeCommitmentAmount, REFUND_CUTOFF_HOURS } from "@/models/commitmentPolicy";
 
 const WIKI = "https://commons.wikimedia.org/wiki/Special:FilePath";
 
@@ -224,6 +225,7 @@ async function run() {
   const bookings = bookedSlots.map((slot, i) => {
     const charger = chargers.find((c) => c._id.equals(slot.chargerId))!;
     const status = sampleStatuses[i % sampleStatuses.length];
+    const totalAmount = Math.round(charger.powerKW * 0.5 * charger.pricePerKWh * 100) / 100;
     return {
       userId: user._id,
       vehicleId: vehicles[i % 2]._id,
@@ -235,9 +237,17 @@ async function run() {
       startTime: slot.startTime,
       endTime: slot.endTime,
       status,
-      totalAmount: Math.round(charger.powerKW * 0.5 * charger.pricePerKWh * 100) / 100,
+      totalAmount,
       paymentStatus: status === "cancelled" ? "refunded" : "paid",
       cancellationReason: status === "cancelled" ? "Changed my plans" : undefined,
+      // Commitment terms. Set explicitly rather than left to the schema default, which is 0 —
+      // a seeded booking with a zero deposit reads as though a deposit was taken and lost, and
+      // trips the commitment migration's own consistency check.
+      depositAmount: computeCommitmentAmount(totalAmount),
+      depositPaidAt: slot.date,
+      refundedAt: status === "cancelled" ? slot.date : null,
+      refundCutoffHours: REFUND_CUTOFF_HOURS,
+      commitmentExpiresAt: null,
     };
   });
   if (bookings.length) await Booking.create(bookings);

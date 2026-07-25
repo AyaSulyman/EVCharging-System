@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
+import { useCallback, useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import QRCode from "qrcode";
@@ -12,15 +12,23 @@ import {
   Loader2,
   MapPin,
   Clock,
+  Clock3,
   Zap,
 } from "lucide-react";
+import { DepositPanel } from "@/components/booking/DepositPanel";
 import { formatDate, formatTime } from "@/lib/utils";
 import { useApi } from "@/lib/useApi";
 
 interface BookingData {
+  _id: string;
   bookingCode: string;
   startTime: string;
   endTime: string;
+  status: string;
+  lifecycle?: string;
+  depositAmount?: number;
+  commitmentExpiresAt?: string | null;
+  refundCutoffHours?: number;
   station?: { name: string; address: string };
   charger?: { label: string; powerKW: number };
 }
@@ -33,8 +41,8 @@ function Confirmation() {
   const [qr, setQr] = useState<string>("");
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    call("/api/bookings")
+  const load = useCallback(() => {
+    return call("/api/bookings")
       .then((r) => r.json())
       .then((d) => {
         const found = (d.bookings ?? []).find(
@@ -42,16 +50,33 @@ function Confirmation() {
         );
         if (found) {
           setBooking({
+            _id: found._id,
             bookingCode: found.bookingCode,
             startTime: found.startTime,
             endTime: found.endTime,
+            status: found.status,
+            lifecycle: found.lifecycle,
+            depositAmount: found.depositAmount,
+            commitmentExpiresAt: found.commitmentExpiresAt,
+            refundCutoffHours: found.refundCutoffHours,
             station: found.stationId,
             charger: found.chargerId,
           });
         }
       })
       .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // A reservation is not confirmed until its deposit is. Deciding this from the server's
+  // lifecycle rather than assuming success is the whole point — the previous version of this
+  // page announced "Booking confirmed!" unconditionally, which became false the moment
+  // reservations started requiring a deposit.
+  const awaitingDeposit = booking?.lifecycle === "PENDING_PAYMENT";
 
   useEffect(() => {
     if (code) {
@@ -99,12 +124,36 @@ function Confirmation() {
 
   return (
     <div className="mx-auto max-w-lg">
+      {/* Deposit first: until it is paid there is nothing to celebrate and a countdown running. */}
+      {awaitingDeposit && booking && (
+        <div className="mb-4">
+          <DepositPanel
+            bookingId={booking._id}
+            bookingCode={booking.bookingCode}
+            depositAmount={booking.depositAmount ?? 0}
+            commitmentExpiresAt={booking.commitmentExpiresAt ?? null}
+            refundCutoffHours={booking.refundCutoffHours}
+            onCommitted={load}
+          />
+        </div>
+      )}
+
       <div className="card text-center">
-        <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
-          <CheckCircle2 className="h-9 w-9" />
+        <span
+          className={`mx-auto flex h-16 w-16 items-center justify-center rounded-full ${
+            awaitingDeposit ? "bg-amber-50 text-amber-600" : "bg-emerald-50 text-emerald-600"
+          }`}
+        >
+          {awaitingDeposit ? <Clock3 className="h-9 w-9" /> : <CheckCircle2 className="h-9 w-9" />}
         </span>
-        <h1 className="mt-4 text-2xl font-bold text-ink">Booking confirmed!</h1>
-        <p className="mt-1 text-ink-soft">Your charging slot is reserved.</p>
+        <h1 className="mt-4 text-2xl font-bold text-ink">
+          {awaitingDeposit ? "Slot held for you" : "Booking confirmed!"}
+        </h1>
+        <p className="mt-1 text-ink-soft">
+          {awaitingDeposit
+            ? "Complete the deposit above to confirm this reservation."
+            : "Your charging slot is reserved."}
+        </p>
 
         {/* Code */}
         <div className="mt-6 rounded-xl2 border border-dashed border-primary/40 bg-primary-light/40 py-4">

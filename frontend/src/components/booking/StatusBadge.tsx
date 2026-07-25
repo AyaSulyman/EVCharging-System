@@ -10,7 +10,9 @@ const STYLES: Record<BookingStatus, string> = {
 };
 
 const LABELS: Record<BookingStatus, string> = {
-  pending: "Pending",
+  // A reservation is only ever "pending" while its deposit is outstanding, so the label says
+  // what the driver actually has to do about it.
+  pending: "Deposit due",
   confirmed: "Confirmed",
   completed: "Completed",
   cancelled: "Cancelled",

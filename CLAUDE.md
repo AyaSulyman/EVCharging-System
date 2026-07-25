@@ -1,7 +1,15 @@
 # ChargeHub — Project Context for AI Assistants
 
 **Read this before writing any code.** It is the source of truth for what this project
-is, how it is built, and the rules that must not be broken. Its purpose is to keep new
+is, how it is built, and the rules that must not be broken.
+
+> **Two companion files, both required reading:**
+> - **`AGENTS.md`** — *how* to work here: verification standards, git conventions, and the
+>   specific mistakes this codebase has already been burned by.
+> - **`docs/PROJECT_STATE.md`** — what is built, what is half-built, what is deliberately not
+>   built, which migrations have and have not been applied, and the exact ops commands.
+>   **Check it before implementing anything**, so you don't rebuild what exists or "fix" what
+>   is intentional. Update it in the same commit whenever you change the state of the project. Its purpose is to keep new
 work consistent with what already exists, so nothing here should be contradicted without
 a deliberate, discussed decision. When a request conflicts with an invariant below,
 raise the conflict instead of silently working around it.
@@ -59,11 +67,49 @@ Breaking any of these is a regression, even if a task seems to ask for it.
   implementation in `backend/src/providers/` + one line in the registry. `PROVIDER_KEYS`
   is the single source of truth shared by the registry and the DB enum — keep them
   unified.
-- **Money is estimated; there are no payments.** No payment processing exists. Every
-  monetary figure in the UI and exports is labelled **estimated**. `paymentStatus` is
-  nominal — never present it as a real payment. Revenue is derived from the cost basis
-  captured on each reservation (`appliedUnitPrice`, `appliedPowerKW`) so it stays
-  reproducible after a price change.
+- **Money is estimated; there is no real payment processing.** No money moves anywhere in
+  this platform. Every monetary figure in the UI and exports is labelled **estimated** or
+  **simulated**; `paymentStatus` is nominal — never present it as a real payment. Revenue is
+  derived from the cost basis captured on each reservation (`appliedUnitPrice`,
+  `appliedPowerKW`) so it stays reproducible after a price change.
+  **There IS a reservation commitment (deposit) subsystem** — see the next bullet. It is a
+  real state machine behind a **mock gateway**, and it must never be described as taking
+  payment.
+- **The commitment (deposit) subsystem is real logic behind a simulated gateway.**
+  Internally the concept is a **commitment** (a driver taking responsibility for a bay held
+  empty for them); user-facing copy calls it a **deposit**. Keep that split — reasoning about
+  it as "payment processing" produces the wrong design.
+  - **No card data, ever.** No card number, CVC, expiry, token or payment instrument is
+    accepted, stored, transmitted or displayed by any part of this system, and no field for
+    one exists. Mock outcomes are chosen by an explicit *simulate success / simulate declined*
+    control, never by fake card numbers — a realistic card form would misrepresent what the
+    code does. Do not add one.
+  - **One gateway per deployment, behind `backend/src/payments/`.** `getGateway()` resolves it
+    from `PAYMENT_GATEWAY`. Adding a real provider (Stripe, Whish, OMT) is one class
+    implementing `PaymentGateway` plus one line in `payments/index.ts`. This is *not* the
+    vehicle-provider registry pattern §7 warns about: providers are resolved per record
+    because many are live at once; a gateway is resolved once per process. `getGateway()`
+    refuses to serve the mock in production, because the mock verifies no webhook signature.
+  - **`PENDING_PAYMENT → RESERVED` happens in exactly one place**: `handleGatewayEvent` in
+    `commitment.service.ts`, the webhook path. Never promote a reservation from a route, a
+    controller, or the response of a confirm call. Real gateways settle asynchronously and can
+    contradict what a confirm appeared to say; a second promotion path would eventually
+    confirm a reservation nobody paid for.
+  - **An uncommitted reservation still holds its interval**, because `PENDING_PAYMENT` maps to
+    legacy `pending`, which is already inside the partial unique index's filter. It is bounded
+    by `commitmentExpiresAt` (10 min, `COMMITMENT_WINDOW_MINUTES`) so an abandoned checkout
+    cannot hold a bay forever. That window is deliberately **shorter** than the 15-minute
+    arrival grace period — they measure different things (a phone tap vs. crossing a city in
+    traffic). Never "harmonise" the two numbers.
+  - **Fault attribution decides the money.** `assessRefund` checks operator fault *first*:
+    a cancellation caused by us (`technical_incident`, `charger_failure`, `maintenance`,
+    `delay_propagation`, `operator_reschedule`) is always fully refunded and never penalised.
+    Only an operator or staff member may claim operator fault — a driver who could set that
+    reason would refund their own deposit at will, making the 24-hour cutoff unenforceable.
+  - **`reservationevents` is append-only and has no consumers yet, by design.** Waitlists,
+    the optimizer, reliability scoring and the schedule KPI all read behavioural history that
+    current state cannot express and that is destroyed if not written down. Per §7 those stay
+    *consumers*; never call them inline from the reservation flow.
 - **Charger `status` is operator-declared serviceability, not occupancy.** Whether a bay
   is taken right now lives on the interval. A charger can read `available` while intervals
   on it are `booked`. A reservation never writes charger status.
@@ -79,6 +125,18 @@ Breaking any of these is a regression, even if a task seems to ask for it.
   the `RESERVATION` entity is stored in the **`bookings`** collection, `SITE_CONTENT` in
   **`banners`**. The `role` field stores **`admin`** / **`user`** (presented as
   operator / driver).
+- **`bookings.status` and `bookings.lifecycle` are NOT duplicates — never collapse them.**
+  `status` (lowercase `pending|confirmed|cancelled|completed|no_show`) is the **authoritative**
+  legacy field: the **partial unique index on `slotId` filters on it**, and every existing
+  query, the admin stats and the frontend badge read it. `lifecycle` (uppercase
+  `RESERVED…RELEASED`, defined in `models/reservationLifecycle.ts`) is the **richer v2 domain
+  state** — arrival, grace, at-risk, charging, extensions — that `status` structurally cannot
+  express. They are kept in agreement by `lifecycleToLegacyStatus`: **several lifecycle states
+  map to one legacy status** (RESERVED/ARRIVED/CHARGING/LATE/AT_RISK/EXTENSION_REQUESTED all
+  collapse to `confirmed`; RELEASED→`cancelled`), which is *precisely why the coarse field
+  cannot replace the fine one, nor the reverse*. Deleting `lifecycle` removes the v2 model;
+  deleting `status` breaks the index and every legacy read. Always change reservation state
+  through the booking service so both fields stay coherent — never write one directly.
 - **The assistant has no LLM.** It answers by running real database queries and returns
   the results; it generates no free text. Do not claim or imply it uses a language model.
 
@@ -113,10 +171,12 @@ discovery pages are server-rendered and `force-dynamic` for live availability. S
 
 ---
 
-## 4. Data model (9 collections)
+## 4. Data model (12 collections)
 
 `users` · `vehicles` · `vehicleconnections` · `stations` · `chargers` · `slots`
-(reservable intervals) · `bookings` (reservations) · `notifications` · `banners`.
+(reservable intervals) · `bookings` (reservations) · `notifications` · `banners` ·
+`paymentintents` (commitment attempts) · `refunds` · `reservationevents` (append-only
+behavioural log).
 
 - **Central invariant:** `slots.status === "booked"` corresponds one-to-one with a live
   reservation, in both directions. An ops script reconciles this; the claim path
@@ -137,7 +197,14 @@ discovery pages are server-rendered and `force-dynamic` for live availability. S
   not read from a real car. The architecture is real; the data is not (yet).
 - **Notifications**: the store and read/mark-read UI are complete, but **nothing generates
   notifications from events yet** — the samples are seeded.
-- **No payments, no energy metering, no charging-hardware control** — by design.
+- **Deposits are a real state machine with a simulated gateway.** The hold window, the
+  expiry-and-release, the 24-hour refund cutoff, the operator-fault waiver and the no-show
+  forfeiture all genuinely work; the gateway behind them is `MockGateway` and takes no money
+  and no card details. Say "simulated payment", never "payment".
+- **`reservationevents` has no consumers yet.** Events are written; nothing reads them. The
+  reliability score, waitlist notification and optimizer invalidation that will consume them
+  do not exist — do not claim they do.
+- **No energy metering and no charging-hardware control** — by design.
 - **Nearest-location** currently ranks from a fixed reference point; the geospatial index
   is ready to make it per-driver.
 
@@ -194,8 +261,13 @@ around them.
   index; the ranking logic stays.
 - **Late-departure penalty** → uses the reservation's end time + a check-out signal
   (QR or telemetry); the charge itself needs a payment integration.
-- **Payments** → attach a transaction to the reservation; only then replace "estimated"
-  with settled figures. Migrate existing reservations off the nominal payment state.
+- **Real payments** → the seam exists: implement `PaymentGateway` in `backend/src/payments/`,
+  add one case to `getGateway()`, and point the provider's webhook at
+  `/api/payments/webhook`. The async settlement path, the intent/refund ledger
+  (`paymentintents`, `refunds`) and the idempotency key are already in place, so this is a
+  swap rather than a redesign. Only after a real gateway is live may "estimated"/"simulated"
+  labels be replaced with settled figures; existing reservations must then be migrated off the
+  nominal payment state.
 
 Do not duplicate the provider abstraction for non-vehicle APIs (Stripe, email, maps have
 their own SDKs) — keep the Strategy/Factory pattern scoped to vehicle providers.

@@ -8,7 +8,33 @@ export type BookingStatus =
   | "cancelled"
   | "completed"
   | "no_show";
-export type PaymentStatus = "pending" | "paid" | "refunded";
+/**
+ * Nominal payment state of a reservation's deposit. No real money moves anywhere in this
+ * platform — "paid" means the commitment was recorded against a simulated gateway.
+ * "forfeited" is a deposit kept because the driver cancelled inside the refund cutoff, or
+ * did not show up.
+ */
+export type PaymentStatus = "pending" | "paid" | "refunded" | "forfeited";
+
+/** Intent states exposed by the mock gateway. Mirrors Stripe's, minus 3D Secure. */
+export type PaymentIntentStatus =
+  | "requires_confirmation"
+  | "processing"
+  | "succeeded"
+  | "failed"
+  | "canceled";
+
+/**
+ * What cancelling a reservation right now would do to its deposit. Computed by the backend with
+ * the same function the cancellation path uses, so it never disagrees with the actual outcome —
+ * never re-derive this rule in the client.
+ */
+export interface RefundQuote {
+  outcome: "refundable" | "non_refundable" | "none";
+  amount: number;
+  hoursUntilStart: number;
+  cutoffHours: number;
+}
 export type ProviderKey = "tesla" | "hyundai" | "bmw" | "mock";
 export type NotificationType =
   | "booking_confirmed"
@@ -117,6 +143,14 @@ export interface IBooking {
   paymentStatus: PaymentStatus;
   cancellationReason?: string;
   createdAt: Date;
+  /** Nominal deposit securing this reservation. */
+  depositAmount?: number;
+  depositPaidAt?: string | null;
+  /** Deadline for completing the deposit; past it, the slot is released. */
+  commitmentExpiresAt?: string | null;
+  refundedAt?: string | null;
+  refundCutoffHours?: number;
+  refundQuote?: RefundQuote;
 }
 
 export interface INotification {

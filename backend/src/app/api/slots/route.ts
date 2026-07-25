@@ -1,5 +1,6 @@
 import { connectDB } from "@/config/database";
 import Slot from "@/models/Slot";
+import Booking from "@/models/Booking";
 import { requireAdmin } from "@/middleware/auth";
 import { publishInventory } from "@/services/slot.service";
 import { parseBody, publishSlotsSchema, updateSlotSchema } from "@/validation";
@@ -26,7 +27,32 @@ export async function GET(req: Request) {
   }
 
   const slots = await Slot.find(query).sort({ startTime: 1 }).lean();
-  return json({ slots: serialize(slots) });
+
+  // An interval held by an expired deposit hold is, in policy terms, already free — the
+  // reservation holding it has lost its claim. Reporting it as booked until a scheduled sweep
+  // materialises that is what would make "release the slot immediately" untrue in the only place
+  // a driver can tell: the booking screen.
+  //
+  // Safe to present optimistically because the claim path agrees: claimReservation releases the
+  // expired hold before checking availability, so a driver who acts on what they see here
+  // succeeds. The alternative — showing it as taken — loses a real booking to a bay nobody holds.
+  const booked = slots.filter((s) => s.status === "booked").map((s) => s._id);
+  const expiredHolds = booked.length
+    ? await Booking.find({
+        slotId: { $in: booked },
+        lifecycle: "PENDING_PAYMENT",
+        commitmentExpiresAt: { $lt: new Date() },
+      })
+        .select("slotId")
+        .lean<{ slotId: unknown }[]>()
+    : [];
+
+  const freed = new Set(expiredHolds.map((b) => String(b.slotId)));
+  const withAvailability = serialize<Record<string, unknown>[]>(slots).map((s) =>
+    freed.has(String(s._id)) ? { ...s, status: "available", releasedFromExpiredHold: true } : s
+  );
+
+  return json({ slots: withAvailability });
 }
 
 

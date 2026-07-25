@@ -10,24 +10,40 @@ import {
   X,
   RotateCcw,
   Inbox,
+  ShieldCheck,
 } from "lucide-react";
 import { StatusBadge } from "@/components/booking/StatusBadge";
+import { DepositPanel } from "@/components/booking/DepositPanel";
 import { useToast } from "@/components/Toast";
 import { useApi } from "@/lib/useApi";
 import { formatDate, formatTime, formatCurrency } from "@/lib/utils";
-import type { BookingStatus } from "@/types";
+import type { BookingStatus, PaymentStatus, RefundQuote } from "@/types";
 
 interface BookingRow {
   _id: string;
   bookingCode: string;
   status: BookingStatus;
+  lifecycle?: string;
   startTime: string;
   endTime: string;
   totalAmount: number;
   cancellationReason?: string;
+  paymentStatus?: PaymentStatus;
+  depositAmount?: number;
+  commitmentExpiresAt?: string | null;
+  refundCutoffHours?: number;
+  refundQuote?: RefundQuote;
   stationId?: { name: string; address: string };
   chargerId?: { label: string; powerKW: number };
 }
+
+/** Driver-facing label for the nominal deposit state. */
+const DEPOSIT_LABEL: Record<string, string> = {
+  pending: "Deposit due",
+  paid: "Deposit paid",
+  refunded: "Deposit refunded",
+  forfeited: "Deposit forfeited",
+};
 
 type Tab = "upcoming" | "past" | "cancelled";
 
@@ -39,6 +55,8 @@ export default function BookingsPage() {
   const [tab, setTab] = useState<Tab>("upcoming");
   const [cancelId, setCancelId] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  // Which reservation's deposit panel is open, if any.
+  const [payId, setPayId] = useState<string | null>(null);
 
   async function load() {
     const res = await call("/api/bookings");
@@ -154,6 +172,12 @@ export default function BookingsPage() {
                       Reason: {b.cancellationReason}
                     </p>
                   )}
+                  {b.paymentStatus && b.depositAmount ? (
+                    <p className="mt-1.5 text-xs font-medium text-ink-soft">
+                      {DEPOSIT_LABEL[b.paymentStatus] ?? b.paymentStatus} ·{" "}
+                      {formatCurrency(b.depositAmount)}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="text-right">
                   <span className="font-mono text-xs font-bold text-primary">
@@ -164,6 +188,33 @@ export default function BookingsPage() {
                   </p>
                 </div>
               </div>
+
+              {/* Deposit outstanding — the slot is held but not yet confirmed. */}
+              {b.lifecycle === "PENDING_PAYMENT" &&
+                (payId === b._id ? (
+                  <div className="mt-4">
+                    <DepositPanel
+                      bookingId={b._id}
+                      bookingCode={b.bookingCode}
+                      depositAmount={b.depositAmount ?? 0}
+                      commitmentExpiresAt={b.commitmentExpiresAt ?? null}
+                      refundCutoffHours={b.refundCutoffHours}
+                      onCommitted={() => {
+                        setPayId(null);
+                        toast("Deposit paid — reservation confirmed", "success");
+                        load();
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setPayId(b._id)}
+                    className="btn-primary mt-4 w-full"
+                  >
+                    <ShieldCheck className="h-4 w-4" />
+                    Pay {formatCurrency(b.depositAmount ?? 0)} deposit to confirm
+                  </button>
+                ))}
 
               {/* Actions */}
               <div className="mt-4 flex gap-2 border-t border-line pt-4">
@@ -197,9 +248,41 @@ export default function BookingsPage() {
           <div className="w-full max-w-sm rounded-xl2 bg-white p-6 shadow-lift">
             <h3 className="text-lg font-bold text-ink">Cancel booking?</h3>
             <p className="mt-2 text-sm text-ink-soft">
-              This releases the slot for other drivers. If you paid, you&apos;ll be
-              refunded. This can&apos;t be undone.
+              This releases the slot for other drivers and can&apos;t be undone.
             </p>
+
+            {/*
+              The deposit consequence, stated before they commit — computed by the server with
+              the same rule the cancellation applies, so what we promise here is exactly what
+              happens. The previous copy said "if you paid, you'll be refunded", which became
+              untrue for any cancellation inside the cutoff.
+            */}
+            {(() => {
+              const target = bookings.find((b) => b._id === cancelId);
+              const quote = target?.refundQuote;
+              if (!quote || quote.outcome === "none") {
+                return (
+                  <p className="mt-3 rounded-lg bg-canvas px-3.5 py-2.5 text-sm text-ink-soft">
+                    No deposit has been taken, so cancelling costs you nothing.
+                  </p>
+                );
+              }
+              if (quote.outcome === "refundable") {
+                return (
+                  <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm text-emerald-700">
+                    Your {formatCurrency(quote.amount)} deposit will be refunded in full —
+                    you&apos;re cancelling more than {quote.cutoffHours}h ahead.
+                  </p>
+                );
+              }
+              return (
+                <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-800">
+                  Your deposit of {formatCurrency(target?.depositAmount ?? 0)} will{" "}
+                  <strong>not</strong> be refunded — cancellations within{" "}
+                  {quote.cutoffHours}h of the slot are non-refundable.
+                </p>
+              );
+            })()}
             <div className="mt-6 flex gap-2">
               <button
                 onClick={() => setCancelId(null)}
