@@ -105,6 +105,37 @@ Rules the team applies:
 
 ---
 
+## 4b. Big logic ships with an executable contradiction check
+
+**Every failure this codebase has actually had was two modules that were each internally correct and
+collectively wrong.** Not one of them was a type error, and not one would have been caught by reading
+the diff. The real examples, all found only by running code against a real database:
+
+| The contradiction | What it cost |
+|---|---|
+| The session transition emitted `penalize: false` meaning *"the scorer decides"*; the scorer read it as *"already decided"* | `Late Arrival: -5` **never once applied**. 30 late arrivals silently waived |
+| The index filter used `$exists: true`, which is **true for a field present and `null`** | Every range reservation still collided. The migration reported success |
+| Mongoose pluralised a collection to `reservationoccupancies`; the ops scripts addressed `reservationoccupancy` | The backfill would have written where the app never reads — **every reservation would have looked free** |
+| Utilization counted slot statuses after reservations stopped touching slots | Reported 0.5% while 178 reservations existed |
+| The seed wrote reservations without occupancy rows | A range booking could be sold **over the top of a seeded one** |
+
+So: **when you implement or change a significant logic, add an assertion to `npm run ops:verify` that
+would fail if the contradiction existed.** Not a unit test of the new function — a check that the new
+logic and the logic it touches still agree *when run together against real data*. The harness creates
+its own data and cleans up after itself, so adding a case is cheap.
+
+Ask specifically: *which other module now believes something about this one?* Then assert that belief.
+
+**If a contradiction is found, fix it at the source rather than patching around it**, and make sure
+the fix does not create a new one downstream. When two modules disagree about who owns a decision,
+pick the owner explicitly and write the reasoning next to both sides — the `penalize` fix names the
+delegation in the scorer *and* in `isChargeable`'s contract, so the next reader cannot re-introduce it.
+
+A precondition check that can pass while the precondition is unmet is worse than no check. The
+`$exists` clause passed its own verification and did not work.
+
+---
+
 ## 5. Git conventions
 
 - **Never add an AI co-author trailer.** No `Co-Authored-By: Claude`, no

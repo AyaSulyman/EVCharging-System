@@ -163,6 +163,13 @@ Breaking any of these is a regression, even if a task seems to ask for it.
   cannot replace the fine one, nor the reverse*. Deleting `lifecycle` removes the v2 model;
   deleting `status` breaks the index and every legacy read. Always change reservation state
   through the booking service so both fields stay coherent — never write one directly.
+- **Significant logic ships with an executable contradiction check.** Every real failure in this
+  codebase has been two modules each internally correct and collectively wrong — a scorer and an
+  emitter disagreeing on who decides a penalty, an index filter that matched `null`, a collection
+  name Mongoose pluralised. None was a type error. When you add or change a significant logic, add
+  an assertion to `npm run ops:verify` that would fail if that disagreement existed, and ask *which
+  other module now believes something about this one?* Fix contradictions at the source, never by
+  patching around them, and check the fix does not create a new one downstream. See `AGENTS.md` §4b.
 - **The assistant has no LLM.** It answers by running real database queries and returns
   the results; it generates no free text. Do not claim or imply it uses a language model.
 
