@@ -5,3 +5,10 @@
 # build tooling deps
 docs/_source/node_modules/
 docs/_source/package-lock.json
+
+# Personal notes and generated-doc helpers — created in assistant chat, not shared
+/SETUP.md
+/FEATURES_TODO.md
+/JIRA_BACKLOG.md
+/docs/NEXTJS_RENDERING.md
+/docs/_source/README.md
