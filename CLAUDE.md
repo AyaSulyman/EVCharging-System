@@ -10,6 +10,8 @@ is, how it is built, and the rules that must not be broken.
 >   built, which migrations have and have not been applied, and the exact ops commands.
 >   **Check it before implementing anything**, so you don't rebuild what exists or "fix" what
 >   is intentional. Update it in the same commit whenever you change the state of the project.
+> - **`README.md`** — the front door, and part of "done". It must always reflect what is
+>   implemented and working; update it in the same commit as any shipped feature.
 > - **`docs/RUNBOOK.md`** — every operational command, what it does and what to expect, including
 >   the migration order and how to recover. **Read it before running anything against a database.**
 > - **`docs/IMPLEMENTED_LOGIC.md`** — **the canonical register of every logic the system

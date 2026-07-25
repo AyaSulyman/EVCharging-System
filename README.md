@@ -1,13 +1,12 @@
-# ⚡ ChargeHub — EV Charging Station Reservation System
+# ⚡ ChargeHub — EV Charging Station Reservation Platform
 
-A multi-station EV charging reservation platform. Drivers discover stations, check
-live charger availability, reserve a specific charger for a specific interval, manage
-their vehicles, get battery-aware recommendations, and reach a bay by scanning its QR
-code. Operators manage stations, chargers, reservations and bookable inventory, and
-report on usage.
+A multi-station EV charging reservation platform. Drivers reserve a charger for **as long as they
+actually need** (15–120 minutes), secure it with a deposit, and arrive holding a reservation code.
+Operators run the floor, manage inventory, and see how well the platform is scheduling. Staff run
+individual stations.
 
-Built as **two Next.js applications** — a server-rendered client and a headless API
-service — over **MongoDB Atlas**, with **TypeScript** and **Tailwind CSS** throughout.
+Built as **two Next.js applications** — a server-rendered client and a headless API service — over
+**MongoDB Atlas**, with **TypeScript** and **Tailwind CSS** throughout.
 
 ---
 
@@ -16,55 +15,90 @@ service — over **MongoDB Atlas**, with **TypeScript** and **Tailwind CSS** thr
 ```
 backend/    API service — Next.js route handlers only, no UI. Port 4000.
 frontend/   Client application — Next.js App Router. Port 3000.
-docs/       Proposal, specification, ER diagram, rendering notes.
+docs/       Specification, design docs, runbook, and the implemented-logic register.
 ```
 
-The two are **separate installs** with their own `package.json`. There is no root
-package. The client holds no database access: every read and write crosses the API
-boundary, which keeps the service reusable by any future client.
+The two are **separate installs** with their own `package.json`. **There is no root package** — every
+`npm` command runs from `backend/` or `frontend/`. The client holds no database access: every read
+and write crosses the API boundary.
 
 ---
 
-## ✨ What it does
+## ✅ What is implemented and working
 
-**For drivers**
-- Browse stations with live "X of Y chargers free" availability
-- Filter by connector type (CCS / CHAdeMO / Type 2) and charging speed
-- Scan the QR code on a charger to reach its live status and start a reservation
-- Four-step reservation wizard, with incompatible chargers marked
-- Confirmation with a reservation code, QR image and calendar file
-- Manage reservations (upcoming / past / cancelled) and cancel, releasing the interval
-- Add vehicles and connect them to a manufacturer through the provider layer
-- Battery- and distance-aware charging recommendations
-- An assistant that answers from live platform data
-- In-app notifications
+Everything in this section is built, type-checked, and exercised against a real database by
+`npm run ops:verify` (19/19 passing).
 
-**For operators**
-- Dashboard with operational metrics and charts
-- Manage stations, chargers, availability and pricing
-- Search, filter and resolve reservations
-- Publish bookable inventory across a date range
-- Registered driver list with per-account totals
-- Date-ranged reports with CSV export
+### Reservations
+- **Duration-aware reservations** — 15, 30, 45, 60, 90 or 120 minutes, on a 15-minute start grid.
+  Fixed slots are no longer the bookable unit.
+- **Conflict-free by database constraint** — see [the two defining ideas](#-two-things-worth-knowing-about-the-design).
+- **Availability computed per duration** — the same free hour offers four 15-minute starts, one
+  60-minute start and no 90-minute start. There is no stored "available" flag, because no single
+  boolean can answer the question for every driver.
+- Enforced lifecycle: 11 states from `PENDING_PAYMENT` through `RESERVED`, `CHARGING`, `COMPLETED`,
+  with `LATE`, `AT_RISK`, `CANCELLED`, `NO_SHOW`, `RELEASED` as branches.
+- Cancellation with a **truthful refund quote shown before you confirm**, computed by the same
+  function that performs the refund.
+
+### Deposits (simulated payment, real state machine)
+- A reservation is held only once its deposit is committed; until then it sits in `PENDING_PAYMENT`
+  **holding the bay** for a bounded 10-minute window.
+- Stripe-shaped mock gateway behind a one-line swap seam (`backend/src/payments/`).
+- Refund policy: **100% at 24h+ notice, 0% inside it**, with the cutoff snapshotted per reservation.
+- **Operator-fault waiver** — a cancellation caused by a charger failure, maintenance or an operator
+  reschedule is always fully refunded and never counts against the driver.
+- Decline, retry, forfeit and refund paths all work.
+
+### Flexibility
+- **Flexible booking** — describe a window ("about 30 minutes, 09:00–17:00, either station") and get
+  ranked options back with their reasoning.
+- **Scheduler consent** — drivers choose how far the platform may re-time them (`STRICT` by default,
+  through to any time that day). Operators can move a reservation only within that consent, and
+  refusals are explained rather than hidden.
+
+### Staff operations
+- A dedicated **station-scoped staff role**. Station board with live reservations, on-site booking at
+  the desk, deposit collection, and charging session start/end.
+- Revoking access invalidates outstanding tokens immediately.
+
+### Analytics
+- **Customer reliability score** (0–100), derived by folding the event log — not accumulated.
+- **Customer behaviour tracking** — delays, cancellations by lead time, no-show rate, arrival
+  accuracy, trend, with the raw event timeline underneath.
+- **Reservation scoring engine** — five factors (station utilization, preference match, waiting time,
+  priority, reliability) with a full breakdown and a plain-language rationale.
+- **Schedule Quality KPIs** — preference match rate, utilization, average waiting time, customers
+  served per day, reservation success rate.
+
+### Vehicles
+- Manufacturer-agnostic provider layer with a simulated provider; battery- and distance-aware
+  charging recommendations.
+
+### Operations
+- 13 `ops:*` scripts: migrations with dry runs and snapshots, an end-to-end verification harness,
+  demo-data generation, projection rebuilds, and reconciliation. See **[`docs/RUNBOOK.md`](docs/RUNBOOK.md)**.
 
 ---
 
 ## 🔑 Two things worth knowing about the design
 
-**Reservations are conflict-free, and the database enforces it.** Every reservable
-interval exists as a record before anyone books it, so claiming one is the allocation
-of a single identifiable row. A partial unique index on the reservation's interval
-reference makes a second live claim impossible regardless of which code path writes —
-partial because a cancelled reservation keeps its reference for history while releasing
-the interval. The reservation is written before the interval is flipped, so an
-interrupted claim fails recoverably rather than stranding capacity.
+**Reservations are conflict-free, and the database enforces it — twice over.**
+Charger time is recorded as 15-minute occupancy atoms in `reservationoccupancy`, with a **unique index
+on `(chargerId, atomStart)`**. A 90-minute reservation claims six atoms; a second reservation touching
+any of them fails on a duplicate key, decided by the index rather than by application code that a
+future path could bypass. Legacy slot-based reservations remain protected by their original partial
+unique index, so both mechanisms are live and neither is weakened.
 
-**Vehicle integration is manufacturer-agnostic.** There is no universal EV data API, so
-the platform talks to vehicles only through one uniform interface resolved at runtime
-from a registry (`backend/src/providers`). Supporting a new manufacturer is one
-implementation plus one registry entry; no route handler, model or screen changes. The
-same key set drives both the registry and the database enum, so the two cannot drift
-apart.
+This matters because MongoDB has **no range-exclusion constraint**, and transactions do not close the
+gap — two concurrent transactions can both read "no overlap" and insert two *different* documents, and
+because they never write the same document neither aborts. A discrete unit is what can actually carry
+a unique index, so the user-facing model is a continuous range while the enforcement substrate is
+discrete.
+
+**Vehicle integration is manufacturer-agnostic.** There is no universal EV data API, so the platform
+talks to vehicles only through one uniform interface resolved at runtime from a registry
+(`backend/src/providers`). Supporting a new manufacturer is one implementation plus one registry entry.
 
 ---
 
@@ -72,19 +106,23 @@ apart.
 
 Stated plainly, because several are commonly assumed:
 
-- **No payment processing.** Reservations carry a cost estimate. Every monetary figure
-  in the interface and in exports is labelled as an estimate.
-- **No energy metering.** The platform reserves time at a charger; it does not measure
-  delivered energy.
+- **No real payment processing, and no card data anywhere.** The deposit *state machine* is real — the
+  hold window, expiry, refund cliff, operator waiver and no-show forfeiture all genuinely work — but
+  the gateway behind it is a mock. **No money moves.** No card number, CVC, expiry or token is
+  accepted, stored or displayed, and no field for one exists. Mock outcomes come from an explicit
+  "simulate a declined payment" control, never from fake card numbers. Every monetary figure is
+  labelled **estimated** or **simulated**.
+- **No energy metering.** The platform reserves time at a charger; it does not measure delivered energy.
 - **No hardware integration.** Charger serviceability is operator-declared.
-- **No live manufacturer telemetry.** The provider architecture is complete and
-  exercised end to end through a simulated provider; battery and range values are
-  generated, not measured.
-- **No language model.** The assistant runs real database queries and returns those
-  results. It generates no free text, so it cannot state anything the platform does not
-  hold.
-- **Notifications are not generated by platform activity** in this release; the store
-  and reading experience are complete.
+- **No live manufacturer telemetry.** The provider architecture is complete and exercised end to end
+  through a simulated provider; battery and range values are generated, not measured. Connecting as
+  **Tesla** returns an error by design — use **Mock**.
+- **No language model.** The assistant runs real database queries and returns those results. It
+  generates no free text, so it cannot state anything the platform does not hold.
+- **Notifications are not generated by platform activity.** The store and reading experience are
+  complete; nothing produces them from events yet.
+- **Not built:** waitlists, session extensions, overstay handling, delay propagation, and the
+  multi-reservation optimization scheduler. All are designed — see `docs/RESERVATION_*.md`.
 
 ---
 
@@ -106,6 +144,7 @@ MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>/chargehub
 JWT_SECRET=<long random string>
 CORS_ORIGIN=http://localhost:3000
 PORT=4000
+PAYMENT_GATEWAY=mock
 ```
 
 `frontend/.env.local`
@@ -116,15 +155,31 @@ NEXTAUTH_URL=http://localhost:3000
 NEXT_PUBLIC_API_URL=http://localhost:4000
 ```
 
-**Seed the database** (from `backend/`)
+**Set up the database** (from `backend/`)
 
 ```bash
-npm run seed:all
+npm run seed:all && npm run ops:indexes && npm run ops:publish -- 2026-12-31
 ```
 
-> ⚠️ `seed:all` **deletes every collection** before inserting. Do not run it against a
-> database whose state you want to keep — it also discards published inventory and any
-> reconciliation performed since.
+> ⚠️ `seed:all` **deletes every collection** before inserting, including published inventory and
+> everything derived from reservations. `ops:indexes` is **required** after a seed — several of those
+> indexes carry the system's invariants rather than being performance tuning.
+
+**Populate it with realistic activity** (optional but recommended — otherwise every analytics screen
+is honest and empty)
+
+```bash
+npm run ops:demo-data
+```
+
+**Confirm it all works**
+
+```bash
+npm run ops:verify
+```
+
+Expect **19/19 checks passed**. It creates real reservations, asserts what the database contains, and
+deletes everything it created.
 
 **Run both applications**
 
@@ -134,6 +189,9 @@ cd frontend && npm run dev     # client on :3000
 ```
 
 Open **http://localhost:3000**.
+
+**Migrating an existing database?** Follow [`docs/RUNBOOK.md`](docs/RUNBOOK.md) §2 — four migrations,
+order enforced, each with a dry run and a snapshot.
 
 ---
 
@@ -146,22 +204,33 @@ Created by `npm run seed:all`:
 | Driver   | `user@chargehub.com`        | `User123!`  |
 | Operator | `admin@chargehubsystem.com` | `Admin$123` |
 
-The operator console is at **/admin**.
+`npm run ops:demo-data` adds four demo drivers (password `Demo123!`) with distinct behaviour
+histories, so the reliability and behaviour screens show a real spread rather than one row.
+
+Operator console: **/admin** · Staff console: **/staff** (create a staff account from /admin/staff).
 
 ---
 
 ## 📜 Scripts
 
-Run from `backend/`:
+Run from `backend/`. Full detail, including expected output, in **[`docs/RUNBOOK.md`](docs/RUNBOOK.md)**.
 
-| Script                             | Description |
-| ---------------------------------- | ----------- |
-| `npm run dev`                       | API service on port 4000 |
-| `npm run seed:all`                  | **Destructive.** Wipe and recreate seed data |
-| `npm run ops:indexes`               | Build every declared index, including the constraints carrying the system's invariants |
-| `npm run ops:publish -- <endDate>`  | Publish bookable inventory for all chargers up to a date |
-| `npm run ops:reconcile`             | Report on agreement between reservations and intervals |
-| `npm run ops:reconcile -- --apply`  | Snapshot, then repair it |
+| Script | Description |
+| --- | --- |
+| `npm run dev` | API service on port 4000 |
+| `npm run seed:all` | **Destructive.** Wipe and recreate seed data |
+| `npm run ops:indexes` | Build every declared index, including the ones carrying invariants |
+| `npm run ops:publish -- <endDate>` | Publish bookable inventory up to a date |
+| `npm run ops:verify` | **End-to-end verification against the real database.** Self-cleaning |
+| `npm run ops:demo-data` | Generate realistic history. `-- --clear` removes it |
+| `npm run ops:migrate-v2` | v2 lifecycle backfill. `-- --apply` to write |
+| `npm run ops:migrate-commitments` | Deposit terms backfill |
+| `npm run ops:migrate-flexibility` | Flexibility consent backfill (all `STRICT`) |
+| `npm run ops:migrate-occupancy` | **Non-additive.** Rebuilds the `slotId` index, backfills occupancy |
+| `npm run ops:expire-commitments` | Release expired deposit holds. For a scheduler |
+| `npm run ops:reliability` | Rebuild reliability scores from the event log |
+| `npm run ops:behavior` | Rebuild behaviour profiles |
+| `npm run ops:reconcile` | Report and repair reservation/interval disagreement |
 
 Run from `frontend/`: `npm run dev`, `npm run build`, `npm run lint`.
 
@@ -169,24 +238,52 @@ Run from `frontend/`: `npm run dev`, `npm run build`, `npm run lint`.
 
 ## 🗓️ Operating the platform
 
-**Inventory does not extend itself.** Reservable intervals are published by an
-operator, and when the published horizon passes the reservation wizard returns nothing
-for every date while still appearing to work. Publish ahead:
+**Inventory does not extend itself.** When the published horizon passes, the booking screens return
+nothing for every date while still appearing to work. Publish ahead:
 
 ```bash
 cd backend && npm run ops:publish -- 2026-12-31
 ```
 
-Publication is idempotent — re-running over an overlapping range adds only what is
-missing.
+Idempotent — re-running over an overlapping range adds only what is missing.
+
+**One job wants a scheduler** in production, every few minutes:
+
+```bash
+cd backend && npm run ops:expire-commitments
+```
+
+It releases reservations whose deposit window closed. It is not what makes release *timely* — the
+claim path and the availability read both treat an expired hold as free, so a bay is bookable the
+instant anyone looks at it. This job materialises that state and fires the events.
 
 ---
 
 ## 📚 Documentation
 
-In `docs/`:
+| File | What it is |
+| --- | --- |
+| **[`docs/IMPLEMENTED_LOGIC.md`](docs/IMPLEMENTED_LOGIC.md)** | **The canonical register of every logic the system implements** — the rule, the file that owns it, why it matters, how to demo it. Build a presentation from this |
+| **[`docs/RUNBOOK.md`](docs/RUNBOOK.md)** | Every operational command, expected output, migration order, recovery |
+| **[`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md)** | What is built, what is half-built, what is deliberately not built |
+| [`CLAUDE.md`](CLAUDE.md) | Architecture and the non-negotiable invariants |
+| [`AGENTS.md`](AGENTS.md) | How to work in this repo, and the mistakes it has already paid for |
+| `docs/RESERVATION_*.md` | Design docs for the reservation v2 model and the optimization engine |
+| `docs/ChargeHub_System_Specification.docx` | Entities, modules, ER diagram |
 
-- **Project proposal** — full and condensed
-- **System specification** — entities, modules, ER diagram
-- **`NEXTJS_RENDERING.md`** — how rendering works in this project specifically
-- **`_source/`** — scripts that regenerate the documents and diagrams
+---
+
+## 🧪 Verification standards
+
+From the app directory you changed:
+
+```bash
+npx tsc --noEmit
+```
+
+`tsc` must be clean. Lint has **15 pre-existing warnings** in `src/providers/` and a few routes —
+that is the baseline; introduce none in files you touch. After touching reservations, occupancy,
+deposits or events, run `npm run ops:verify`.
+
+Typecheck proves the logic; `ops:verify` proves the wiring. It has already caught a wrong collection
+name, a masked exception, and an index filter that looked correct and silently did not work.

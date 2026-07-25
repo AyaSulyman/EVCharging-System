@@ -162,8 +162,14 @@ The team presents this project. Claiming a capability it does not have is worse 
 
 ## 8. Documentation you must keep current
 
-Two files are load-bearing for the team, not decoration. Update them **in the same commit** as
+Three files are load-bearing for the team, not decoration. Update them **in the same commit** as
 the change they describe:
+
+- **`README.md`** — the front door. It must always describe **what is implemented and actually
+  working**, and must never claim a capability the platform does not have. When you ship a feature,
+  add it to "What is implemented and working"; when you deliberately do not build something, say so
+  under "Deliberately out of scope". A README describing an earlier version of the system is worse
+  than no README, because it is believed.
 
 - **`docs/IMPLEMENTED_LOGIC.md`** — add an entry for every logic you implement or change: the
   rule, the owning file, why it matters in plain language, and how to demo it. A teammate builds
