@@ -18,6 +18,7 @@ import Vehicle from "@/models/Vehicle";
 import { assertStationInScope, type StaffAuth } from "@/middleware/auth";
 import { claimReservation, startCharging, endCharging } from "@/services/booking.service";
 import { openCommitment, confirmCommitment } from "@/services/commitment.service";
+import { reliabilityForUsers } from "@/services/reliability.service";
 
 /**
  * Lifecycle states that appear on the operational board (holding or actively charging).
@@ -75,6 +76,12 @@ export async function getStaffBoard(auth: StaffAuth) {
     .sort({ scheduledStart: 1 })
     .lean();
 
+  // Reliability for everyone on the board, fetched in one query rather than per row. Read-only:
+  // the board polls constantly, and rebuilding scores on every poll would be a write on every read
+  // for no operational benefit — the sweep and the admin list keep the projection current.
+  const customerIds = [...new Set(bookings.map((b) => String((b.userId as unknown as { _id?: unknown })?._id ?? b.userId)))];
+  const reliability = await reliabilityForUsers(customerIds);
+
   const reservations = bookings.map((b) => {
     const user = b.userId as unknown as { _id: unknown; name?: string; email?: string } | null;
     const vehicle = b.vehicleId as unknown as { make?: string; model?: string; licensePlate?: string } | null;
@@ -102,6 +109,9 @@ export async function getStaffBoard(auth: StaffAuth) {
       moveCount: b.moveCount ?? 0,
       customerName: user?.name ?? "—",
       customerEmail: user?.email ?? "—",
+      // Surfaced on the board because it changes an operational decision: whether to hold a bay for
+      // someone who often does not arrive, or to offer it on when they are late.
+      reliability: reliability[String(user?._id ?? b.userId)] ?? null,
       vehicle: vehicle ? `${vehicle.make ?? ""} ${vehicle.model ?? ""}`.trim() : "—",
     };
   });

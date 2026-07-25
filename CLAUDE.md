@@ -3,16 +3,22 @@
 **Read this before writing any code.** It is the source of truth for what this project
 is, how it is built, and the rules that must not be broken.
 
-> **Two companion files, both required reading:**
+> **Three companion files, all required reading:**
 > - **`AGENTS.md`** — *how* to work here: verification standards, git conventions, and the
 >   specific mistakes this codebase has already been burned by.
 > - **`docs/PROJECT_STATE.md`** — what is built, what is half-built, what is deliberately not
 >   built, which migrations have and have not been applied, and the exact ops commands.
 >   **Check it before implementing anything**, so you don't rebuild what exists or "fix" what
->   is intentional. Update it in the same commit whenever you change the state of the project. Its purpose is to keep new
-work consistent with what already exists, so nothing here should be contradicted without
-a deliberate, discussed decision. When a request conflicts with an invariant below,
-raise the conflict instead of silently working around it.
+>   is intentional. Update it in the same commit whenever you change the state of the project.
+> - **`docs/IMPLEMENTED_LOGIC.md`** — **the canonical register of every logic the system
+>   implements**, each with the rule, the file that owns it, why it matters in plain language,
+>   and how to demo it. **This is the file to build a presentation or slide deck from.** Add an
+>   entry whenever you implement a logic, in the same commit — a logic missing from that file
+>   will be missed in the presentation.
+
+This file's purpose is to keep new work consistent with what already exists, so nothing here
+should be contradicted without a deliberate, discussed decision. When a request conflicts with
+an invariant below, raise the conflict instead of silently working around it.
 
 This project is built and maintained by a three-person team, each owning a layer
 (frontend, backend, database). A large amount of the backend, security, data-integrity
@@ -106,7 +112,10 @@ Breaking any of these is a regression, even if a task seems to ask for it.
     `delay_propagation`, `operator_reschedule`) is always fully refunded and never penalised.
     Only an operator or staff member may claim operator fault — a driver who could set that
     reason would refund their own deposit at will, making the 24-hour cutoff unenforceable.
-  - **`reservationevents` is append-only and has no consumers yet, by design.** Waitlists,
+  - **`reservationevents` is append-only.** Its first consumer is the reliability score
+    (`reliability.service.ts`), which **derives** scores by folding the log rather than
+    accumulating counters — so a replayed event cannot double-penalise and a lost one
+    self-corrects. Nothing may increment `users.reliabilityScore` directly. Waitlists,
     the optimizer, reliability scoring and the schedule KPI all read behavioural history that
     current state cannot express and that is destroyed if not written down. Per §7 those stay
     *consumers*; never call them inline from the reservation flow.

@@ -20,6 +20,30 @@ const UserSchema = new Schema(
       default: [],
     },
     avatar: { type: String },
+
+    /* ----------------------------------------------------------------------------
+     * Customer reliability — ADDITIVE, and entirely DERIVED.
+     *
+     * These are a cached projection of the driver's `reservationevents` history, not a
+     * source of truth. Nothing may increment them directly: `reliability.service`
+     * recomputes them by folding the event log, so a replayed or duplicated event cannot
+     * double-count and a lost one self-corrects on the next recompute. If these ever
+     * disagree with the log, the log is right — run `npm run ops:reliability`.
+     *
+     * Only events attributed to the customer count. A cancellation caused by a charger
+     * failure or an operator reschedule is waived, per approved policy.
+     * -------------------------------------------------------------------------- */
+    reliabilityScore: { type: Number, default: 100 },
+    totalReservations: { type: Number, default: 0 },
+    totalCancellations: { type: Number, default: 0 },
+    totalNoShows: { type: Number, default: 0 },
+    totalLateArrivals: { type: Number, default: 0 },
+    // Completed sessions — the positive side of the ledger, kept so a dashboard can explain a
+    // score without re-reading the event log.
+    totalCompleted: { type: Number, default: 0 },
+    // When the projection was last rebuilt. Drives the staleness check that lets a dashboard
+    // refresh a score on read instead of serving a stale one.
+    reliabilityComputedAt: { type: Date, default: null },
     // Incrementing this invalidates every token issued before the change. Internal
     // machinery, so excluded from reads by default like the credential hash — the
     // authorisation check opts in with .select("+sessionGeneration").
@@ -27,5 +51,12 @@ const UserSchema = new Schema(
   },
   { timestamps: true }
 );
+
+/**
+ * Supports the operator's "who are my least reliable drivers?" read, which is the one query that
+ * would otherwise scan every account. Descending because the interesting end of the list is the
+ * low scores, and those are what an operator sorts toward.
+ */
+UserSchema.index({ role: 1, reliabilityScore: 1 });
 
 export default models.User || model("User", UserSchema);

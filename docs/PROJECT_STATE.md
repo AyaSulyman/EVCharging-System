@@ -1,7 +1,10 @@
 # PROJECT_STATE.md — what is built, what is not, what to do next
 
-**Last updated: 2026-07-25 (flexibility windows).** Read this after `CLAUDE.md` and `AGENTS.md`,
-before writing code.
+**Last updated: 2026-07-25 (customer reliability score).** Read this after `CLAUDE.md` and
+`AGENTS.md`, before writing code.
+
+See also **[`IMPLEMENTED_LOGIC.md`](IMPLEMENTED_LOGIC.md)** — the canonical register of every
+logic the system implements, and the file to build a presentation or slide deck from.
 
 This file exists so a teammate — or a teammate's AI assistant — can pick the project up without
 re-deriving what has already been decided, re-implementing what already exists, or "fixing"
@@ -21,13 +24,13 @@ same commit.**
 | Charging session start/end | Partial — see §4 |
 | Reservation commitment / deposit system | **Code done. Migration NOT applied** |
 | Mock payment gateway + webhook path | Done |
-| `reservationevents` append-only log | Written to; **no consumers exist** |
+| `reservationevents` append-only log | Written to; **one consumer** — the reliability score |
 | **Flexibility windows — pre-booking** (`reservationrequests` + candidate scoring) | **Done** — first slice of the optimization engine |
 | **Flexibility windows — post-booking** (`flexibilityType` + scheduler moves) | **Done** — the consent mechanism for RESCHEDULE |
 | Waitlists | **Not built.** Design only — extend `ReservationRequest`, do not add a new collection |
 | Extensions, overstay, delay propagation | **Not built.** Design only |
 | Reservation Optimization Engine | **Design only** — `docs/RESERVATION_OPTIMIZATION_ENGINE.md` |
-| Reliability score / customer behaviour tracking | **Not built.** The event log feeds it when it is |
+| Customer reliability score | **Done** — the first event-log consumer, derived not accumulated |
 | Notifications from events | **Not built.** Store + UI exist; nothing produces them |
 | Real payments | Not built. The seam exists — see `CLAUDE.md` §7 |
 
@@ -38,17 +41,22 @@ same commit.**
 The working database is `chargehub` on MongoDB Atlas. As of the date above it holds **6
 bookings** (5 `paid`, 1 `refunded`; statuses: 2 confirmed, 3 completed, 1 cancelled).
 
-**Two migrations are written, verified by dry run, and NOT YET APPLIED:**
+**Three migrations are written, verified by dry run, and NOT YET APPLIED:**
 
 1. `ops:migrate-v2` — backfills the v2 lifecycle fields. Dry run reports 6 bookings needing it.
 2. `ops:migrate-commitments` — backfills the deposit/commitment fields. **Refuses to run until
    migration 1 has been applied**, and says so.
+3. `ops:migrate-flexibility` — backfills `preferredStart` and `flexibilityType` (always STRICT).
+   Also refuses until migration 1 has been applied.
 
-**They must be run in that order.** The commitment migration checks the precondition itself and
-exits non-zero rather than producing incoherent data.
+**They must be run in that order.** Each checks its precondition itself and exits non-zero rather
+than producing incoherent data.
 
-Nobody should run `--apply` except the repo owner. Both scripts snapshot `bookings` to
+Nobody should run `--apply` except the repo owner. All three snapshot `bookings` to
 `backups/<timestamp>/` before writing and verify their own exit criteria after.
+
+`ops:reliability` is **not** a migration — it rebuilds a derived projection and is safe to run at
+any time, as often as wanted.
 
 ---
 
@@ -87,6 +95,7 @@ cd backend
 |---|---|
 | `npm run ops:expire-commitments` | Releases reservations whose deposit window closed. **Writes by default**; `-- --dry-run` to report only. Intended for a scheduler every few minutes |
 | `npm run ops:reconcile` | Reconciles `slots.status === "booked"` against live reservations |
+| `npm run ops:reliability` | Rebuilds every driver's reliability score from the event log. **Writes by default**; `-- --dry-run` shows stored vs recomputed. Idempotent — safe any time |
 
 **The correct full sequence on a fresh database:**
 
@@ -109,10 +118,10 @@ Be precise about these. Do not describe them as finished.
 - **Charging session check-in is collapsed.** `startCharging` moves
   `RESERVED → CHARGING` in one step and stamps `actualArrival` itself. The designed flow has an
   explicit `ARRIVED` check-in between them. Splitting it is outstanding work.
-- **`reservationevents` has no consumers.** 13 event types are written and indexed; nothing reads
-  them. Waitlist notification, optimizer invalidation and reliability scoring are the intended
-  consumers; per `CLAUDE.md` §7 they must stay **consumers** and never be called inline from a
-  domain service. Emission sites: `reservation.created` / `reservation.confirmed` (claim path,
+- **`reservationevents` has exactly one consumer** — the reliability score. 14 event types are written and indexed; nothing else reads
+  them. Waitlist notification and optimizer invalidation are the remaining intended consumers;
+  per `CLAUDE.md` §7 they must stay **consumers** and never be called inline from a domain
+  service — nothing in `booking.service` or `commitment.service` calls the reliability service. Emission sites: `reservation.created` / `reservation.confirmed` (claim path,
   plus `confirmed` again on the gateway path for self-service), `session.started` /
   `session.ended` (session transitions), `commitment.*` (commitment service),
   `reservation.cancelled` / `no_show` / `released` (update, expiry, early departure, request
@@ -273,13 +282,39 @@ existing driver was ever asked, so none has consented. It refuses to run before 
 
 ---
 
+## 6d. Customer reliability — the first event-log consumer
+
+Scores are **derived** by folding a driver's `reservationevents` history, never accumulated. The
+fields on `users` are a cached projection: if they ever disagree with the log, the log is right —
+run `npm run ops:reliability`.
+
+| Path | Role |
+|---|---|
+| `backend/src/models/reliabilityPolicy.ts` | Pure: `ADJUSTMENTS`, `scoreFromEvents`, bands, explanations |
+| `backend/src/services/reliability.service.ts` | The consumer: recompute, list, batch lookup, sweep |
+| `frontend/src/app/(admin)/admin/reliability/page.tsx` | Operator view, least reliable first |
+| `frontend/src/components/ui/ReliabilityBadge.tsx` | Band + score, used on admin and staff screens |
+
+Start 100, capped 100, floored 0. Late arrival −5 · cancellation −10 · no-show −25 · completed
+session +1. **Only customer-attributed events score** — operator fault is waived, and
+`penalize: false` exempts a declined card. `reservation.rescheduled`, `reservation.released` and
+the `commitment.*` events are deliberately not scored: system mechanics must not punish drivers.
+
+Nothing increments these fields directly, and no domain service calls this one. Freshness comes
+from the sweep plus a bounded staleness refresh on the admin read (5 minutes); the staff board
+reads without refreshing, because it polls constantly and a write on every poll buys nothing.
+
+**Full reasoning and demo steps: [`IMPLEMENTED_LOGIC.md`](IMPLEMENTED_LOGIC.md) §7.**
+
+---
+
 ## 7. Suggested next work, in dependency order
 
 1. **Apply the two migrations** (owner) and schedule `ops:expire-commitments`.
 2. **Split the `ARRIVED` check-in** out of `startCharging` (§4). Small, self-contained, unblocks
    accurate arrival analytics.
-3. **First `reservationevents` consumer** — the reliability score is the highest-value one and
-   the event log already carries `fault` and `penalize` for exactly this.
+3. ~~First `reservationevents` consumer~~ — **done**: the reliability score. See
+   `IMPLEMENTED_LOGIC.md` §7.
 4. **Waitlists** — now a much smaller job than the roadmap assumed: `ReservationRequest` already
    *is* the waitlist entry (an `OPEN` request), the matcher already ranks candidates, and
    `reservation.released` already fires when capacity frees up. What is missing is the offer

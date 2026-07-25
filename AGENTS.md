@@ -11,15 +11,19 @@ invariants you must not break**. This file is about *how to work*. Read both.
 
 ## 1. Read order — do this first, every session
 
-1. **`CLAUDE.md`** — architecture, the 12-collection data model, and §2 **non-negotiable
+1. **`CLAUDE.md`** — architecture, the 13-collection data model, and §2 **non-negotiable
    invariants**. Breaking one of those is a regression even if a task appears to ask for it.
 2. **`docs/PROJECT_STATE.md`** — what is done, what is half-built, what is deliberately not
    built, and what the live database has and has not had applied to it. **This is the file that
    stops you re-implementing something that already exists or "fixing" something that is
    intentional.**
-3. **`backend/AGENTS.md`** — the backend's Next.js version is newer than most training data.
+3. **`docs/IMPLEMENTED_LOGIC.md`** — the canonical register of every logic in the system: the
+   rule, the file that owns it, why it matters, how to demo it. Read it to find out whether a
+   behaviour already exists and where it lives. **This is also the file any presentation or
+   slide deck is built from**, so it must stay current.
+4. **`backend/AGENTS.md`** — the backend's Next.js version is newer than most training data.
    Read the installed docs before using an unfamiliar API.
-4. Only then, the design docs relevant to your task (`docs/RESERVATION_*.md`).
+5. Only then, the design docs relevant to your task (`docs/RESERVATION_*.md`).
 
 If a request contradicts an invariant in `CLAUDE.md` §2, **stop and say so**. Do not silently
 work around it, and do not silently implement the contradiction. Raising it is the expected
@@ -139,13 +143,33 @@ The team presents this project. Claiming a capability it does not have is worse 
   no card data is collected.** Say "simulated payment", never "payment".
 - **Notifications**: the store and the read/mark-read UI are complete, but nothing generates
   them from events yet. The samples are seeded.
-- **`reservationevents` has no consumers.** Events are written; nothing reads them yet.
+- **`reservationevents` has one consumer**: the reliability score. Waitlist notification and optimizer invalidation still do not exist.
 - **No energy metering, no charging-hardware control.** By design.
 - All money figures are labelled **estimated** or **simulated**.
 
 ---
 
-## 8. Scope discipline
+## 8. Documentation you must keep current
+
+Two files are load-bearing for the team, not decoration. Update them **in the same commit** as
+the change they describe:
+
+- **`docs/IMPLEMENTED_LOGIC.md`** — add an entry for every logic you implement or change: the
+  rule, the owning file, why it matters in plain language, and how to demo it. A teammate builds
+  the presentation and demo script from this file, so **a logic that is missing here is a logic
+  that gets left out of the presentation.** Follow the existing entry format; mark genuinely
+  distinguishing decisions with ⭐.
+- **`docs/PROJECT_STATE.md`** — update the status table, the ops commands, and the known-gaps
+  section whenever the state of the project changes.
+
+If you are asked to produce a presentation, slide deck, or demo script: **read
+`docs/IMPLEMENTED_LOGIC.md` first.** Its "Why it matters" lines are the talking points, its
+"Demo" lines are the on-screen steps, and §10 is the list of things that must not be
+overclaimed. §11 is a suggested running order.
+
+---
+
+## 9. Scope discipline
 
 - Do what was asked. If you notice something else worth fixing, mention it rather than bundling
   it in — an unrelated change hidden in a feature commit is hard for a teammate to review.

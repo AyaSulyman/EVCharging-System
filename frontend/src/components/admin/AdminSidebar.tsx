@@ -12,6 +12,7 @@ import {
   Users,
   UserCog,
   BarChart3,
+  Gauge,
   LogOut,
   Menu,
   X,
@@ -26,6 +27,7 @@ const NAV = [
   { href: "/admin/slots", label: "Slots", icon: Clock },
   { href: "/admin/staff", label: "Staff", icon: UserCog },
   { href: "/admin/users", label: "Users", icon: Users },
+  { href: "/admin/reliability", label: "Reliability", icon: Gauge },
   { href: "/admin/reports", label: "Reports", icon: BarChart3 },
 ];
 

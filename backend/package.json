@@ -16,7 +16,8 @@
     "ops:migrate-v2": "tsx scripts/migrate-reservation-v2.ts",
     "ops:migrate-commitments": "tsx scripts/migrate-reservation-commitments.ts",
     "ops:migrate-flexibility": "tsx scripts/migrate-reservation-flexibility.ts",
-    "ops:expire-commitments": "tsx scripts/expire-commitments.ts"
+    "ops:expire-commitments": "tsx scripts/expire-commitments.ts",
+    "ops:reliability": "tsx scripts/recompute-reliability.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

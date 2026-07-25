@@ -13,6 +13,7 @@ import {
   Shuffle,
 } from "lucide-react";
 import { MovePanel } from "@/components/staff/MovePanel";
+import { ReliabilityBadge } from "@/components/ui/ReliabilityBadge";
 import { useApi } from "@/lib/useApi";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +33,7 @@ interface BoardReservation {
   commitmentExpiresAt: string | null;
   flexibilityType: string;
   moveCount: number;
+  reliability: { score: number; band: string; explanation: string } | null;
 }
 interface BoardStation {
   _id: string;
@@ -184,7 +186,21 @@ export default function StaffBoardPage() {
                     <p className="text-xs text-ink-soft">{r.bookingCode}</p>
                   </td>
                   <td className="py-3 pr-4">
-                    <p className="font-medium">{r.customerName}</p>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <p className="font-medium">{r.customerName}</p>
+                      {/*
+                        Shown at the desk because it changes a decision in the moment: whether to
+                        keep holding a bay for a driver who is late, or to release it to someone
+                        waiting. A history of no-shows is exactly what makes that call.
+                      */}
+                      {r.reliability && (
+                        <ReliabilityBadge
+                          score={r.reliability.score}
+                          band={r.reliability.band}
+                          explanation={r.reliability.explanation}
+                        />
+                      )}
+                    </div>
                     <p className="text-xs text-ink-soft">
                       {r.vehicle}
                       {r.createdVia === "staff_onsite" && " · on-site"}
