@@ -30,6 +30,23 @@ import type { StationWithChargers, IVehicle, FlexibilityType } from "@/types";
  * every extra question costs a booking, and these are the ones that genuinely widen the options.
  */
 
+interface FactorBreakdown {
+  points: number;
+  detail: string;
+  inputs: Record<string, number | string>;
+}
+
+interface ScoreBreakdown {
+  stationUtilization: FactorBreakdown;
+  preferenceMatch: FactorBreakdown;
+  waitingTime: FactorBreakdown;
+  priority: FactorBreakdown;
+  reliability: FactorBreakdown;
+  baseScore: number;
+  showProbability: number;
+  total: number;
+}
+
 interface Candidate {
   slotId: string;
   chargerId: string;
@@ -41,7 +58,17 @@ interface Candidate {
   endTime: string;
   score: number;
   reasons: string[];
+  breakdown: ScoreBreakdown;
 }
+
+/** Factor labels for the rationale panel, in the order they are presented. */
+const FACTOR_LABELS: [keyof ScoreBreakdown, string][] = [
+  ["preferenceMatch", "Your preferences"],
+  ["stationUtilization", "Station capacity"],
+  ["waitingTime", "Time waiting"],
+  ["priority", "Priority"],
+  ["reliability", "Attendance record"],
+];
 
 function time(iso: string) {
   return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
@@ -79,6 +106,9 @@ export default function FlexibleBookingPage() {
   const [requestId, setRequestId] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<Candidate[] | null>(null);
   const [bookingSlot, setBookingSlot] = useState<string | null>(null);
+  // Which option has its score breakdown expanded.
+  const [openRationale, setOpenRationale] = useState<string | null>(null);
+  const [rationale, setRationale] = useState<string>("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -140,6 +170,7 @@ export default function FlexibleBookingPage() {
     }
     setRequestId(data.request._id);
     setCandidates(data.candidates ?? []);
+    setRationale(data.rationale ?? "");
   }
 
   /** Re-ranks options — used after losing a race, since the shortlist is only ever a snapshot. */
@@ -147,7 +178,10 @@ export default function FlexibleBookingPage() {
     if (!requestId) return;
     const res = await call(`/api/reservations/requests/candidates?requestId=${requestId}`);
     const data = await res.json();
-    if (res.ok) setCandidates(data.candidates ?? []);
+    if (res.ok) {
+      setCandidates(data.candidates ?? []);
+      setRationale(data.rationale ?? "");
+    }
   }
 
   async function take(slotId: string) {
@@ -334,6 +368,13 @@ export default function FlexibleBookingPage() {
               : `Best options for ${formatDate(date)}`}
           </h2>
 
+          {rationale && candidates.length > 0 && (
+            <p className="mt-1 flex items-start gap-1.5 text-sm text-ink-soft">
+              <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+              {rationale}
+            </p>
+          )}
+
           {candidates.length === 0 ? (
             <div className="card mt-3 text-center">
               <p className="text-sm text-ink-soft">
@@ -371,6 +412,62 @@ export default function FlexibleBookingPage() {
                             </li>
                           ))}
                         </ul>
+                      )}
+
+                      {/*
+                        The full factor breakdown, collapsed by default. A customer wants the
+                        reasons; an operator debugging a surprising recommendation wants the
+                        arithmetic. Showing both at once would bury the first in the second.
+                      */}
+                      <button
+                        onClick={() =>
+                          setOpenRationale(openRationale === c.slotId ? null : c.slotId)
+                        }
+                        className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                      >
+                        <Info className="h-3 w-3" />
+                        {openRationale === c.slotId ? "Hide" : "Why this score?"}
+                      </button>
+
+                      {openRationale === c.slotId && c.breakdown && (
+                        <div className="mt-2 rounded-lg bg-canvas p-3">
+                          <table className="w-full text-xs">
+                            <tbody>
+                              {FACTOR_LABELS.map(([key, label]) => {
+                                const f = c.breakdown[key] as FactorBreakdown;
+                                if (!f) return null;
+                                return (
+                                  <tr key={key}>
+                                    <td className="py-0.5 pr-2 align-top text-ink-soft">{label}</td>
+                                    <td
+                                      className={`py-0.5 pr-3 text-right align-top font-mono font-medium ${
+                                        f.points > 0
+                                          ? "text-emerald-700"
+                                          : f.points < 0
+                                            ? "text-red-600"
+                                            : "text-ink-soft"
+                                      }`}
+                                    >
+                                      {f.points > 0 ? "+" : ""}
+                                      {f.points}
+                                    </td>
+                                    <td className="py-0.5 align-top text-ink-soft">{f.detail}</td>
+                                  </tr>
+                                );
+                              })}
+                              <tr className="border-t border-line">
+                                <td className="pt-1 pr-2 font-semibold text-ink">Total</td>
+                                <td className="pt-1 pr-3 text-right font-mono font-bold text-ink">
+                                  {c.breakdown.total}
+                                </td>
+                                <td className="pt-1 text-ink-soft">
+                                  {c.breakdown.showProbability < 1 &&
+                                    `value discounted to ${Math.round(c.breakdown.showProbability * 100)}%`}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
                       )}
                     </div>
                     <button

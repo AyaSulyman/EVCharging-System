@@ -1,6 +1,6 @@
 # PROJECT_STATE.md — what is built, what is not, what to do next
 
-**Last updated: 2026-07-25 (customer behaviour tracking).** Read this after `CLAUDE.md` and
+**Last updated: 2026-07-25 (reservation scoring engine).** Read this after `CLAUDE.md` and
 `AGENTS.md`, before writing code.
 
 See also **[`IMPLEMENTED_LOGIC.md`](IMPLEMENTED_LOGIC.md)** — the canonical register of every
@@ -29,7 +29,8 @@ same commit.**
 | **Flexibility windows — post-booking** (`flexibilityType` + scheduler moves) | **Done** — the consent mechanism for RESCHEDULE |
 | Waitlists | **Not built.** Design only — extend `ReservationRequest`, do not add a new collection |
 | Extensions, overstay, delay propagation | **Not built.** Design only |
-| Reservation Optimization Engine | **Design only** — `docs/RESERVATION_OPTIMIZATION_ENGINE.md` |
+| Reservation Scoring Engine | **Done** — five factors, breakdown + rationale stored per assignment |
+| Reservation Optimization Engine (full scheduler) | **Design only** — multi-reservation plans and repair not built |
 | Customer reliability score | **Done** — the first event-log consumer, derived not accumulated |
 | Customer behaviour tracking | **Done** — second consumer: delays, cancellations, no-shows, arrival accuracy |
 | Notifications from events | **Not built.** Store + UI exist; nothing produces them |
@@ -213,7 +214,7 @@ these stations") instead of naming one exact interval, and get a ranked shortlis
 |---|---|
 | `backend/src/models/ReservationRequest.ts` | Flexible demand. Holds nothing |
 | `backend/src/services/reservationRequest.service.ts` | Create, match, fulfil, expire |
-| `backend/src/services/optimization/scoring.ts` | Pure candidate ranking + the objective `WEIGHTS` |
+| `backend/src/services/optimization/scoring.ts` | The five-factor scoring engine: `WEIGHTS`, `scoreCandidates`, `explainChoice`. Pure |
 | `frontend/src/app/(dashboard)/book/flexible/page.tsx` | Driver-facing flexible booking |
 
 **Endpoints:** `POST|GET|PATCH /api/reservations/requests` · `GET

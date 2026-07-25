@@ -4,7 +4,7 @@
 the presentation, the demo script and any slide deck can be built from one place — and so nobody has
 to reverse-engineer the reasoning out of the code under time pressure.
 
-**Last updated: 2026-07-25 (customer behaviour tracking).** Read alongside:
+**Last updated: 2026-07-25 (reservation scoring engine).** Read alongside:
 - [`../CLAUDE.md`](../CLAUDE.md) — what the project is, and the invariants that must not break
 - [`../AGENTS.md`](../AGENTS.md) — how to work here
 - [`PROJECT_STATE.md`](PROJECT_STATE.md) — what is built vs. not, and the ops commands
@@ -537,7 +537,85 @@ the last minute, is their behaviour improving.
 
 ---
 
-# 9. Money & reporting
+# 9. Reservation Scoring Engine ⭐
+
+Ranks every candidate interval for a request across five factors and **says why**. This is the
+decision layer of the optimization engine — §6.3 was its first slice; this is the full model.
+
+### 9.1 Five factors, two roles ⭐
+- **Rule:** Station utilization and preference match form a base score, **multiplied** by the
+  customer's show probability. Waiting time and priority are added **after** the multiplier.
+- **Where:** `backend/src/services/optimization/scoring.ts` → `WEIGHTS`, `scoreCandidates`
+- **Why it matters — the central design decision:** reliability discounts the *expected benefit*
+  of an assignment (a bay promised to someone who often does not arrive is worth less). But fairness
+  must not be discounted, or an unreliable customer would be pushed down the queue forever and never
+  served. Keeping waiting time and priority outside the multiplier makes this an **expected-value
+  model rather than a punishment model.**
+- **Verified:** an unreliable customer who has waited 10h scores **61.8**; a perfect-reliability
+  customer who just arrived scores **3.0**. Waiting time overcomes the discount — nobody starves.
+
+### 9.2 Station utilization works at two granularities ⭐
+- **Rule:** Reward *station headroom* (spread demand across sites) **and** reward *charger
+  adjacency* (pack tightly within a bay).
+- **Why it matters:** These are not in conflict, they are different scales. Optimising only the
+  first gives evenly-spread confetti with no bookable blocks left; only the second gives one hot
+  station beside idle ones. Verified: a 20%-utilized station beats a 90% one (+7), and an adjacent
+  slot 30 min off beats an isolated perfect one (+24).
+
+### 9.3 Reliability is floored, and never gates eligibility ⭐
+- **Rule:** `showProbability = max(0.60, score/100)`. It reorders candidates; it never removes one.
+- **Why it matters:** Reliability is *evidence*, not a verdict. Without the floor, a driver with a
+  few no-shows would lose every contested slot indefinitely and **could never rebuild a record**. A
+  scoring engine able to exclude someone outright would be a ban dressed up as an optimisation.
+- **Verified:** scores 25 and 0 both clamp to 0.60.
+
+### 9.4 Priority is derived, never client-supplied ⭐
+- **Rule:** `standard` / `onSite` (+30) / `recovery` (+45). Deliberately **absent** from
+  `createReservationRequestSchema`.
+- **Why it matters:** Because the schema is the allowlist, a self-service caller physically cannot
+  set it — otherwise any driver could mark themselves `recovery` and jump every queue. The service
+  derives it from the request's origin. `recovery` is highest because **the platform broke that
+  customer's original reservation and owes them the next best slot.**
+
+### 9.5 The waiting-time term is the starvation guard ⭐
+- **Rule:** +6 per hour waited, escalating without bound.
+- **Why it matters:** Without it, a request with awkward constraints can be outscored forever by a
+  stream of easier ones — the failure mode that makes an optimiser look efficient while quietly
+  abandoning people. Escalation guarantees any feasible request eventually wins.
+
+### 9.6 Stored: score, breakdown, and the rationale ⭐
+- **Rule:** On fulfilment the request stores `score`, `scoreBreakdown`, `consideredCandidates` and
+  `recommendationRationale`. Scored **before** the claim, not after.
+- **Why it matters:** The claim flips the interval to `booked`, and the candidate search only returns
+  *available* intervals — so scoring afterwards would never find the slot just taken and the
+  rationale would silently never be recorded. **This was a real bug caught in verification.** Scoring
+  first is also the more correct record: it captures the state the decision was actually made in.
+- **Why store only the chosen one:** persisting all candidates would write mostly-discarded rows on
+  every search. What matters durably is *why this assignment happened* — the answer when a customer
+  asks why they got 16:30 instead of 15:00.
+
+### 9.7 The rationale compares against the runner-up ⭐
+- **Rule:** `explainChoice` reports the factor with the largest **gap** between the top two.
+- **Why it matters:** "Why this one?" is answered by a *difference*, not by the winner's biggest
+  absolute term — which is usually the same for every candidate and therefore explains nothing.
+  Computed server-side because a client holding only the winner's breakdown cannot work it out.
+
+### 9.8 Exposed rationale
+- **Customer:** ranked options each carry `reasons`, plus a "Why this score?" expander showing the
+  per-factor points and the discount applied.
+- **Demo:** open `/book/flexible`, search, then expand "Why this score?" on the top option.
+- **Why it matters:** A ranking nobody can understand is a ranking nobody trusts. Customers get
+  reasons; anyone debugging a surprising recommendation gets the arithmetic — collapsed by default
+  so the first is not buried in the second.
+
+### 9.9 Deterministic and total ordering
+- **Rule:** Ties break by earliest start, then slot id.
+- **Why it matters:** A customer who reloads must not see the options reshuffle. Verified stable
+  under shuffled input.
+
+---
+
+# 10. Money & reporting
 
 ### 8.1 Cost basis captured per reservation
 - **Rule:** `appliedUnitPrice` and `appliedPowerKW` are snapshotted at claim time.
@@ -554,7 +632,7 @@ the last minute, is their behaviour improving.
 
 ---
 
-# 10. Operational safety
+# 11. Operational safety
 
 ### 9.1 Every migration is dry-run first, snapshots, and self-verifies
 - **Rule:** Dry run by default; `--apply` snapshots to `backups/<timestamp>/` then writes, then
@@ -585,7 +663,7 @@ the last minute, is their behaviour improving.
 
 ---
 
-# 11. What is simulated — never misrepresent this ⭐
+# 12. What is simulated — never misrepresent this ⭐
 
 Stating this plainly is more credible than overclaiming, and the architecture is the real
 contribution either way.
@@ -602,19 +680,20 @@ contribution either way.
 
 ---
 
-# 12. Suggested demo running order
+# 13. Suggested demo running order
 
 1. **Conflict-free claim** (§1.1) — two browsers, one slot. The core claim.
 2. **Deposit flow** (§3.1, §3.12) — book, see the countdown, **simulate a decline**, then pay.
 3. **Refund honesty** (§3.4) — open the cancel modal >24h out, then <24h out. Different, truthful.
-4. **Flexible booking** (§6.1, §6.3) — a window, then the ranked options *with their reasons*.
+4. **Flexible booking** (§6.1, §9) — a window, the ranked options *with their reasons*, then
+   expand **"Why this score?"** to show the five-factor breakdown.
 5. **Staff board** (§4.1, §7.5) — reliability badges, take a deposit at the desk, start a session.
 6. **Move within consent** (§6.5, §6.9) — move a flexible reservation; then try a `STRICT` one and
    show the **explained refusal**.
 7. **Reliability** (§7.5) — `/admin/reliability`, sorted worst-first, with explanations.
 8. **Behaviour** (§8.11) — `/admin/behavior`, then a driver detail: delay distribution,
    cancellation lead-time breakdown, and the raw timeline the numbers came from.
-9. **Operational safety** (§10.1) — a migration dry run refusing to run out of order.
+10. **Operational safety** (§11.1) — a migration dry run refusing to run out of order.
 
 **Closing point for the presentation:** the recurring theme is *choosing where correctness lives*.
 The database arbitrates conflicts; a pure policy module decides money and movement; an append-only

@@ -23,7 +23,14 @@ import Vehicle from "@/models/Vehicle";
 import { claimReservation } from "@/services/booking.service";
 import { DEFAULT_FLEXIBILITY } from "@/models/flexibilityPolicy";
 import { emitReservationEvent } from "@/services/reservationEvents.service";
-import { scoreCandidates, type Candidate, type ScoredCandidate } from "@/services/optimization/scoring";
+import {
+  explainChoice,
+  scoreCandidates,
+  type Candidate,
+  type PriorityLevel,
+  type ScoredCandidate,
+} from "@/services/optimization/scoring";
+import { reliabilityForUsers } from "@/services/reliability.service";
 
 /** How many ranked options to return. Enough to feel like a choice, few enough to be a decision. */
 const MAX_CANDIDATES = 6;
@@ -40,6 +47,8 @@ export interface CreateRequestInput {
   stationFlex?: boolean;
   /** Ongoing consent to be re-timed after fulfilment. Defaults to STRICT. */
   flexibilityType?: string;
+  /** Explicit scoring priority. Set by staff for on-site, or by recovery flows. */
+  priority?: "standard" | "onSite" | "recovery";
   origin?: "self" | "staff_onsite";
   createdByStaffId?: string | null;
 }
@@ -81,6 +90,8 @@ export async function createRequest(input: CreateRequestInput) {
     // More than one station listed only means anything if the driver accepts the alternatives.
     stationFlex: input.stationFlex ?? input.stationIds.length > 1,
     flexibilityType: input.flexibilityType ?? DEFAULT_FLEXIBILITY,
+    // A desk request is on-site by definition: the customer is standing there.
+    priority: input.priority ?? (input.origin === "staff_onsite" ? "onSite" : "standard"),
     origin: input.origin ?? "self",
     createdByStaffId: input.createdByStaffId ?? null,
     status: "OPEN",
@@ -101,6 +112,8 @@ interface RequestShape {
   durationMinutes: number;
   status: string;
   flexibilityType?: string;
+  priority?: string;
+  createdAt?: Date;
 }
 
 /**
@@ -193,6 +206,14 @@ export async function findCandidates(requestId: string): Promise<ScoredCandidate
     takenByCharger.set(key, list);
   }
 
+  const now = new Date();
+  // Station-level occupancy over the request's window, for the utilization factor.
+  const utilizationByStation = await stationUtilizationOver(
+    request.stationIds,
+    request.earliestStart,
+    request.latestStart
+  );
+
   const stationRank = new Map(request.stationIds.map((id, i) => [String(id), i]));
 
   const candidates: Candidate[] = [];
@@ -222,15 +243,77 @@ export async function findCandidates(requestId: string): Promise<ScoredCandidate
       endTime: end,
       stationRank: stationRank.get(String(charger.stationId)) ?? 0,
       adjacentBookedCount,
+      stationUtilization: utilizationByStation.get(String(charger.stationId)) ?? 0,
     });
   }
 
+  // The scoring context: everything that is true of the *request*, as opposed to of a candidate
+  // interval. Assembled here because it needs the database; the engine itself stays pure.
+  const reliability = await reliabilityForUsers([String(request.userId)]);
+  const waitingHours = Math.max(
+    0,
+    (now.getTime() - new Date(request.createdAt ?? now).getTime()) / 3_600_000
+  );
+
   const ranked = scoreCandidates({
     candidates,
-    preferredStart: new Date(request.preferredStart ?? request.earliestStart),
+    context: {
+      preferredStart: new Date(request.preferredStart ?? request.earliestStart),
+      waitingHours,
+      priority: (request.priority ?? "standard") as PriorityLevel,
+      // Defaults to the starting score rather than to zero: a customer with no history is unproven,
+      // not unreliable, and scoring them as the latter would penalise every new signup.
+      reliabilityScore: reliability[String(request.userId)]?.score ?? 100,
+    },
   });
 
   return ranked.slice(0, MAX_CANDIDATES);
+}
+
+/**
+ * How full each of a request's candidate stations is over the request's window.
+ *
+ * Measured across the whole window rather than per interval: the score asks "does this station have
+ * room?", which is a property of the site over the period, not of one 30-minute slice. Computed in
+ * one aggregation so adding a station to a request does not add a query.
+ */
+async function stationUtilizationOver(
+  stationIds: unknown[],
+  from: Date,
+  to: Date
+): Promise<Map<string, number>> {
+  const chargers = await Charger.find({ stationId: { $in: stationIds } })
+    .select("stationId")
+    .lean<{ _id: unknown; stationId: unknown }[]>();
+  if (chargers.length === 0) return new Map();
+
+  const stationOfCharger = new Map(chargers.map((c) => [String(c._id), String(c.stationId)]));
+
+  const slots = await Slot.find({
+    chargerId: { $in: chargers.map((c) => c._id) },
+    startTime: { $gte: from, $lte: to },
+  })
+    .select("chargerId status")
+    .lean<{ chargerId: unknown; status: string }[]>();
+
+  const totals = new Map<string, { total: number; taken: number }>();
+  for (const s of slots) {
+    const stationId = stationOfCharger.get(String(s.chargerId));
+    if (!stationId) continue;
+    const acc = totals.get(stationId) ?? { total: 0, taken: 0 };
+    acc.total++;
+    // "booked" and "completed" both mean the interval is spent; "blocked" is out of service and is
+    // not capacity at all, so it is excluded from the denominator rather than counted as used.
+    if (s.status === "booked" || s.status === "completed") acc.taken++;
+    if (s.status === "blocked") acc.total--;
+    totals.set(stationId, acc);
+  }
+
+  const out = new Map<string, number>();
+  for (const [stationId, { total, taken }] of totals) {
+    out.set(stationId, total > 0 ? taken / total : 0);
+  }
+  return out;
 }
 
 export interface FulfillRequestInput {
@@ -275,6 +358,30 @@ export async function fulfillRequest({
   if (request.status !== "OPEN") throw new Error("REQUEST_NOT_OPEN");
   if (request.expiresAt && new Date() > request.expiresAt) throw new Error("REQUEST_EXPIRED");
 
+  // Score BEFORE claiming, not after. The claim flips the interval to "booked", and the candidate
+  // search only returns available intervals — so scoring afterwards would never find the slot that
+  // was just taken and the rationale would silently never be recorded. Scoring first is also the
+  // more correct record: it captures the state the decision was actually made in.
+  //
+  // Best-effort. A reservation must not fail because its rationale could not be computed; the same
+  // trade as the event log, for the same reason.
+  let assignment: { score: number; breakdown: unknown; considered: number; rationale: string } | null =
+    null;
+  try {
+    const ranked = await findCandidates(requestId);
+    const chosen = ranked.find((c) => c.slotId === slotId);
+    if (chosen) {
+      assignment = {
+        score: chosen.score,
+        breakdown: chosen.breakdown,
+        considered: ranked.length,
+        rationale: explainChoice(ranked),
+      };
+    }
+  } catch (err) {
+    console.error("Failed to score the assignment before claiming", err);
+  }
+
   const booking = await claimReservation({
     userId: String(request.userId),
     vehicleId: String(request.vehicleId),
@@ -293,6 +400,17 @@ export async function fulfillRequest({
   request.status = "FULFILLED";
   request.fulfilledBookingId = booking._id;
   request.fulfilledAt = new Date();
+
+  // Persist why this assignment happened, from the score computed above. Recomputed server-side
+  // rather than trusting a score the client echoed back — a client-supplied score would be
+  // unverifiable, and the shortlist the customer saw may be seconds stale.
+  if (assignment) {
+    request.score = assignment.score;
+    request.scoreBreakdown = assignment.breakdown;
+    request.consideredCandidates = assignment.considered;
+    request.recommendationRationale = assignment.rationale;
+  }
+
   await request.save();
 
   return { request, booking };

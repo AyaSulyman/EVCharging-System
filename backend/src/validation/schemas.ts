@@ -130,6 +130,13 @@ export const createReservationRequestSchema = z
     stationFlex: z.boolean().optional(),
     /** Ongoing consent to be re-timed after fulfilment — a separate axis from the window above. */
     flexibilityType: flexibilityTypeEnum.optional(),
+    /**
+     * Scoring priority. Deliberately NOT accepted from a driver — `onSite` and `recovery` outrank
+     * every standard request, so a self-service caller who could set it would jump the queue at
+     * will. The service derives it from the request's origin instead; a staff-facing route may pass
+     * it explicitly. Absent here means the field is stripped from any driver request by the
+     * allowlist, which is the enforcement.
+     */
   })
   .superRefine((v, ctx) => {
     if (v.latestStart < v.earliestStart) {

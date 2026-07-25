@@ -125,9 +125,42 @@ const ReservationRequestSchema = new Schema(
     origin: { type: String, enum: REQUEST_ORIGINS, default: "self" },
     createdByStaffId: { type: Schema.Types.ObjectId, ref: "User", default: null },
 
+    /**
+     * Explicit priority. `onSite` because a customer standing at the desk outranks a remote
+     * request; `recovery` because a customer displaced by an incident or a maintenance closure is
+     * owed the next best slot — the platform broke their original reservation.
+     */
+    priority: {
+      type: String,
+      enum: ["standard", "onSite", "recovery"],
+      default: "standard",
+    },
+
     /** Set when fulfilled. The link between what was wanted and what was actually held. */
     fulfilledBookingId: { type: Schema.Types.ObjectId, ref: "Booking", default: null },
     fulfilledAt: { type: Date, default: null },
+
+    /* ------------------------------------------------------------------ scoring */
+
+    /**
+     * The score of the slot that was actually taken, and the full factor breakdown behind it.
+     *
+     * Stored at fulfilment rather than for every candidate: scoring every option and persisting all
+     * of them would write mostly-discarded rows on every search. What matters durably is *why this
+     * assignment happened* — which is the auditable record an operator needs when a customer asks
+     * why they were given 16:30 instead of 15:00, and the input a future scheduler needs to judge
+     * whether its own past decisions were good.
+     *
+     * Mixed rather than a nested schema: the factor set is expected to grow as the optimization
+     * engine develops, and a stored breakdown is a historical record of the weights *at the time*,
+     * not a shape that later code should be able to assume.
+     */
+    score: { type: Number, default: null },
+    scoreBreakdown: { type: Schema.Types.Mixed, default: null },
+    /** How many options the engine weighed. Context for the score — 1 of 1 is not a choice. */
+    consideredCandidates: { type: Number, default: 0 },
+    /** The one-line comparison against the runner-up, kept so the rationale survives the session. */
+    recommendationRationale: { type: String, default: null },
     /**
      * When the request stops being actionable. Defaults to `latestStart` — past that moment no
      * interval can satisfy it, so there is nothing left to match.

@@ -5,6 +5,7 @@ import {
   findCandidates,
   listRequests,
 } from "@/services/reservationRequest.service";
+import { explainChoice } from "@/services/optimization/scoring";
 import {
   cancelReservationRequestSchema,
   createReservationRequestSchema,
@@ -64,7 +65,14 @@ export async function POST(req: Request) {
     const candidates = await findCandidates(String(request._id));
 
     return json(
-      { request: serialize(request), candidates: serialize(candidates) },
+      {
+        request: serialize(request),
+        candidates: serialize(candidates),
+        // The comparison against the runner-up, computed server-side. Answering "why this one?"
+        // needs the largest *difference* between the top two, which a client holding only the
+        // winner's breakdown cannot work out.
+        rationale: explainChoice(candidates),
+      },
       { status: 201 }
     );
   } catch (err) {

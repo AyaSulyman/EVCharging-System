@@ -2,6 +2,7 @@ import { requireAuth, AuthError } from "@/middleware/auth";
 import ReservationRequest from "@/models/ReservationRequest";
 import { connectDB } from "@/config/database";
 import { findCandidates } from "@/services/reservationRequest.service";
+import { explainChoice } from "@/services/optimization/scoring";
 import { errorResponse, json, preflight, serialize } from "@/utils/response";
 
 export const dynamic = "force-dynamic";
@@ -39,7 +40,7 @@ export async function GET(req: Request) {
     if (!owned) throw new AuthError("Forbidden", 403);
 
     const candidates = await findCandidates(requestId);
-    return json({ candidates: serialize(candidates) });
+    return json({ candidates: serialize(candidates), rationale: explainChoice(candidates) });
   } catch (err) {
     return errorResponse(err, "Failed to load candidate slots", ERRORS);
   }
