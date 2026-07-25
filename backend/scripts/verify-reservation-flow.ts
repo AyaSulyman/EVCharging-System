@@ -106,18 +106,19 @@ async function run() {
 
     const bookingIx = await Bookings.indexes();
     const slotIx = bookingIx.find((i) => i.name === "slotId_1");
-    const slotFilterHasExists = JSON.stringify(slotIx?.partialFilterExpression ?? {}).includes(
-      "$exists"
-    );
-    if (slotFilterHasExists) {
-      record("slotId partial index carries the $exists clause", true);
+    // Checks for `$type`, not `$exists`. An `$exists` clause was installed first, passed this check,
+    // and still let the second range reservation collide — because $exists matches a present-but-null
+    // field. A precondition check that can pass while the precondition is unmet is worse than none.
+    const slotFilterCorrect = JSON.stringify(slotIx?.partialFilterExpression ?? {}).includes("$type");
+    if (slotFilterCorrect) {
+      record("slotId partial index excludes range reservations ($type)", true);
     } else {
       // A precondition, not a defect: until the index is rebuilt, the FIRST range reservation works
       // and the second collides on `slotId: null`. Everything below is still worth verifying, so the
       // harness continues and reports which assertions the migration is blocking.
       warn(
-        "slotId partial index has no $exists clause",
-        "ops:migrate-occupancy not applied — only one range reservation is possible"
+        "slotId partial index does not exclude range reservations",
+        "run ops:migrate-occupancy — only one range reservation is possible until then"
       );
     }
 

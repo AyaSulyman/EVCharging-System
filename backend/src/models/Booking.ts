@@ -19,11 +19,16 @@ const BookingSchema = new Schema(
      * slotId. It is kept, never removed, because the partial unique index on it is what guarantees
      * those historical reservations remain conflict-free.
      *
-     * NOTE the index below now also filters on `slotId: { $exists: true }`. Without that clause every
-     * range reservation would index as `slotId: null` and the second one would collide with the first
-     * — the unique index would reject legitimate bookings. See ops:migrate-occupancy.
+     * NOTE the index below filters on `slotId: { $type: "objectId" }`. Two subtleties, both learned
+     * the hard way:
+     *   - `$exists: true` is NOT sufficient. It matches a field that is *present and null*, so with a
+     *     `default: null` every range reservation still indexed as null and the second collided with
+     *     the first. `$type` matches neither absent nor null.
+     *   - the default is therefore removed as well, so a range reservation omits the field entirely
+     *     rather than storing null. Either fix alone would work; both together mean the index is
+     *     right regardless of how a future caller constructs the document.
      */
-    slotId: { type: Schema.Types.ObjectId, ref: "Slot", default: null },
+    slotId: { type: Schema.Types.ObjectId, ref: "Slot" },
     /**
      * Requested length in minutes. Present on duration-aware reservations, absent on legacy
      * slot-based ones — which is also how the two are told apart without a flag.
@@ -195,10 +200,15 @@ BookingSchema.index(
     partialFilterExpression: {
       status: { $in: ["pending", "confirmed", "completed", "no_show"] },
       // Added when reservations became duration-aware. Range reservations carry no slotId, so
-      // without this clause they would all index as `slotId: null` and the second one would be
-      // rejected as a duplicate of the first — the index would start refusing valid bookings.
+      // without this clause they would all index together and the second would be rejected as a
+      // duplicate of the first — the index would start refusing valid bookings.
+      //
+      // `$type` rather than `$exists`: $exists is true for a field that is present and NULL, so it
+      // did not actually exclude range reservations. Verified directly against MongoDB — a document
+      // with `slotId: null` matches `$exists: true` and does not match `$type: "objectId"`.
+      //
       // Changing an existing index is not additive: ops:migrate-occupancy drops and rebuilds it.
-      slotId: { $exists: true },
+      slotId: { $type: "objectId" },
     },
   }
 );

@@ -10,9 +10,14 @@
  *    reservation would be rejected as a duplicate of the first. The index would start refusing valid
  *    bookings, which is the worst possible failure for the constraint that guarantees correctness.
  *
- *    The fix is to add `slotId: { $exists: true }` to the partial filter, so the index covers exactly
- *    the reservations it was always meant to cover — the slot-based ones — and ignores range ones.
- *    MongoDB cannot alter a partial filter in place, so the index is dropped and recreated.
+ *    The fix is to add `slotId: { $type: "objectId" }` to the partial filter, so the index covers
+ *    exactly the reservations it was always meant to cover — the slot-based ones — and ignores range
+ *    ones. MongoDB cannot alter a partial filter in place, so the index is dropped and recreated.
+ *
+ *    NOT `$exists: true`, which is what this script tried first. `$exists` is true for a field that
+ *    is present and NULL, and `slotId` defaulted to null, so range reservations stayed in the index
+ *    and the second one still collided. The end-to-end harness caught it; `$type` is the predicate
+ *    that actually excludes them.
  *
  *    THAT WINDOW IS THE RISK. Between the drop and the create, the uniqueness guarantee on slot-based
  *    reservations does not exist. The window is milliseconds and this platform has five slot-based
@@ -51,9 +56,16 @@ import mongoose from "mongoose";
 const LIVE_LIFECYCLES = ["PENDING_PAYMENT", "RESERVED", "ARRIVED", "CHARGING", "LATE", "AT_RISK"];
 const ATOM_MINUTES = 15;
 
+/**
+ * The corrected partial filter.
+ *
+ * `$type: "objectId"` rather than `$exists: true`. $exists matches a field that is present and NULL,
+ * so with `slotId` defaulting to null every range reservation still landed in the index and the second
+ * collided with the first — verified directly against MongoDB. $type matches neither null nor absent.
+ */
 const NEW_FILTER = {
   status: { $in: ["pending", "confirmed", "completed", "no_show"] },
-  slotId: { $exists: true },
+  slotId: { $type: "objectId" },
 };
 
 async function snapshot(dir: string, names: string[]) {
@@ -92,9 +104,12 @@ async function run() {
   const missingLifecycle = await Bookings.countDocuments({ lifecycle: { $exists: false } });
   const indexes = await Bookings.indexes();
   const slotIx = indexes.find((i) => i.name === "slotId_1");
+  // Detects the corrected filter specifically. An earlier version of this script installed an
+  // `$exists` clause, which looked right and did not work — so "already has a slotId clause" is not
+  // the question; "already has the $type clause" is.
   const alreadyFixed =
     !!slotIx?.partialFilterExpression &&
-    JSON.stringify(slotIx.partialFilterExpression).includes("$exists");
+    JSON.stringify(slotIx.partialFilterExpression).includes("$type");
 
   const live = await Bookings.find({
     lifecycle: { $in: LIVE_LIFECYCLES },
@@ -106,7 +121,7 @@ async function run() {
   console.log("Findings");
   console.log(`  bookings missing lifecycle (run v2 first)      : ${missingLifecycle}`);
   console.log(`  slotId_1 index present                         : ${slotIx ? "yes" : "NO"}`);
-  console.log(`  slotId_1 filter already has $exists clause     : ${alreadyFixed ? "yes" : "no"}`);
+  console.log(`  slotId_1 filter already has $type clause       : ${alreadyFixed ? "yes" : "no"}`);
   console.log(`  live slot-based reservations to backfill       : ${live.length}`);
   console.log(`  occupancy rows already present                 : ${existingOccupancy}`);
 
@@ -155,14 +170,14 @@ async function run() {
 
   console.log("\nStep 1 — rebuild the partial unique index on bookings.slotId");
   if (alreadyFixed) {
-    console.log("  already carries the $exists clause; leaving it alone");
+    console.log("  already carries the $type clause; leaving it alone");
   } else {
     if (slotIx) {
       await Bookings.dropIndex("slotId_1");
       console.log("  dropped slotId_1");
     }
     await Bookings.createIndex({ slotId: 1 }, { unique: true, partialFilterExpression: NEW_FILTER });
-    console.log("  recreated slotId_1 with the $exists clause");
+    console.log("  recreated slotId_1 with the $type clause");
   }
 
   console.log("\nStep 2 — backfill occupancy for live slot-based reservations");
@@ -203,7 +218,8 @@ async function run() {
   const after = await Bookings.indexes();
   const fixed = after.find((i) => i.name === "slotId_1");
   const filterJson = JSON.stringify(fixed?.partialFilterExpression ?? {});
-  const indexOk = !!fixed && fixed.unique === true && filterJson.includes("$exists") && filterJson.includes("status");
+  const indexOk =
+    !!fixed && fixed.unique === true && filterJson.includes("$type") && filterJson.includes("status");
 
   const occIx = await Occupancy.indexes();
   const occUnique = occIx.find(
