@@ -32,6 +32,44 @@ function isDuplicateKey(err: unknown): boolean {
   return typeof err === "object" && err !== null && (err as { code?: number }).code === 11000;
 }
 
+/**
+ * Rows that still block a claim: firm reservations, plus provisional holds whose window is still open.
+ *
+ * A LAPSED HOLD MUST READ AS FREE. The sweep that deletes expired holds runs on a timer, so between
+ * a hold lapsing and the sweep noticing there is a row in the collection that no longer means
+ * anything. If availability counted it, a bay would sit unbookable for however long the sweep lags —
+ * which is exactly the frozen inventory the five-minute window exists to prevent.
+ *
+ * The corollary is not optional: because reads skip lapsed rows, the WRITE path must delete them
+ * before inserting, or availability would offer a start that the unique index then refuses. That
+ * purge lives in `claimOccupancy` and `holdOccupancy`, and the two halves have to stay together —
+ * a read filter without the matching purge is a system that advertises time it cannot sell.
+ *
+ * `holdExpiresAt: null` also matches rows written before the field existed, which is what makes this
+ * safe to apply to occupancy created by the earlier migrations.
+ */
+function liveOnly(now: Date): Record<string, unknown> {
+  return { $or: [{ holdExpiresAt: null }, { holdExpiresAt: { $gt: now } }] };
+}
+
+/**
+ * Deletes provisional holds that have lapsed, so the unique index agrees with what availability said.
+ *
+ * Only ever touches rows with a `holdExpiresAt` in the past. A firm reservation has `holdExpiresAt`
+ * null, which is not less than any date, so this cannot remove a booking's capacity no matter what
+ * filter it is called with — the property that makes it safe to run on the hot claim path.
+ */
+export async function purgeLapsedHolds(
+  now: Date = new Date(),
+  scope: Record<string, unknown> = {}
+): Promise<number> {
+  const res = await ReservationOccupancy.deleteMany({
+    ...scope,
+    holdExpiresAt: { $ne: null, $lt: now },
+  });
+  return res.deletedCount ?? 0;
+}
+
 export interface ClaimOccupancyInput {
   bookingId: unknown;
   chargerId: unknown;
@@ -73,6 +111,15 @@ export async function claimOccupancy({
     throw new Error("RANGE_TOO_LONG");
   }
 
+  // Clear any lapsed optimizer hold sitting on this range before claiming it. Availability already
+  // reports a lapsed hold as free (see `liveOnly`), so without this the driver would be offered a
+  // start and then refused by the unique index — the read and the write disagreeing about the same
+  // row. Scoped to this charger and this range, and structurally incapable of touching a firm row.
+  await purgeLapsedHolds(new Date(), {
+    chargerId,
+    atomStart: { $gte: atoms[0], $lt: end },
+  });
+
   const docs = atoms.map((atomStart) => ({
     bookingId,
     chargerId,
@@ -106,6 +153,119 @@ export async function releaseOccupancy(bookingId: unknown): Promise<number> {
   await connectDB();
   const res = await ReservationOccupancy.deleteMany({ bookingId });
   return res.deletedCount ?? 0;
+}
+
+/* ============================================================================
+ * Provisional holds — capacity an optimizer offer owns while a customer decides
+ *
+ * The same collection and the same unique index as a firm reservation, deliberately. That single
+ * choice is what makes the whole optimizer safe: an offer cannot be made on a bay someone is
+ * booking, a booking cannot take a bay under offer, and accepting an offer is a field update rather
+ * than a fresh claim that could lose. Two collections would mean two arbiters of one resource and a
+ * reconciliation problem between them that no amount of care fully closes.
+ * ========================================================================== */
+
+export interface HoldOccupancyInput {
+  recommendationId: unknown;
+  chargerId: unknown;
+  stationId: unknown;
+  userId: unknown;
+  start: Date;
+  durationMinutes: number;
+  /** When the hold lapses. Fixed window, independent of `durationMinutes` — see recommendationPolicy. */
+  expiresAt: Date;
+}
+
+/**
+ * Takes a range provisionally, on behalf of an offer rather than a reservation.
+ *
+ * Identical mechanics to `claimOccupancy` — same index, same all-or-nothing cleanup — differing only
+ * in who is recorded as the holder and in carrying an expiry. A lost race here is entirely normal:
+ * the optimizer plans against a snapshot, and someone may book against the live database in between.
+ *
+ * Throws: CHARGER_BUSY · RANGE_TOO_LONG
+ */
+export async function holdOccupancy({
+  recommendationId,
+  chargerId,
+  stationId,
+  userId,
+  start,
+  durationMinutes,
+  expiresAt,
+}: HoldOccupancyInput): Promise<Date[]> {
+  await connectDB();
+
+  const end = endOfRange(start, durationMinutes);
+  const atoms = atomsForRange(start, end);
+  if (atoms.length === 0 || atoms.length > MAX_ATOMS_PER_RESERVATION) {
+    throw new Error("RANGE_TOO_LONG");
+  }
+
+  await purgeLapsedHolds(new Date(), {
+    chargerId,
+    atomStart: { $gte: atoms[0], $lt: end },
+  });
+
+  try {
+    await ReservationOccupancy.insertMany(
+      atoms.map((atomStart) => ({
+        recommendationId,
+        bookingId: null,
+        holdExpiresAt: expiresAt,
+        chargerId,
+        stationId,
+        userId,
+        atomStart,
+        atomEnd: new Date(atomStart.getTime() + OCCUPANCY_ATOM_MINUTES * 60_000),
+      })),
+      { ordered: false }
+    );
+  } catch (err) {
+    await ReservationOccupancy.deleteMany({ recommendationId });
+    if (isDuplicateKey(err)) throw new Error("CHARGER_BUSY");
+    throw err;
+  }
+
+  return atoms;
+}
+
+/** Frees everything an offer holds. Idempotent — reject, expiry and supersession can all reach it. */
+export async function releaseHold(recommendationId: unknown): Promise<number> {
+  await connectDB();
+  const res = await ReservationOccupancy.deleteMany({ recommendationId });
+  return res.deletedCount ?? 0;
+}
+
+/**
+ * Turns a provisional hold into a firm one, in place.
+ *
+ * THE PAYOFF OF HOLDING IN THE FIRST PLACE. Acceptance rewrites the holder on rows that already
+ * exist rather than inserting new ones, so it cannot collide with anything — the capacity was won
+ * when the offer was made. An accept path that re-claimed would reintroduce precisely the race the
+ * hold was created to remove, and would fail in front of a customer who had just been told they had
+ * a slot.
+ *
+ * Returns how many rows converted. A count below the expected atom count means part of the hold was
+ * already gone (swept after lapsing, or never fully taken), and the caller must treat that as a lost
+ * hold rather than as a reservation — a partial lease is a double booking waiting to be reported.
+ */
+export async function convertHoldToBooking(
+  recommendationId: unknown,
+  bookingId: unknown
+): Promise<number> {
+  await connectDB();
+  const res = await ReservationOccupancy.updateMany(
+    { recommendationId },
+    { $set: { bookingId, recommendationId: null, holdExpiresAt: null } }
+  );
+  return res.modifiedCount ?? 0;
+}
+
+/** How many atoms an offer currently holds — used to confirm a hold is intact before converting it. */
+export async function countHeldAtoms(recommendationId: unknown): Promise<number> {
+  await connectDB();
+  return ReservationOccupancy.countDocuments({ recommendationId });
 }
 
 /**
@@ -157,6 +317,10 @@ export async function moveOccupancy({
   const toInsert = nextAtoms.filter((a) => !keptStarts.has(a.getTime()));
 
   if (toInsert.length > 0) {
+    await purgeLapsedHolds(new Date(), {
+      chargerId,
+      atomStart: { $gte: nextAtoms[0], $lt: end },
+    });
     try {
       await ReservationOccupancy.insertMany(
         toInsert.map((atomStart) => ({
@@ -186,12 +350,14 @@ export async function moveOccupancy({
 export async function occupiedRangesForCharger(
   chargerId: unknown,
   from: Date,
-  to: Date
+  to: Date,
+  now: Date = new Date()
 ): Promise<OccupiedRange[]> {
   await connectDB();
   const rows = await ReservationOccupancy.find({
     chargerId,
     atomStart: { $gte: from, $lt: to },
+    ...liveOnly(now),
   })
     .select("atomStart atomEnd")
     .lean<{ atomStart: Date; atomEnd: Date }[]>();
@@ -254,9 +420,12 @@ export async function availabilityForStation({
   windowEnd.setHours(OPERATING_TO_HOUR, 0, 0, 0);
 
   // One query for the whole station rather than one per charger — the station index exists for this.
+  // Live holders only: a firm reservation, or an optimizer offer whose window has not lapsed. An
+  // offer that is still live genuinely blocks this time, which is the point of holding it.
   const rows = await ReservationOccupancy.find({
     stationId,
     atomStart: { $gte: windowStart, $lt: windowEnd },
+    ...liveOnly(now),
   })
     .select("chargerId atomStart atomEnd")
     .lean<{ chargerId: unknown; atomStart: Date; atomEnd: Date }[]>();
@@ -300,13 +469,15 @@ export async function availabilityForStation({
 export async function isRangeFree(
   chargerId: unknown,
   start: Date,
-  durationMinutes: number
+  durationMinutes: number,
+  now: Date = new Date()
 ): Promise<boolean> {
   await connectDB();
   const end = endOfRange(start, durationMinutes);
   const clash = await ReservationOccupancy.exists({
     chargerId,
     atomStart: { $gte: start, $lt: end },
+    ...liveOnly(now),
   });
   return !clash;
 }
@@ -317,13 +488,22 @@ export async function isRangeFree(
  * Counting rows would be wrong: two adjacent 15-minute reservations and one 30-minute reservation
  * occupy identical time but produce different row counts. Merging first, then summing minutes, is the
  * only way the figure means anything once durations vary.
+ *
+ * FIRM HOLDS ONLY. Unlike the availability reads above, this one excludes optimizer offers outright.
+ * Availability asks "can this be booked", where a live offer genuinely blocks the time; utilization
+ * asks "how much of the estate was actually used", and an offer nobody accepted was idle capacity.
+ * Counting offers here would let the KPI be inflated simply by running the optimizer more often —
+ * a metric that improves when nothing improves is worse than no metric.
  */
 export async function occupiedMinutesByStation(
   from: Date,
   to: Date
 ): Promise<Map<string, number>> {
   await connectDB();
-  const rows = await ReservationOccupancy.find({ atomStart: { $gte: from, $lt: to } })
+  const rows = await ReservationOccupancy.find({
+    atomStart: { $gte: from, $lt: to },
+    bookingId: { $ne: null },
+  })
     .select("stationId atomStart atomEnd")
     .lean<{ stationId: unknown; atomStart: Date; atomEnd: Date }[]>();
 
@@ -347,6 +527,12 @@ export async function occupiedMinutesByStation(
  * drivers could be sold; occupancy with no live reservation is a bay nobody can book. The first is
  * urgent, the second is waste, and a repair tool that only checked one would leave the other to be
  * discovered by a customer.
+ *
+ * PROVISIONAL HOLDS ARE NOT DRIFT and are excluded explicitly. They are held by a recommendation
+ * rather than a booking, and they expire on their own — reporting them here would mean every
+ * optimizer pass makes the estate look corrupt for five minutes. Without the `$ne: null` filter the
+ * effect is worse than noise: `distinct` folds every provisional row into a single `null`, which
+ * then stringifies to "null" and is reported forever as one orphaned reservation that does not exist.
  */
 export async function findOccupancyDrift(): Promise<{
   reservationsMissingOccupancy: string[];
@@ -362,7 +548,9 @@ export async function findOccupancyDrift(): Promise<{
     .lean<{ _id: unknown }[]>();
 
   const withOccupancy = new Set(
-    (await ReservationOccupancy.distinct("bookingId")).map((id) => String(id))
+    (await ReservationOccupancy.distinct("bookingId", { bookingId: { $ne: null } })).map((id) =>
+      String(id)
+    )
   );
 
   const reservationsMissingOccupancy = holding

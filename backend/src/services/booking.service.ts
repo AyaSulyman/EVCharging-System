@@ -5,8 +5,12 @@ import Charger from "@/models/Charger";
 import Vehicle from "@/models/Vehicle";
 import { DEFAULT_GRACE_PERIOD_MINUTES } from "@/models/reservationLifecycle";
 import { DEFAULT_FLEXIBILITY } from "@/models/flexibilityPolicy";
-import { endOfRange, validateRange } from "@/models/occupancyPolicy";
-import { claimOccupancy, releaseOccupancy } from "@/services/occupancy.service";
+import { atomCountFor, endOfRange, validateRange } from "@/models/occupancyPolicy";
+import {
+  claimOccupancy,
+  convertHoldToBooking,
+  releaseOccupancy,
+} from "@/services/occupancy.service";
 import {
   REFUND_CUTOFF_HOURS,
   assessRefund,
@@ -626,6 +630,15 @@ export interface ClaimRangeReservationInput {
   commitmentCompleted?: boolean;
   requestId?: string;
   flexibilityType?: string;
+  /**
+   * The optimizer offer whose capacity this reservation is taking over.
+   *
+   * When set, the range is NOT claimed — the offer already holds these atoms, so the rows are
+   * rewritten to point at the new booking instead. Claiming afresh would collide with the offer's
+   * own hold and fail every time, and dropping the hold first would open the race the hold exists to
+   * close. One creation path either way: pricing, codes, lifecycle and events must not fork.
+   */
+  fromRecommendationId?: string;
 }
 
 /**
@@ -642,7 +655,7 @@ export interface ClaimRangeReservationInput {
  * boundary has to enforce it here.
  *
  * Throws: CHARGER_NOT_FOUND · VEHICLE_NOT_OWNED · CONNECTOR_MISMATCH · INVALID_RANGE ·
- *         CHARGER_BUSY · CODE_GENERATION_FAILED
+ *         CHARGER_BUSY · CODE_GENERATION_FAILED · HOLD_LOST (offer path only)
  */
 export async function claimRangeReservation({
   userId,
@@ -655,6 +668,7 @@ export async function claimRangeReservation({
   commitmentCompleted = false,
   requestId = undefined,
   flexibilityType = DEFAULT_FLEXIBILITY,
+  fromRecommendationId = undefined,
 }: ClaimRangeReservationInput) {
   await connectDB();
 
@@ -750,14 +764,27 @@ export async function claimRangeReservation({
   // Step 2 — take the time. The unique index on (chargerId, atomStart) decides; a collision means
   // someone else already holds part of this range.
   try {
-    await claimOccupancy({
-      bookingId: booking._id,
-      chargerId: charger._id,
-      stationId: charger.stationId,
-      userId,
-      start: startTime,
-      durationMinutes,
-    });
+    if (fromRecommendationId) {
+      // The capacity is already ours: rewrite the holder rather than claim it again. This is where
+      // "accepting an offer cannot lose a race" is actually cashed in.
+      const converted = await convertHoldToBooking(fromRecommendationId, booking._id);
+      const needed = atomCountFor(durationMinutes);
+      if (converted !== needed) {
+        // The hold lapsed and was swept, or was never fully taken. A partial lease is worse than
+        // none — it is a bay two drivers could be sold — so release what converted and refuse.
+        await releaseOccupancy(booking._id);
+        throw new Error("HOLD_LOST");
+      }
+    } else {
+      await claimOccupancy({
+        bookingId: booking._id,
+        chargerId: charger._id,
+        stationId: charger.stationId,
+        userId,
+        start: startTime,
+        durationMinutes,
+      });
+    }
   } catch (err) {
     await Booking.deleteOne({ _id: booking._id });
     throw err;

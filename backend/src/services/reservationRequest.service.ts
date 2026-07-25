@@ -18,7 +18,8 @@
  */
 import { connectDB } from "@/config/database";
 import Booking from "@/models/Booking";
-import ReservationRequest from "@/models/ReservationRequest";
+import ReservationRequest, { ACTIVE_REQUEST_STATUSES } from "@/models/ReservationRequest";
+import type { WaitlistReason } from "@/models/recommendationPolicy";
 import Station from "@/models/Station";
 import Vehicle from "@/models/Vehicle";
 import { claimRangeReservation } from "@/services/booking.service";
@@ -322,8 +323,23 @@ export async function fulfillRequest({
   const privileged = actorRole === "admin" || actorRole === "staff";
   if (!isOwner && !privileged) throw new Error("FORBIDDEN");
 
-  if (request.status !== "OPEN") throw new Error("REQUEST_NOT_OPEN");
+  if (!isActiveOrPending(request.status)) throw new Error("REQUEST_NOT_OPEN");
   if (request.expiresAt && new Date() > request.expiresAt) throw new Error("REQUEST_EXPIRED");
+
+  // Picking an interval directly while an offer is live is a rejection of that offer — the driver
+  // chose something else. The hold is released first, because otherwise a driver who accepted their
+  // own recommended interval through this path would collide with their own hold and be told the
+  // charger is busy by their own reservation.
+  //
+  // The release opens a brief window in which another driver could take the interval, and that is the
+  // honest trade: the alternative is holding capacity for an offer the driver has already declined.
+  // A driver who wants the offered interval should accept the offer, where the hold is converted
+  // rather than dropped and the race cannot be lost at all.
+  if (request.activeRecommendationId) {
+    const { releaseActiveRecommendation } = await import("@/services/recommendation.service");
+    await releaseActiveRecommendation(request._id, "customer_chose_another_interval");
+    request.activeRecommendationId = null;
+  }
 
   // Score BEFORE claiming, not after. The claim flips the interval to "booked", and the candidate
   // search only returns available intervals — so scoring afterwards would never find the slot that
@@ -390,6 +406,10 @@ export async function fulfillRequest({
  * Withdraws a request. Terminal — a driver who changes their mind creates a new one rather than
  * reopening this, so the history of what was asked for stays intact.
  *
+ * A live offer is released first. Cancelling the request while its recommendation still held capacity
+ * would strand a bay behind a request nobody is waiting on any more, which no sweep would ever
+ * reconcile because the offer itself is still perfectly valid.
+ *
  * Throws: REQUEST_NOT_FOUND · FORBIDDEN · REQUEST_NOT_OPEN
  */
 export async function cancelRequest(requestId: string, actorId: string, actorRole: string) {
@@ -401,11 +421,114 @@ export async function cancelRequest(requestId: string, actorId: string, actorRol
   const isOwner = String(request.userId) === actorId;
   const privileged = actorRole === "admin" || actorRole === "staff";
   if (!isOwner && !privileged) throw new Error("FORBIDDEN");
-  if (request.status !== "OPEN") throw new Error("REQUEST_NOT_OPEN");
+  if (!isActiveOrPending(request.status)) throw new Error("REQUEST_NOT_OPEN");
+
+  if (request.activeRecommendationId) {
+    // Dynamic import: recommendation.service reads this module for request state, so a static import
+    // here would close the cycle at module-evaluation time.
+    const { releaseActiveRecommendation } = await import("@/services/recommendation.service");
+    await releaseActiveRecommendation(request._id, "request_cancelled");
+  }
 
   request.status = "CANCELLED";
+  request.activeRecommendationId = null;
   await request.save();
   return request;
+}
+
+/** OPEN, WAITLISTED or PENDING_ACCEPTANCE — every state in which a request is still being worked. */
+function isActiveOrPending(status: string): boolean {
+  return (
+    (ACTIVE_REQUEST_STATUSES as readonly string[]).includes(status) ||
+    status === "PENDING_ACCEPTANCE"
+  );
+}
+
+/**
+ * Records that no feasible option existed for a request.
+ *
+ * WAITLISTING IS NOT A FAILURE STATE, it is a subscription. The request stays in the demand pool and
+ * is reconsidered the moment capacity frees up — see `isWorthReevaluating` for the two reasons that
+ * make reconsideration pointless. Storing *why* is what lets an operator tell "buy another charger"
+ * apart from "this customer's window is impossible", which are opposite answers to the same symptom.
+ */
+export async function waitlistRequest(
+  requestId: unknown,
+  reason: WaitlistReason,
+  now: Date = new Date()
+) {
+  await connectDB();
+
+  const updated = await ReservationRequest.findOneAndUpdate(
+    { _id: requestId, status: { $in: [...ACTIVE_REQUEST_STATUSES, "PENDING_ACCEPTANCE"] } },
+    {
+      $set: {
+        status: "WAITLISTED",
+        waitlistedAt: now,
+        waitlistReason: reason,
+        lastEvaluatedAt: now,
+        activeRecommendationId: null,
+      },
+    },
+    { returnDocument: "after" }
+  );
+  if (!updated) return null;
+
+  await emitReservationEvent({
+    type: "request.waitlisted",
+    requestId: updated._id,
+    userId: updated.userId,
+    stationId: updated.stationIds?.[0],
+    fault: "operator",
+    // Never penalising: the platform failed to find the customer a bay. Recording it as anything
+    // else would let a capacity shortage quietly damage the reliability of the people it failed.
+    penalize: false,
+    basis: reason,
+    metadata: {
+      earliestStart: updated.earliestStart,
+      latestStart: updated.latestStart,
+      durationMinutes: updated.durationMinutes,
+    },
+  });
+
+  return updated;
+}
+
+/**
+ * Returns a request to the pool after an offer was declined, expired or superseded.
+ *
+ * Back to OPEN rather than to WAITLISTED: the last pass demonstrably found this request something,
+ * so it is not blocked on capacity and should be treated as ordinary live demand.
+ */
+export async function reopenRequest(requestId: unknown, basis: string, now: Date = new Date()) {
+  await connectDB();
+
+  const updated = await ReservationRequest.findOneAndUpdate(
+    { _id: requestId, status: { $in: ["PENDING_ACCEPTANCE", "WAITLISTED"] } },
+    {
+      $set: {
+        status: "OPEN",
+        activeRecommendationId: null,
+        lastEvaluatedAt: now,
+        waitlistReason: null,
+        waitlistedAt: null,
+      },
+    },
+    { returnDocument: "after" }
+  );
+  if (!updated) return null;
+
+  await emitReservationEvent({
+    type: "request.reopened",
+    requestId: updated._id,
+    userId: updated.userId,
+    stationId: updated.stationIds?.[0],
+    fault: "system",
+    penalize: false,
+    basis,
+  });
+
+  return updated;
 }
 
 /** A driver's own requests, newest first. */
@@ -435,8 +558,18 @@ export interface RequestExpiryReport {
 export async function expireRequests(now: Date = new Date()): Promise<RequestExpiryReport> {
   await connectDB();
 
-  const stale = await ReservationRequest.find({ status: "OPEN", expiresAt: { $lt: now } })
-    .select("_id userId stationIds earliestStart latestStart durationMinutes")
+  // WAITLISTED counts as unfulfilled demand exactly as OPEN does — it is a request the platform
+  // could not place, and its window passes like any other. Sweeping only OPEN would leave every
+  // waitlisted request live forever, re-evaluated on every capacity release long after the customer
+  // could possibly still want it.
+  //
+  // PENDING_ACCEPTANCE is deliberately NOT swept here. Its capacity is held, and releasing that is
+  // the recommendation sweep's job; expiring the request first would orphan the hold behind it.
+  const stale = await ReservationRequest.find({
+    status: { $in: ACTIVE_REQUEST_STATUSES },
+    expiresAt: { $lt: now },
+  })
+    .select("_id userId stationIds earliestStart latestStart durationMinutes status")
     .lean<
       {
         _id: unknown;
@@ -445,15 +578,16 @@ export async function expireRequests(now: Date = new Date()): Promise<RequestExp
         earliestStart: Date;
         latestStart: Date;
         durationMinutes: number;
+        status: string;
       }[]
     >();
 
   let expired = 0;
   for (const request of stale) {
-    // Conditional on still being OPEN, so a sweep racing a fulfilment cannot expire a request
-    // that was just satisfied.
+    // Conditional on still being active, so a sweep racing a fulfilment or a fresh offer cannot
+    // expire a request that was just satisfied or just had capacity held for it.
     const updated = await ReservationRequest.findOneAndUpdate(
-      { _id: request._id, status: "OPEN" },
+      { _id: request._id, status: { $in: ACTIVE_REQUEST_STATUSES } },
       { $set: { status: "EXPIRED" } }
     );
     if (!updated) continue;
@@ -470,6 +604,9 @@ export async function expireRequests(now: Date = new Date()): Promise<RequestExp
         earliestStart: request.earliestStart,
         latestStart: request.latestStart,
         durationMinutes: request.durationMinutes,
+        // Whether the optimizer had already given up on it. An expiry from WAITLISTED is a capacity
+        // shortfall; one from OPEN is a customer who never chose.
+        wasWaitlisted: request.status === "WAITLISTED",
         windowHours:
           Math.round(
             ((new Date(request.latestStart).getTime() - new Date(request.earliestStart).getTime()) /
