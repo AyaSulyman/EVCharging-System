@@ -4,7 +4,7 @@
 the presentation, the demo script and any slide deck can be built from one place — and so nobody has
 to reverse-engineer the reasoning out of the code under time pressure.
 
-**Last updated: 2026-07-25.** Read alongside:
+**Last updated: 2026-07-25 (customer behaviour tracking).** Read alongside:
 - [`../CLAUDE.md`](../CLAUDE.md) — what the project is, and the invariants that must not break
 - [`../AGENTS.md`](../AGENTS.md) — how to work here
 - [`PROJECT_STATE.md`](PROJECT_STATE.md) — what is built vs. not, and the ops commands
@@ -437,7 +437,107 @@ to reverse-engineer the reasoning out of the code under time pressure.
 
 ---
 
-# 8. Money & reporting
+# 8. Customer behaviour tracking ⭐
+
+The reliability score (§7) answers *how much should I trust this driver?* in one number. These
+metrics answer what a number cannot: **how** late are they usually, do they cancel with notice or at
+the last minute, is their behaviour improving.
+
+### 8.1 Evidence and judgement kept separate ⭐
+- **Rule:** The score lives on `users` (indexed, needed for every list and badge). The rich metrics
+  live in their own `customerbehaviorprofiles` collection, read only when someone opens a driver.
+- **Where:** `backend/src/models/CustomerBehaviorProfile.ts`
+- **Why it matters:** A score is a *judgement* and must stay simple enough to defend. Behaviour is
+  *evidence* and should be as rich as the data allows. Collapsing them would make the score
+  unexplainable — a driver reliably 4 minutes late and one occasionally an hour late can score
+  identically, and an operator must be able to tell them apart.
+
+### 8.2 Safe to drop and rebuild ⭐
+- **Rule:** Every field is derived from `reservationevents`. The collection can be deleted and
+  rebuilt with no loss.
+- **Why it matters:** That is the test of a projection done properly — and it means **redefining a
+  metric is a recompute, not a migration.** `npm run ops:behavior` is the repair path.
+
+### 8.3 The historical record is the event log — no snapshot table ⭐
+- **Rule:** There is deliberately **no** periodic-snapshot collection. `reservationevents` is already
+  append-only and immutable, so any past state is reconstructable by folding events up to a date.
+  `timelineForUser` exposes the log directly.
+- **Why it matters:** A snapshot table would duplicate derivable data and then need its own
+  consistency story. And what an operator reviewing a driver actually wants is **the individual
+  incidents, not a summary of a summary.**
+
+### 8.4 Arrival accuracy is absolute, not just lateness ⭐
+- **Rule:** Deviation from the promised start is measured as an **absolute** value, so arriving 25
+  minutes early counts as inaccurate. Accuracy = share of arrivals within the grace period.
+- **Why it matters:** A driver who consistently turns up early occupies the bay before their window
+  in practice. Counting only lateness would score them perfect.
+- **Bug this caught:** early arrivals were initially bucketed as "on time", so the distribution said
+  *all on time* while accuracy said *0%* for the same arrivals. **Two figures describing the same
+  data must never contradict each other.** Early now has its own bucket.
+
+### 8.5 Median alongside mean ⭐
+- **Rule:** Delay reports both, and averages across **late arrivals only**.
+- **Why it matters:** One catastrophic 90-minute arrival drags a mean from 3 to 25 minutes. Verified:
+  delays of 2/3/4/90 give **mean 24.8, median 3.5** — the median is the honest characterisation, the
+  max is the risk. Averaging in the on-time zeros would dilute the figure and hide the problem.
+
+### 8.6 No-show *rate* excludes cancellations from the denominator ⭐
+- **Rule:** Rate = no-shows / (no-shows + completions) — reservations that reached their start time.
+- **Why it matters:** A cancellation is not a failure to show up. Including cancellations would
+  **flatter a driver who cancels constantly**, which is the opposite of what the metric is for.
+
+### 8.7 Cancellation lead time — the signal that had to be added ⭐
+- **Rule:** Cancellations are bucketed by how far ahead they happened (24h+ / 2–24h / under 2h /
+  after start), and mean notice hours is reported.
+- **Where:** `hoursUntilStart` added to the `reservation.cancelled` event metadata
+- **Why it matters:** Without it, cancelling **three days early** and **twenty minutes early** are
+  indistinguishable in the log — one considerate, one costly. The assessment already computed the
+  figure; it simply was not being recorded. **A behavioural signal not written down at the moment it
+  occurs is gone.**
+
+### 8.8 Trend needs a baseline, not just a recent count ⭐
+- **Rule:** Last 30 days vs the 30 before. Reports `insufficient_data` unless there was **activity**
+  in the earlier window — not merely zero incidents.
+- **Why it matters — the second bug this caught:** comparing against an empty window labelled
+  **every new driver "declining"** the first time they were late, because zero incidents in a period
+  they did not exist for looked like a perfect baseline. A trend requires two periods that both
+  actually happened.
+
+### 8.9 Extensions are tracked but honestly reported as absent ⭐
+- **Rule:** The dimension exists and the fold handles `extension.*` events, but the extension feature
+  is **not built**, so figures are structurally zero. `notImplemented` is stored and the dashboard
+  says so explicitly.
+- **Why it matters:** An empty chart presented as data would read as *"this driver never asks for
+  extensions"* — a false finding about a person. Saying "not implemented" is the honest option, and
+  the tracking populates the moment the feature ships with no change to this module.
+- **Presentation note:** Worth mentioning as a deliberate choice, not a gap.
+
+### 8.10 Absent measurement sorts last, not worst ⭐
+- **Rule:** The cohort list sorts by worst arrival accuracy, but drivers with **no arrivals** go to
+  the bottom rather than appearing as 0%.
+- **Why it matters:** No measurement is not a bad one. Mixing them would put every new signup at the
+  top of a list whose entire purpose is surfacing problems.
+
+### 8.11 Dashboard views
+- **Cohort:** `/admin/behavior` — one-line characterisation per driver ("typically 12 min late",
+  "cancels 3h ahead on average") plus accuracy, median delay, no-show rate, trend.
+- **Detail:** `/admin/behavior/[userId]` — headline metrics, a delay distribution, a cancellation
+  lead-time breakdown, session conduct, **and the raw event timeline underneath**.
+- **Why it matters:** Metrics and evidence on the same screen. An operator who doubts a figure needs
+  the incidents without another navigation step — a summary that cannot be checked is one nobody
+  trusts.
+- **Demo:** open the cohort, then a driver detail, then scroll to the timeline and show a
+  `fault: operator — waived` entry.
+
+### 8.12 Waived events are shown, not hidden
+- **Rule:** Operator-caused cancellations and no-shows are excluded from the metrics but **counted
+  and displayed** as waived.
+- **Why it matters:** Silently omitting them would make the profile disagree with the timeline the
+  operator can see right below it.
+
+---
+
+# 9. Money & reporting
 
 ### 8.1 Cost basis captured per reservation
 - **Rule:** `appliedUnitPrice` and `appliedPowerKW` are snapshotted at claim time.
@@ -454,7 +554,7 @@ to reverse-engineer the reasoning out of the code under time pressure.
 
 ---
 
-# 9. Operational safety
+# 10. Operational safety
 
 ### 9.1 Every migration is dry-run first, snapshots, and self-verifies
 - **Rule:** Dry run by default; `--apply` snapshots to `backups/<timestamp>/` then writes, then
@@ -485,7 +585,7 @@ to reverse-engineer the reasoning out of the code under time pressure.
 
 ---
 
-# 10. What is simulated — never misrepresent this ⭐
+# 11. What is simulated — never misrepresent this ⭐
 
 Stating this plainly is more credible than overclaiming, and the architecture is the real
 contribution either way.
@@ -502,7 +602,7 @@ contribution either way.
 
 ---
 
-# 11. Suggested demo running order
+# 12. Suggested demo running order
 
 1. **Conflict-free claim** (§1.1) — two browsers, one slot. The core claim.
 2. **Deposit flow** (§3.1, §3.12) — book, see the countdown, **simulate a decline**, then pay.
@@ -512,7 +612,9 @@ contribution either way.
 6. **Move within consent** (§6.5, §6.9) — move a flexible reservation; then try a `STRICT` one and
    show the **explained refusal**.
 7. **Reliability** (§7.5) — `/admin/reliability`, sorted worst-first, with explanations.
-8. **Operational safety** (§9.1) — a migration dry run refusing to run out of order.
+8. **Behaviour** (§8.11) — `/admin/behavior`, then a driver detail: delay distribution,
+   cancellation lead-time breakdown, and the raw timeline the numbers came from.
+9. **Operational safety** (§10.1) — a migration dry run refusing to run out of order.
 
 **Closing point for the presentation:** the recurring theme is *choosing where correctness lives*.
 The database arbitrates conflicts; a pure policy module decides money and movement; an append-only

@@ -1,6 +1,6 @@
 # PROJECT_STATE.md — what is built, what is not, what to do next
 
-**Last updated: 2026-07-25 (customer reliability score).** Read this after `CLAUDE.md` and
+**Last updated: 2026-07-25 (customer behaviour tracking).** Read this after `CLAUDE.md` and
 `AGENTS.md`, before writing code.
 
 See also **[`IMPLEMENTED_LOGIC.md`](IMPLEMENTED_LOGIC.md)** — the canonical register of every
@@ -24,13 +24,14 @@ same commit.**
 | Charging session start/end | Partial — see §4 |
 | Reservation commitment / deposit system | **Code done. Migration NOT applied** |
 | Mock payment gateway + webhook path | Done |
-| `reservationevents` append-only log | Written to; **one consumer** — the reliability score |
+| `reservationevents` append-only log | Written to; **two consumers** — reliability score and behaviour profiles |
 | **Flexibility windows — pre-booking** (`reservationrequests` + candidate scoring) | **Done** — first slice of the optimization engine |
 | **Flexibility windows — post-booking** (`flexibilityType` + scheduler moves) | **Done** — the consent mechanism for RESCHEDULE |
 | Waitlists | **Not built.** Design only — extend `ReservationRequest`, do not add a new collection |
 | Extensions, overstay, delay propagation | **Not built.** Design only |
 | Reservation Optimization Engine | **Design only** — `docs/RESERVATION_OPTIMIZATION_ENGINE.md` |
 | Customer reliability score | **Done** — the first event-log consumer, derived not accumulated |
+| Customer behaviour tracking | **Done** — second consumer: delays, cancellations, no-shows, arrival accuracy |
 | Notifications from events | **Not built.** Store + UI exist; nothing produces them |
 | Real payments | Not built. The seam exists — see `CLAUDE.md` §7 |
 
@@ -96,6 +97,7 @@ cd backend
 | `npm run ops:expire-commitments` | Releases reservations whose deposit window closed. **Writes by default**; `-- --dry-run` to report only. Intended for a scheduler every few minutes |
 | `npm run ops:reconcile` | Reconciles `slots.status === "booked"` against live reservations |
 | `npm run ops:reliability` | Rebuilds every driver's reliability score from the event log. **Writes by default**; `-- --dry-run` shows stored vs recomputed. Idempotent — safe any time |
+| `npm run ops:behavior` | Rebuilds every driver's behaviour profile. Same shape; `customerbehaviorprofiles` is safe to drop entirely and rebuild |
 
 **The correct full sequence on a fresh database:**
 
@@ -118,7 +120,7 @@ Be precise about these. Do not describe them as finished.
 - **Charging session check-in is collapsed.** `startCharging` moves
   `RESERVED → CHARGING` in one step and stamps `actualArrival` itself. The designed flow has an
   explicit `ARRIVED` check-in between them. Splitting it is outstanding work.
-- **`reservationevents` has exactly one consumer** — the reliability score. 14 event types are written and indexed; nothing else reads
+- **`reservationevents` has two consumers** — the reliability score and behaviour profiles. Both *derive* rather than accumulate. 14 event types are written and indexed; nothing else reads
   them. Waitlist notification and optimizer invalidation are the remaining intended consumers;
   per `CLAUDE.md` §7 they must stay **consumers** and never be called inline from a domain
   service — nothing in `booking.service` or `commitment.service` calls the reliability service. Emission sites: `reservation.created` / `reservation.confirmed` (claim path,

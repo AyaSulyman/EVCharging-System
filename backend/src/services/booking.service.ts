@@ -391,6 +391,15 @@ export async function updateReservation({ id, actorId, actorRole, updates }: Upd
       amount: booking.depositAmount,
       actorId,
       actorRole,
+      metadata: {
+        // How far ahead the driver gave up the slot. Without this, cancelling three days early
+        // and cancelling twenty minutes early are indistinguishable in the log — and they are
+        // completely different behaviours, one considerate and one costly. The assessment already
+        // computed it; recording it here is what makes cancellation *lead time* analysable later.
+        hoursUntilStart: Math.round(assessment.hoursUntilStart * 10) / 10,
+        scheduledStart: booking.scheduledStart ?? booking.startTime,
+        refundOutcome: assessment.outcome,
+      },
     });
   }
 

@@ -38,6 +38,10 @@ async function run() {
     // Flexible demand. Its indexes are read paths, not constraints — a request holds nothing, so
     // there is no uniqueness to enforce here.
     import("@/models/ReservationRequest"),
+    // Derived projections. Their indexes serve sorted operator reads; the unique userId on
+    // customerbehaviorprofiles is a real constraint — two profiles for one driver would mean two
+    // different answers to the same question.
+    import("@/models/CustomerBehaviorProfile"),
   ]);
 
   await mongoose.connect(uri);
