@@ -28,7 +28,7 @@ import {
 import { WEIGHTS } from "./scoring";
 import { planAssignments, type Plan } from "./scheduler";
 import { buildSnapshot } from "./snapshot";
-import { issueRecommendation } from "@/services/recommendation.service";
+import { issueRecommendation, type IssueDecline } from "@/services/recommendation.service";
 import { waitlistRequest } from "@/services/reservationRequest.service";
 
 export type OptimizationTrigger =
@@ -51,6 +51,8 @@ export interface OptimizationResult {
   runId: string | null;
   plan: Plan;
   issued: { requestId: string; recommendationId: string }[];
+  /** Planned but not offered, with the reason. Only `lost_to_race` is contention. */
+  declined: { requestId: string; reason: IssueDecline }[];
   lostToRace: string[];
   waitlisted: { requestId: string; reason: string; label: string }[];
   skipped: { requestId: string; reason: string }[];
@@ -91,21 +93,22 @@ export async function runOptimization({
   });
 
   const issued: { requestId: string; recommendationId: string }[] = [];
-  const lostToRace: string[] = [];
+  const declined: { requestId: string; reason: IssueDecline }[] = [];
   const waitlisted: { requestId: string; reason: string; label: string }[] = [];
 
   if (commit) {
     for (const assignment of plan.assignments) {
-      const recommendation = await issueRecommendation({ assignment, runId: run._id, now });
-      if (recommendation) {
+      const result = await issueRecommendation({ assignment, runId: run._id, now });
+      if (result.recommendation) {
         issued.push({
           requestId: assignment.requestId,
-          recommendationId: String(recommendation._id),
+          recommendationId: String(result.recommendation._id),
         });
       } else {
-        // Either the time was taken between planning and committing, or the customer already has a
-        // live offer. Both leave the request exactly where it was — in the pool, for the next pass.
-        lostToRace.push(assignment.requestId);
+        // Every decline leaves the request exactly where it was — in the pool. They are recorded
+        // separately because contention and policy look identical in a count and mean opposite
+        // things: one says the station is busy, the other says stop offering this customer.
+        declined.push({ requestId: assignment.requestId, reason: result.declined ?? "lost_to_race" });
       }
     }
 
@@ -121,17 +124,22 @@ export async function runOptimization({
     }
   }
 
+  const lostToRace = declined.filter((d) => d.reason === "lost_to_race").map((d) => d.requestId);
+  const declinedBy = new Map(declined.map((d) => [d.requestId, d.reason]));
+
   await OptimizationRun.updateOne(
     { _id: run._id },
     {
       $set: {
         recommendationsIssued: issued.length,
+        // Only genuine contention counts here. Counting a policy decline as a lost race would make
+        // an idle station look contested and send an operator hunting for load that is not there.
         lostToRace: lostToRace.length,
         waitlisted: waitlisted.length,
         outcomes: [
           ...plan.assignments.map((a) => ({
             requestId: a.requestId,
-            outcome: lostToRace.includes(a.requestId) ? "lost_to_race" : commit ? "offered" : "planned",
+            outcome: declinedBy.get(a.requestId) ?? (commit ? "offered" : "planned"),
             chargerId: a.chargerId,
             startTime: a.startTime,
             score: a.score,
@@ -148,7 +156,7 @@ export async function runOptimization({
     }
   );
 
-  return { runId: String(run._id), plan, issued, lostToRace, waitlisted, skipped };
+  return { runId: String(run._id), plan, issued, declined, lostToRace, waitlisted, skipped };
 }
 
 /**

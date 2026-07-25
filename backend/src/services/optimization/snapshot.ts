@@ -19,7 +19,7 @@ import { connectDB } from "@/config/database";
 import Booking from "@/models/Booking";
 import Charger from "@/models/Charger";
 import ReservationOccupancy from "@/models/ReservationOccupancy";
-import ReservationRequest, { ACTIVE_REQUEST_STATUSES } from "@/models/ReservationRequest";
+import ReservationRequest from "@/models/ReservationRequest";
 import Vehicle from "@/models/Vehicle";
 import {
   MAX_DURATION_MINUTES,
@@ -65,8 +65,24 @@ export async function buildSnapshot({
 }: BuildSnapshotInput = {}): Promise<BuiltSnapshot> {
   await connectDB();
 
+  /**
+   * The demand pool: everything still competing for capacity.
+   *
+   * OPEN and WAITLISTED together, which is what makes the waitlist part of the optimizer rather than
+   * a separate system beside it — a waitlisted request is simply one the last pass could not place,
+   * and it becomes schedulable again the instant a bay frees up.
+   *
+   * The one exclusion is a request waitlisted for `no_compatible_charger`. No amount of freed time
+   * creates a matching connector at the stations it asked for, so re-planning it on every capacity
+   * release is pure waste on the hottest path in the system — and it would occupy a slot in the pool
+   * that a servable request could have used. It stays live and fully visible; it is only skipped by
+   * the automatic passes. See `isWorthReevaluating`.
+   */
   const filter: Record<string, unknown> = {
-    status: { $in: ACTIVE_REQUEST_STATUSES },
+    $or: [
+      { status: "OPEN" },
+      { status: "WAITLISTED", waitlistReason: { $ne: "no_compatible_charger" } },
+    ],
     // A window whose last acceptable start has passed can never be satisfied, so planning it is pure
     // waste on a path that runs on every capacity release.
     latestStart: { $gt: now },

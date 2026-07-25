@@ -52,6 +52,21 @@ export const MAX_PENDING_PER_CUSTOMER = 1;
  */
 export const MAX_UNHELD_ALTERNATIVES = 2;
 
+/**
+ * How many offers one request may be made before the optimizer stops volunteering.
+ *
+ * THE LOOP THIS CLOSES. An expired offer returns its request to the pool, and returning to the pool
+ * is a capacity release, which triggers a pass, which offers again. For a customer who has put their
+ * phone down that cycle never ends: the same bay is frozen for five minutes out of every few, forever,
+ * against a decision nobody is making. The bay is not blocked continuously, which is exactly why the
+ * problem is easy to miss — it just quietly halves the station's sellable time.
+ *
+ * Three is enough to survive a missed notification and short enough to stop a runaway. Past it the
+ * request stays OPEN and fully live — it is still matched by search, still fulfillable by hand, still
+ * re-offered if an operator runs a pass. What stops is the platform freezing capacity unprompted.
+ */
+export const MAX_OFFERS_PER_REQUEST = Number(process.env.MAX_OFFERS_PER_REQUEST ?? 3);
+
 export const RECOMMENDATION_STATUSES = [
   "PENDING_ACCEPTANCE", // live, holding capacity, awaiting an answer
   "ACCEPTED", // became a reservation

@@ -51,11 +51,13 @@ async function run() {
   );
   const { createRequest } = await import("@/services/reservationRequest.service");
   const { claimRangeReservation } = await import("@/services/booking.service");
-  const { availabilityForStation, occupiedMinutesByStation } = await import(
+  const { availabilityForStation, occupiedMinutesByStation, occupiedRangesForCharger } = await import(
     "@/services/occupancy.service"
   );
   const { atomCountFor } = await import("@/models/occupancyPolicy");
+  const { MAX_OFFERS_PER_REQUEST } = await import("@/models/recommendationPolicy");
   const { PLANNING_HORIZON_DAYS } = await import("@/services/optimization/snapshot");
+  const { consumeCapacityReleases } = await import("@/services/optimization/consumer");
 
   await mongoose.connect(uri);
   const db = mongoose.connection.db!;
@@ -90,13 +92,18 @@ async function run() {
     console.log(`Station ${charger.stationId}\n`);
 
     /**
-     * A day inside the planning horizon on which this station is completely free.
+     * A day inside the planning horizon on which the station is free AND this driver is free.
      *
-     * It has to be inside the horizon — the optimizer deliberately does not plan beyond
-     * PLANNING_HORIZON_DAYS, so a date chosen further out would produce an empty plan and the harness
-     * would read that as a broken commit path. And it has to be genuinely empty, or a demo
-     * reservation on the one compatible charger waitlists the request and fails an assertion that has
-     * nothing to do with what is being tested.
+     * Inside the horizon, because the optimizer deliberately does not plan beyond
+     * PLANNING_HORIZON_DAYS and a date chosen further out would produce an empty plan that reads as a
+     * broken commit path.
+     *
+     * Both conditions, because they block for different reasons and only one is obvious. A busy
+     * charger is the station's occupancy; but the optimizer also refuses to offer a driver time
+     * overlapping a reservation they already hold **at any station**, since they cannot be at two
+     * bays at once. A demo reservation elsewhere on the same day therefore waitlists a request whose
+     * own station is completely empty — which is correct behaviour that reads as a scheduling bug,
+     * and cost a debugging session to establish.
      */
     const day = new Date();
     day.setHours(0, 0, 0, 0);
@@ -111,13 +118,20 @@ async function run() {
         stationId: charger.stationId,
         atomStart: { $gte: from, $lt: to },
       });
-      if (busy === 0) {
+      const driverBusy = await Bookings.countDocuments({
+        userId: driver._id,
+        lifecycle: { $in: ["PENDING_PAYMENT", "RESERVED", "ARRIVED", "CHARGING", "LATE", "AT_RISK"] },
+        startTime: { $gte: from, $lt: to },
+      });
+      if (busy === 0 && driverBusy === 0) {
         day.setTime(candidate.getTime());
         found = true;
         break;
       }
     }
-    if (!found) throw new Error("No free day inside the planning horizon at this station");
+    if (!found) {
+      throw new Error("No day inside the horizon is free for both this station and this driver");
+    }
     console.log(`Planning against ${day.toDateString()} (free, inside the horizon)\n`);
 
     const at = (hour: number) => {
@@ -428,6 +442,95 @@ async function run() {
     } else {
       record("the sweep could not be tested", false, "no offer was issued for the fourth request");
     }
+
+    /* ------------------------------------------------------------ 8. the offer cap */
+
+    console.log("\n8. The offer cap closes the expire-reopen-offer loop");
+
+    // r4 has been offered once and its offer expired, leaving it OPEN. Drive it to the cap and check
+    // the optimizer stops volunteering. Without this, an ignored offer freezes a bay five minutes out
+    // of every few, forever — the bay is never blocked continuously, which is what makes it easy to
+    // miss and expensive to leave.
+    let capReached = false;
+    let offersMade = 0;
+    for (let attempt = 0; attempt < MAX_OFFERS_PER_REQUEST + 2; attempt++) {
+      const pass = await runOptimization({ trigger: "manual", requestIds: [String(r4._id)] });
+      if (pass.issued.length === 1) {
+        offersMade++;
+        const id = new mongoose.Types.ObjectId(pass.issued[0].recommendationId);
+        await Recommendations.updateOne({ _id: id }, { $set: { expiresAt: past } });
+        await Occupancy.updateMany({ recommendationId: id }, { $set: { holdExpiresAt: past } });
+        await sweepExpiredRecommendations();
+        continue;
+      }
+      capReached = pass.declined.some((d) => d.reason === "offer_cap_reached");
+      break;
+    }
+    record(
+      `the optimizer stops after ${MAX_OFFERS_PER_REQUEST} unanswered offers`,
+      capReached && offersMade <= MAX_OFFERS_PER_REQUEST,
+      `${offersMade} offers made, then ${capReached ? "declined: offer_cap_reached" : "it kept going"}`
+    );
+
+    const r4Capped = await Requests.findOne({ _id: r4._id });
+    const heldAfterCap = await Occupancy.countDocuments({
+      recommendationId: { $ne: null },
+      userId: driver._id,
+    });
+    record(
+      "the request stays live and holds nothing once capped",
+      r4Capped?.status === "OPEN" && heldAfterCap === 0,
+      `${r4Capped?.status}, ${heldAfterCap} atoms still held`
+    );
+
+    /* ------------------------------------------------------------ 9. the consumer */
+
+    console.log("\n9. Capacity release is consumed from the event log, not called inline");
+
+    const r5 = await requestAt(11);
+
+    // Deliberately NOT calling the optimizer. The consumer has to find the work itself, from the
+    // release events the sections above wrote — that is the entire point of it being a consumer
+    // rather than a call from the cancellation path.
+    //
+    // Planned but not committed. A committing pass here would legitimately reach every request in the
+    // database that shares an affected station and freeze real capacity for it, which is not
+    // something a verification script may do. Planning proves the wiring; issuing is already proven
+    // above.
+    const consumed = await consumeCapacityReleases({
+      since: new Date(Date.now() - 3_600_000),
+      commit: false,
+    });
+    record(
+      "the consumer picked up the releases from the event log",
+      consumed.eventsSeen > 0 &&
+        consumed.stationsAffected.includes(stationId) &&
+        consumed.run !== null,
+      `${consumed.eventsSeen} events, ${consumed.stationsAffected.length} stations affected`
+    );
+
+    const plannedR5 = consumed.run?.plan.assignments.some(
+      (a) => a.requestId === String(r5._id)
+    );
+    if (!plannedR5) {
+      const blocks = await occupiedRangesForCharger(charger._id, at(8), at(22));
+      console.log(
+        `        occupancy on ${charger.label}: ` +
+          blocks
+            .map((b) => `${b.start.toTimeString().slice(0, 5)}-${b.end.toTimeString().slice(0, 5)}`)
+            .join(", ")
+      );
+    }
+    record(
+      "its pass planned the request waiting on that capacity",
+      plannedR5 === true,
+      plannedR5
+        ? "planned without being told the request existed"
+        : `planned [${consumed.run?.plan.assignments.map((a) => a.requestId).join(", ")}] ` +
+          `unscheduled [${consumed.run?.plan.unscheduled.map((u) => `${u.requestId}:${u.reason}`).join(", ")}] ` +
+          `skipped [${consumed.run?.skipped.map((s) => `${s.requestId}:${s.reason}`).join(", ")}] ` +
+          `looking for ${String(r5._id)}`
+    );
   } finally {
     /* ------------------------------------------------------------ cleanup */
 

@@ -29,6 +29,7 @@ import { connectDB } from "@/config/database";
 import Recommendation from "@/models/Recommendation";
 import ReservationRequest from "@/models/ReservationRequest";
 import {
+  MAX_OFFERS_PER_REQUEST,
   MAX_PENDING_PER_CUSTOMER,
   isExpired,
   recommendationExpiryFrom,
@@ -58,22 +59,47 @@ export interface IssueRecommendationInput {
 }
 
 /**
+ * Why an offer was not made. Never an error — each is an ordinary outcome that leaves the request
+ * exactly where it was, and each calls for a different response from an operator reading a run.
+ */
+export type IssueDecline =
+  /** The time was taken between planning and committing. Expected under load. */
+  | "lost_to_race"
+  /** The customer is already deciding on another offer. */
+  | "already_pending"
+  /** The request has been offered as often as the policy allows. */
+  | "offer_cap_reached"
+  /** The request disappeared between planning and committing. */
+  | "request_gone";
+
+export interface IssueResult {
+  recommendation: { _id: unknown } | null;
+  declined: IssueDecline | null;
+}
+
+/**
  * Turns one planned assignment into a live offer holding real capacity.
  *
- * Returns `null` when the offer could not be made — the plan was computed against a snapshot, and
- * someone may have booked the same time in between. That is a normal outcome, not an error: the
- * request simply stays in the pool for the next pass. Reporting it as a failure would make every
- * busy station look broken.
+ * Declines rather than throws. The plan was computed against a snapshot, so someone may have booked
+ * the same time in between — that is a normal outcome, and reporting it as a failure would make every
+ * busy station look broken. The *reason* is returned because "beaten to it" and "we have offered this
+ * customer three times already" need opposite responses and would otherwise be indistinguishable.
  */
 export async function issueRecommendation({
   assignment,
   runId,
   now = new Date(),
-}: IssueRecommendationInput) {
+}: IssueRecommendationInput): Promise<IssueResult> {
   await connectDB();
 
   const request = await ReservationRequest.findById(assignment.requestId);
-  if (!request) return null;
+  if (!request) return { recommendation: null, declined: "request_gone" };
+
+  // The runaway guard. Without it, expire → reopen → release → offer → expire is a cycle that freezes
+  // a bay five minutes at a time forever for a customer who has stopped answering.
+  if ((request.recommendationCount ?? 0) >= MAX_OFFERS_PER_REQUEST) {
+    return { recommendation: null, declined: "offer_cap_reached" };
+  }
 
   // One live offer per customer. Every additional pending offer freezes another bay against the same
   // single decision, and a customer can only answer one question at a time.
@@ -83,7 +109,9 @@ export async function issueRecommendation({
     expiresAt: { $gt: now },
   });
   const ownLive = request.activeRecommendationId ? 1 : 0;
-  if (live - ownLive >= MAX_PENDING_PER_CUSTOMER) return null;
+  if (live - ownLive >= MAX_PENDING_PER_CUSTOMER) {
+    return { recommendation: null, declined: "already_pending" };
+  }
 
   // A newer offer replaces the old one rather than joining it. Released before the new hold is taken
   // so the customer's own previous offer cannot be what blocks their next one.
@@ -128,7 +156,7 @@ export async function issueRecommendation({
     // Nothing references a document created microseconds ago, so removing it is safe and leaves no
     // trace of an offer that was never actually made.
     await Recommendation.deleteOne({ _id: recommendation._id });
-    return null;
+    return { recommendation: null, declined: "lost_to_race" };
   }
 
   request.status = "PENDING_ACCEPTANCE";
@@ -155,10 +183,11 @@ export async function issueRecommendation({
       score: assignment.score,
       holdSeconds: secondsRemaining(expiresAt, now),
       alternativesShown: assignment.alternatives.length,
+      offerNumber: request.recommendationCount,
     },
   });
 
-  return recommendation;
+  return { recommendation, declined: null };
 }
 
 /* ============================================================================
@@ -402,6 +431,10 @@ async function retireRecommendation(
     actorId: actor?.actorId,
     actorRole: actor?.actorRole ?? "system",
     metadata: { recommendationId: String(recommendation._id), releasedAtoms, status },
+    // Stamped with the decision time rather than the write time. The capacity-release consumer reads
+    // events up to its own `now`, and a release stamped a few milliseconds later would fall outside
+    // the pass that caused it — freed capacity waiting a whole cycle to be noticed.
+    occurredAt: now,
   });
 
   // Supersession is followed immediately by a replacement offer, so returning the request to OPEN

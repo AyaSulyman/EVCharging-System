@@ -25,6 +25,7 @@
     "ops:verify-recommendations": "tsx scripts/verify-recommendations.ts",
     "ops:sweep-recommendations": "tsx scripts/sweep-recommendations.ts",
     "ops:optimize": "tsx scripts/run-optimizer.ts",
+    "ops:optimizer-consumer": "tsx scripts/optimizer-consumer.ts",
     "ops:demo-data": "tsx scripts/generate-demo-data.ts"
   },
   "dependencies": {
