@@ -117,7 +117,15 @@ export type PriorityLevel = keyof typeof PRIORITY;
  * ========================================================================== */
 
 export interface Candidate {
-  slotId: string;
+  /**
+   * Stable identifier for this option: `chargerId:startISO`.
+   *
+   * Candidates are no longer rows in a table — they are computed openings in a continuous range, so
+   * there is no slot id to name them by. Deriving the id from the two things that actually define the
+   * option means the same opening always gets the same id, which is what lets a client hold a
+   * selection across a re-rank without it silently pointing at a different time.
+   */
+  id: string;
   chargerId: string;
   stationId: string;
   chargerLabel: string;
@@ -360,7 +368,7 @@ export function scoreCandidates({
     (a, b) =>
       b.score - a.score ||
       a.startTime.getTime() - b.startTime.getTime() ||
-      a.slotId.localeCompare(b.slotId)
+      a.id.localeCompare(b.id)
   );
 }
 

@@ -44,7 +44,22 @@ const ReservationOccupancySchema = new Schema(
     /** End of the atom, stored rather than derived so range queries need no arithmetic. */
     atomEnd: { type: Date, required: true },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    /**
+     * Collection name pinned explicitly.
+     *
+     * Mongoose would pluralise "ReservationOccupancy" to `reservationoccupancies`, while the
+     * migration and the verification harness address `reservationoccupancy`. Those are two different
+     * collections, so the backfill would have written somewhere the application never reads — the
+     * conflict index would exist on an empty collection and every range reservation would look free.
+     * Caught by running the harness; pinned so it can never drift again.
+     *
+     * "Occupancy" is a mass noun, so the singular is also the better name. This project already has
+     * non-obvious collection names (`bookings`, `banners`) — see CLAUDE.md §4.
+     */
+    collection: "reservationoccupancy",
+  }
 );
 
 /**

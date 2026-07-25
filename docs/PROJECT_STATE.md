@@ -1,6 +1,6 @@
 # PROJECT_STATE.md — what is built, what is not, what to do next
 
-**Last updated: 2026-07-25 (duration-aware reservations).** Read this after `CLAUDE.md` and
+**Last updated: 2026-07-25 (duration-aware reservations, verified end-to-end).** Read this after `CLAUDE.md` and
 `AGENTS.md`, before writing code.
 
 See also **[`IMPLEMENTED_LOGIC.md`](IMPLEMENTED_LOGIC.md)** — the canonical register of every
@@ -52,15 +52,21 @@ bookings** (5 `paid`, 1 `refunded`; statuses: 2 confirmed, 3 completed, 1 cancel
    migration 1 has been applied**, and says so.
 3. `ops:migrate-flexibility` — backfills `preferredStart` and `flexibilityType` (always STRICT).
    Also refuses until migration 1 has been applied.
+4. `ops:migrate-occupancy` — **the only non-additive migration.** Rebuilds the partial unique index
+   on `bookings.slotId` to add `slotId: { $exists: true }`, and backfills occupancy rows for live
+   slot-based reservations. Read its file header before applying. Until it runs, **only one
+   duration-aware reservation is possible** — the second collides on `slotId: null`, and the API
+   returns a 503 naming this migration rather than a confusing duplicate-key error.
 
 **They must be run in that order.** Each checks its precondition itself and exits non-zero rather
 than producing incoherent data.
 
-Nobody should run `--apply` except the repo owner. All three snapshot `bookings` to
+Nobody should run `--apply` except the repo owner. All four snapshot `bookings` to
 `backups/<timestamp>/` before writing and verify their own exit criteria after.
 
-`ops:reliability` is **not** a migration — it rebuilds a derived projection and is safe to run at
-any time, as often as wanted.
+`ops:reliability`, `ops:behavior` and `ops:verify` are **not** migrations — the first two rebuild
+derived projections, the third creates and then deletes its own test data. All are safe to run at any
+time, as often as wanted.
 
 ---
 
@@ -101,6 +107,7 @@ cd backend
 |---|---|
 | `npm run ops:expire-commitments` | Releases reservations whose deposit window closed. **Writes by default**; `-- --dry-run` to report only. Intended for a scheduler every few minutes |
 | `npm run ops:reconcile` | Reconciles `slots.status === "booked"` against live reservations |
+| `npm run ops:verify` | **End-to-end verification against the real database.** Creates real reservations, asserts, then deletes everything it created. Run it after touching reservations, occupancy, deposits or events. `-- --keep` leaves the data for inspection |
 | `npm run ops:reliability` | Rebuilds every driver's reliability score from the event log. **Writes by default**; `-- --dry-run` shows stored vs recomputed. Idempotent — safe any time |
 | `npm run ops:behavior` | Rebuilds every driver's behaviour profile. Same shape; `customerbehaviorprofiles` is safe to drop entirely and rebuild |
 
@@ -122,6 +129,11 @@ npm run ops:migrate-v2 -- --apply && npm run ops:migrate-commitments -- --apply 
 
 Be precise about these. Do not describe them as finished.
 
+- **Runtime verification now exists and passes.** `npm run ops:verify` runs 16 assertions against
+  live data — range claim, atom count, duration-scaled cost, availability by duration, the deposit
+  decline-then-retry path, the gateway promotion, event emission and both projections — and cleans up
+  after itself. Three assertions remain **blocked, not failing**: the overlap rejection, the
+  back-to-back acceptance, and the `slotId` index check, all waiting on `ops:migrate-occupancy`.
 - **Charging session check-in is collapsed.** `startCharging` moves
   `RESERVED → CHARGING` in one step and stamps `actualArrival` itself. The designed flow has an
   explicit `ARRIVED` check-in between them. Splitting it is outstanding work.

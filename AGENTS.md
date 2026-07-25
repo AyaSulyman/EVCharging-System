@@ -78,6 +78,11 @@ Rules the team applies:
   the authoritative frontend check.
 - **Verify data-integrity claims against the live database**, don't assume. The team tests by
   querying MongoDB directly. Every `ops:*` script has a dry-run mode for exactly this.
+- **Run `npm run ops:verify` after touching the reservation, occupancy, deposit or event paths.**
+  It creates real reservations through the real service functions, asserts what the database
+  actually contains, then deletes everything it created. Typecheck proves the logic; this proves
+  the wiring — and it has already caught a wrong collection name, a masked exception and a
+  missing namespace that no amount of type checking would have surfaced.
 - If tests or checks fail, **say so with the output**. Never describe work as verified when it
   is not.
 
@@ -126,6 +131,10 @@ Read these. Every one of them cost real debugging time.
 | Calling a notification/waitlist/optimizer function inline from a domain service | Those must stay **consumers** of `reservationevents`. See `CLAUDE.md` §7 |
 | Promoting a reservation to confirmed from a route handler | `PENDING_PAYMENT → RESERVED` happens in exactly one function. See `CLAUDE.md` §2 |
 | Building a card-entry form for the deposit flow | **Never.** No card data exists anywhere in this system. Mock outcomes come from an explicit "simulate" control |
+| Letting Mongoose name a new collection | It pluralises: `ReservationOccupancy` becomes `reservationoccupancies`, while ops scripts addressed `reservationoccupancy`. Two collections, and the backfill lands where the app never reads. **Pin `collection:` explicitly on every new model** |
+| Calling `process.exit()` inside a `finally` block | It swallows whatever exception was propagating. The first run of `ops:verify` hid a thrown error behind a tidy failure summary. Set an exit code and call `process.exit` after the block |
+| `Model.createIndexes()` on a collection nothing has written to | The namespace does not exist yet, so it throws `ns does not exist`. Call `createCollection()` first |
+| Trusting typecheck + pure-function tests as "verified" | They prove the logic, not the wiring. Run `npm run ops:verify` — it exercises the real paths against the real database and cleans up after itself |
 | `requireAuth(req)` without `await` | Silently drops the auth gate. These are async |
 | Using `aggregate()` and forgetting `select:false` | Aggregation bypasses it. Exclude `passwordHash`, `qrCode`, `sessionGeneration` explicitly |
 

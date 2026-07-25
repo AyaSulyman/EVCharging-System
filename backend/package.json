@@ -19,7 +19,8 @@
     "ops:migrate-occupancy": "tsx scripts/migrate-occupancy.ts",
     "ops:expire-commitments": "tsx scripts/expire-commitments.ts",
     "ops:reliability": "tsx scripts/recompute-reliability.ts",
-    "ops:behavior": "tsx scripts/recompute-behavior.ts"
+    "ops:behavior": "tsx scripts/recompute-behavior.ts",
+    "ops:verify": "tsx scripts/verify-reservation-flow.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

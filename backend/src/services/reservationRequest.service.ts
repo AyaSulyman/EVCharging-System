@@ -8,19 +8,22 @@
  *
  * THE INVARIANT THIS SERVICE MUST NOT BREAK. A request holds nothing. Matching is a read; the
  * shortlist it returns is a *suggestion* that can go stale the moment it is computed, because
- * another driver may claim the same interval a millisecond later. Fulfilment therefore goes
- * through `claimReservation` like every other claim, and a lost race surfaces as SLOT_UNAVAILABLE
- * rather than being papered over. The partial unique index on `bookings.slotId` remains the sole
- * arbiter of who holds what — this collection never becomes a second source of truth.
+ * another driver may claim the same time a millisecond later. Fulfilment therefore goes through
+ * `claimRangeReservation` like every other claim, and a lost race surfaces as CHARGER_BUSY rather
+ * than being papered over. The unique index on `reservationoccupancy (chargerId, atomStart)` remains
+ * the sole arbiter of who holds what — this collection never becomes a second source of truth.
+ *
+ * Availability is read from occupancy, the same source the booking wizard uses. Two different
+ * answers to "is this free" is how a system eventually sells the same time twice.
  */
 import { connectDB } from "@/config/database";
 import Booking from "@/models/Booking";
-import Charger from "@/models/Charger";
 import ReservationRequest from "@/models/ReservationRequest";
-import Slot from "@/models/Slot";
 import Station from "@/models/Station";
 import Vehicle from "@/models/Vehicle";
-import { claimReservation } from "@/services/booking.service";
+import { claimRangeReservation } from "@/services/booking.service";
+import { availabilityForStation } from "@/services/occupancy.service";
+import { endOfRange, isAllowedDuration } from "@/models/occupancyPolicy";
 import { DEFAULT_FLEXIBILITY } from "@/models/flexibilityPolicy";
 import { emitReservationEvent } from "@/services/reservationEvents.service";
 import {
@@ -141,114 +144,121 @@ export async function findCandidates(requestId: string): Promise<ScoredCandidate
     .lean<{ connectorType: string } | null>();
   if (!vehicle) throw new Error("VEHICLE_NOT_OWNED");
 
-  // Connector compatibility is a hard constraint — an incompatible bay is not a worse option, it
-  // is not an option. Filtered in the query rather than scored, for that reason.
-  const chargerFilter: Record<string, unknown> = {
-    stationId: { $in: request.stationIds },
-    connectorType: vehicle.connectorType,
-    // Operator-declared serviceability. A bay in maintenance cannot be offered even though its
-    // intervals may still read available — charger status and interval status are different things.
-    status: "available",
-  };
-  if (request.chargerId) chargerFilter._id = request.chargerId;
+  const durationMinutes = request.durationMinutes ?? 30;
+  // A request stored before the duration set was fixed could hold a value the range model cannot
+  // satisfy. Refusing is better than silently substituting a different session length.
+  if (!isAllowedDuration(durationMinutes)) throw new Error("DURATION_NOT_SUPPORTED");
 
-  const chargers = await Charger.find(chargerFilter)
-    .select("stationId label connectorType powerKW")
-    .lean<{ _id: unknown; stationId: unknown; label: string; connectorType: string; powerKW: number }[]>();
-  if (chargers.length === 0) return [];
+  const now = new Date();
+  const stationRank = new Map(request.stationIds.map((id, i) => [String(id), i]));
 
-  const chargerById = new Map(chargers.map((c) => [String(c._id), c]));
+  // Availability comes from `reservationoccupancy`, the same source the booking wizard reads. Before
+  // this, the matcher queried the `slots` collection while the wizard queried occupancy — two
+  // different answers to "is this free", which is the kind of divergence that eventually sells the
+  // same time twice. One model, one answer.
+  //
+  // The request's window can span several days, so availability is asked per station per day. Each
+  // call is one query for the whole station, so the cost is stations × days, not chargers × days.
+  const days: Date[] = [];
+  const firstDay = new Date(request.earliestStart);
+  firstDay.setHours(0, 0, 0, 0);
+  const lastDay = new Date(request.latestStart);
+  lastDay.setHours(0, 0, 0, 0);
+  for (let d = new Date(firstDay); d <= lastDay; d.setDate(d.getDate() + 1)) {
+    days.push(new Date(d));
+  }
 
-  const slots = await Slot.find({
-    chargerId: { $in: chargers.map((c) => c._id) },
-    status: "available",
-    startTime: { $gte: request.earliestStart, $lte: request.latestStart },
-    duration: { $gte: request.durationMinutes },
-  })
-    .select("chargerId startTime endTime duration")
-    .sort({ startTime: 1 })
-    .lean<{ _id: unknown; chargerId: unknown; startTime: Date; endTime: Date; duration: number }[]>();
-  if (slots.length === 0) return [];
+  const perStation = new Map<string, number>();
+  const candidates: Candidate[] = [];
 
-  // Never offer a driver an interval that overlaps one they already hold. They cannot be at two
-  // bays at once, so it would be a guaranteed no-show — and the flexible path makes this easy to
-  // hit by accident, because the driver is choosing a window rather than a specific time.
+  for (const stationId of request.stationIds.map(String)) {
+    let stationAtomsTotal = 0;
+    let stationAtomsTaken = 0;
+
+    for (const day of days) {
+      const chargers = await availabilityForStation({
+        stationId,
+        date: day,
+        durationMinutes,
+        // Connector compatibility is a hard constraint, so it filters rather than scores — an
+        // incompatible bay is not a worse option, it is not an option.
+        connectorType: vehicle.connectorType,
+        now,
+      });
+
+      for (const c of chargers) {
+        // Station utilization for the scoring factor, accumulated from real occupied time rather
+        // than from a slot-status count: two adjacent 15-minute reservations and one 30-minute
+        // reservation occupy identical time and must contribute identically.
+        const dayMinutes = (22 - 8) * 60;
+        stationAtomsTotal += dayMinutes;
+        stationAtomsTaken += c.occupied.reduce(
+          (n, o) => n + (o.end.getTime() - o.start.getTime()) / 60_000,
+          0
+        );
+
+        // Which of this charger's occupied blocks sit flush against a candidate start or end. That
+        // is the fragmentation signal: taking time adjacent to existing occupancy keeps the
+        // remaining free time contiguous.
+        const occupiedEdges = new Set<number>();
+        for (const o of c.occupied) {
+          occupiedEdges.add(o.start.getTime());
+          occupiedEdges.add(o.end.getTime());
+        }
+
+        for (const start of c.starts) {
+          // Only starts inside the request's own window qualify. availabilityForStation works a whole
+          // operating day, which is deliberately wider than any one request.
+          if (start < request.earliestStart || start > request.latestStart) continue;
+
+          const end = endOfRange(start, durationMinutes);
+          const adjacentBookedCount =
+            (occupiedEdges.has(start.getTime()) ? 1 : 0) + (occupiedEdges.has(end.getTime()) ? 1 : 0);
+
+          candidates.push({
+            id: `${c.chargerId}:${start.toISOString()}`,
+            chargerId: c.chargerId,
+            stationId: c.stationId,
+            chargerLabel: c.chargerLabel,
+            connectorType: c.connectorType,
+            powerKW: c.powerKW,
+            startTime: start,
+            endTime: end,
+            stationRank: stationRank.get(c.stationId) ?? 0,
+            adjacentBookedCount,
+            // Filled in below, once the station total is known.
+            stationUtilization: 0,
+          });
+        }
+      }
+    }
+
+    perStation.set(stationId, stationAtomsTotal > 0 ? stationAtomsTaken / stationAtomsTotal : 0);
+  }
+
+  // Never offer a driver time that overlaps something they already hold. They cannot be at two bays
+  // at once, so it would be a guaranteed no-show — and the flexible path makes this easy to hit by
+  // accident, because the driver picks a window rather than a specific time.
   const ownHoldings = await Booking.find({
     userId: request.userId,
     lifecycle: { $in: ["PENDING_PAYMENT", "RESERVED", "ARRIVED", "CHARGING", "LATE", "AT_RISK"] },
-    scheduledStart: { $lt: request.latestStart },
-    scheduledEnd: { $gt: request.earliestStart },
+    startTime: { $lt: endOfRange(new Date(request.latestStart), durationMinutes) },
+    endTime: { $gt: request.earliestStart },
   })
-    .select("scheduledStart scheduledEnd startTime endTime")
-    .lean<{ scheduledStart?: Date; scheduledEnd?: Date; startTime: Date; endTime: Date }[]>();
+    .select("startTime endTime scheduledStart scheduledEnd")
+    .lean<{ startTime: Date; endTime: Date; scheduledStart?: Date; scheduledEnd?: Date }[]>();
 
   const overlapsOwnHolding = (start: Date, end: Date) =>
     ownHoldings.some((b) => {
-      const s = b.scheduledStart ?? b.startTime;
-      const e = b.scheduledEnd ?? b.endTime;
+      const s = new Date(b.scheduledStart ?? b.startTime);
+      const e = new Date(b.scheduledEnd ?? b.endTime);
       return s < end && e > start;
     });
 
-  // Fragmentation input: which intervals on these chargers are already taken. Read once for the
-  // whole window rather than per candidate, so scoring stays a single pass over in-memory data.
-  const neighbours = await Slot.find({
-    chargerId: { $in: chargers.map((c) => c._id) },
-    status: { $in: ["booked", "completed", "blocked"] },
-  })
-    .select("chargerId startTime endTime")
-    .lean<{ chargerId: unknown; startTime: Date; endTime: Date }[]>();
+  const usable = candidates
+    .filter((c) => !overlapsOwnHolding(c.startTime, c.endTime))
+    .map((c) => ({ ...c, stationUtilization: perStation.get(c.stationId) ?? 0 }));
 
-  const takenByCharger = new Map<string, { start: number; end: number }[]>();
-  for (const n of neighbours) {
-    const key = String(n.chargerId);
-    const list = takenByCharger.get(key) ?? [];
-    list.push({ start: new Date(n.startTime).getTime(), end: new Date(n.endTime).getTime() });
-    takenByCharger.set(key, list);
-  }
-
-  const now = new Date();
-  // Station-level occupancy over the request's window, for the utilization factor.
-  const utilizationByStation = await stationUtilizationOver(
-    request.stationIds,
-    request.earliestStart,
-    request.latestStart
-  );
-
-  const stationRank = new Map(request.stationIds.map((id, i) => [String(id), i]));
-
-  const candidates: Candidate[] = [];
-  for (const slot of slots) {
-    const charger = chargerById.get(String(slot.chargerId));
-    if (!charger) continue;
-
-    const start = new Date(slot.startTime);
-    const end = new Date(slot.endTime);
-    if (overlapsOwnHolding(start, end)) continue;
-
-    // Immediately adjacent means sharing a boundary: the interval before ends exactly when this
-    // one starts, or the one after starts exactly when this ends.
-    const taken = takenByCharger.get(String(slot.chargerId)) ?? [];
-    const adjacentBookedCount = taken.filter(
-      (t) => t.end === start.getTime() || t.start === end.getTime()
-    ).length;
-
-    candidates.push({
-      slotId: String(slot._id),
-      chargerId: String(charger._id),
-      stationId: String(charger.stationId),
-      chargerLabel: charger.label,
-      connectorType: charger.connectorType,
-      powerKW: charger.powerKW,
-      startTime: start,
-      endTime: end,
-      stationRank: stationRank.get(String(charger.stationId)) ?? 0,
-      adjacentBookedCount,
-      stationUtilization: utilizationByStation.get(String(charger.stationId)) ?? 0,
-    });
-  }
-
-  // The scoring context: everything that is true of the *request*, as opposed to of a candidate
-  // interval. Assembled here because it needs the database; the engine itself stays pure.
   const reliability = await reliabilityForUsers([String(request.userId)]);
   const waitingHours = Math.max(
     0,
@@ -256,7 +266,7 @@ export async function findCandidates(requestId: string): Promise<ScoredCandidate
   );
 
   const ranked = scoreCandidates({
-    candidates,
+    candidates: usable,
     context: {
       preferredStart: new Date(request.preferredStart ?? request.earliestStart),
       waitingHours,
@@ -270,55 +280,11 @@ export async function findCandidates(requestId: string): Promise<ScoredCandidate
   return ranked.slice(0, MAX_CANDIDATES);
 }
 
-/**
- * How full each of a request's candidate stations is over the request's window.
- *
- * Measured across the whole window rather than per interval: the score asks "does this station have
- * room?", which is a property of the site over the period, not of one 30-minute slice. Computed in
- * one aggregation so adding a station to a request does not add a query.
- */
-async function stationUtilizationOver(
-  stationIds: unknown[],
-  from: Date,
-  to: Date
-): Promise<Map<string, number>> {
-  const chargers = await Charger.find({ stationId: { $in: stationIds } })
-    .select("stationId")
-    .lean<{ _id: unknown; stationId: unknown }[]>();
-  if (chargers.length === 0) return new Map();
-
-  const stationOfCharger = new Map(chargers.map((c) => [String(c._id), String(c.stationId)]));
-
-  const slots = await Slot.find({
-    chargerId: { $in: chargers.map((c) => c._id) },
-    startTime: { $gte: from, $lte: to },
-  })
-    .select("chargerId status")
-    .lean<{ chargerId: unknown; status: string }[]>();
-
-  const totals = new Map<string, { total: number; taken: number }>();
-  for (const s of slots) {
-    const stationId = stationOfCharger.get(String(s.chargerId));
-    if (!stationId) continue;
-    const acc = totals.get(stationId) ?? { total: 0, taken: 0 };
-    acc.total++;
-    // "booked" and "completed" both mean the interval is spent; "blocked" is out of service and is
-    // not capacity at all, so it is excluded from the denominator rather than counted as used.
-    if (s.status === "booked" || s.status === "completed") acc.taken++;
-    if (s.status === "blocked") acc.total--;
-    totals.set(stationId, acc);
-  }
-
-  const out = new Map<string, number>();
-  for (const [stationId, { total, taken }] of totals) {
-    out.set(stationId, total > 0 ? taken / total : 0);
-  }
-  return out;
-}
-
 export interface FulfillRequestInput {
   requestId: string;
-  slotId: string;
+  /** The charger and start time of the chosen opening. There is no slot id any more. */
+  chargerId: string;
+  startTime: Date;
   actorId: string;
   actorRole: string;
   /** True when staff are taking the deposit at the desk as part of fulfilling. */
@@ -328,20 +294,21 @@ export interface FulfillRequestInput {
 /**
  * Turns a request into a held reservation on the chosen interval.
  *
- * The chosen slot is NOT trusted to still be free — `claimReservation` re-checks it and the
- * database rejects a conflict outright. On a lost race the request stays OPEN so the driver can
- * pick another option from a refreshed shortlist, rather than being left with a dead request and
- * no reservation.
+ * The chosen opening is NOT trusted to still be free — `claimRangeReservation` claims the occupancy
+ * atoms and the unique index rejects a conflict outright. On a lost race the request stays OPEN so
+ * the driver can pick another option from a refreshed shortlist, rather than being left with a dead
+ * request and no reservation.
  *
  * The request is marked FULFILLED only after the claim succeeds. Marking it first would strand it
  * as fulfilled with no booking if the claim then failed.
  *
  * Throws: REQUEST_NOT_FOUND · FORBIDDEN · REQUEST_NOT_OPEN · REQUEST_EXPIRED ·
- *         plus every sentinel claimReservation can throw (SLOT_UNAVAILABLE, VEHICLE_NOT_OWNED…)
+ *         plus every sentinel claimRangeReservation can throw (CHARGER_BUSY, CONNECTOR_MISMATCH…)
  */
 export async function fulfillRequest({
   requestId,
-  slotId,
+  chargerId,
+  startTime,
   actorId,
   actorRole,
   commitmentCompleted = false,
@@ -365,11 +332,12 @@ export async function fulfillRequest({
   //
   // Best-effort. A reservation must not fail because its rationale could not be computed; the same
   // trade as the event log, for the same reason.
+  const candidateId = `${chargerId}:${new Date(startTime).toISOString()}`;
   let assignment: { score: number; breakdown: unknown; considered: number; rationale: string } | null =
     null;
   try {
     const ranked = await findCandidates(requestId);
-    const chosen = ranked.find((c) => c.slotId === slotId);
+    const chosen = ranked.find((c) => c.id === candidateId);
     if (chosen) {
       assignment = {
         score: chosen.score,
@@ -382,10 +350,12 @@ export async function fulfillRequest({
     console.error("Failed to score the assignment before claiming", err);
   }
 
-  const booking = await claimReservation({
+  const booking = await claimRangeReservation({
     userId: String(request.userId),
     vehicleId: String(request.vehicleId),
-    slotId,
+    chargerId,
+    startTime: new Date(startTime),
+    durationMinutes: request.durationMinutes ?? 30,
     createdVia: request.origin === "staff_onsite" ? "staff_onsite" : "self",
     createdByStaffId: request.createdByStaffId ? String(request.createdByStaffId) : undefined,
     commitmentCompleted,

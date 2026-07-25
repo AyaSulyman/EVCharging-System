@@ -48,7 +48,7 @@ interface ScoreBreakdown {
 }
 
 interface Candidate {
-  slotId: string;
+  id: string;
   chargerId: string;
   stationId: string;
   chargerLabel: string;
@@ -105,7 +105,7 @@ export default function FlexibleBookingPage() {
   const [searching, setSearching] = useState(false);
   const [requestId, setRequestId] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<Candidate[] | null>(null);
-  const [bookingSlot, setBookingSlot] = useState<string | null>(null);
+  const [bookingId, setBookingId] = useState<string | null>(null);
   // Which option has its score breakdown expanded.
   const [openRationale, setOpenRationale] = useState<string | null>(null);
   const [rationale, setRationale] = useState<string>("");
@@ -184,18 +184,23 @@ export default function FlexibleBookingPage() {
     }
   }
 
-  async function take(slotId: string) {
+  async function take(c: Candidate) {
     if (!requestId) return;
-    setBookingSlot(slotId);
+    setBookingId(c.id);
     setError("");
 
     const res = await call("/api/reservations/requests/fulfill", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ requestId, slotId }),
+      // A charger and a start time, not a slot id — openings are computed, not stored.
+      body: JSON.stringify({
+        requestId,
+        chargerId: c.chargerId,
+        startTime: c.startTime,
+      }),
     });
     const data = await res.json();
-    setBookingSlot(null);
+    setBookingId(null);
 
     if (!res.ok) {
       setError(data.error ?? "Could not reserve that option");
@@ -386,7 +391,7 @@ export default function FlexibleBookingPage() {
             <div className="mt-3 space-y-3">
               {candidates.map((c, i) => (
                 <div
-                  key={c.slotId}
+                  key={c.id}
                   className={`card ${i === 0 ? "border-primary/40 bg-primary-light/20" : ""}`}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
@@ -420,16 +425,14 @@ export default function FlexibleBookingPage() {
                         arithmetic. Showing both at once would bury the first in the second.
                       */}
                       <button
-                        onClick={() =>
-                          setOpenRationale(openRationale === c.slotId ? null : c.slotId)
-                        }
+                        onClick={() => setOpenRationale(openRationale === c.id ? null : c.id)}
                         className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
                       >
                         <Info className="h-3 w-3" />
-                        {openRationale === c.slotId ? "Hide" : "Why this score?"}
+                        {openRationale === c.id ? "Hide" : "Why this score?"}
                       </button>
 
-                      {openRationale === c.slotId && c.breakdown && (
+                      {openRationale === c.id && c.breakdown && (
                         <div className="mt-2 rounded-lg bg-canvas p-3">
                           <table className="w-full text-xs">
                             <tbody>
@@ -471,11 +474,11 @@ export default function FlexibleBookingPage() {
                       )}
                     </div>
                     <button
-                      onClick={() => take(c.slotId)}
-                      disabled={bookingSlot !== null}
+                      onClick={() => take(c)}
+                      disabled={bookingId !== null}
                       className={i === 0 ? "btn-primary" : "btn-secondary"}
                     >
-                      {bookingSlot === c.slotId ? (
+                      {bookingId === c.id ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
                         <CalendarDays className="h-4 w-4" />

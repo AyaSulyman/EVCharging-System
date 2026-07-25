@@ -187,10 +187,17 @@ export const createReservationRequestSchema = z
     }
   });
 
-/** Fulfilling a request by choosing one of the ranked candidate intervals. */
+/**
+ * Fulfilling a request by choosing one of the ranked openings.
+ *
+ * A charger and a start time rather than a slot id: candidates are computed openings in a continuous
+ * range, not rows in a table, so there is no id to send. The service re-derives the candidate id from
+ * these two values and re-scores, so a client cannot claim an opening the engine never offered.
+ */
 export const fulfillReservationRequestSchema = z.object({
   requestId: objectId,
-  slotId: objectId,
+  chargerId: objectId,
+  startTime: z.coerce.date(),
 });
 
 /** Withdrawing a request. */

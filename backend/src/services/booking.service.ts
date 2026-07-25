@@ -738,6 +738,11 @@ export async function claimRangeReservation({
     } catch (err) {
       if (duplicateOn(err, "bookingCode") && attempt < CODE_ATTEMPTS - 1) continue;
       if (duplicateOn(err, "bookingCode")) throw new Error("CODE_GENERATION_FAILED");
+      // A duplicate on slotId here means the partial index has not been rebuilt yet: range
+      // reservations carry no slotId, so under the old filter they all index as `slotId: null` and
+      // the SECOND one collides with the first. Named explicitly because the raw duplicate-key error
+      // points at a field this code never sets, which is about as misleading as an error can be.
+      if (duplicateOn(err, "slotId")) throw new Error("OCCUPANCY_MIGRATION_REQUIRED");
       throw err;
     }
   }

@@ -19,6 +19,11 @@ const ERRORS = {
     error: "That time is no longer free on this charger — pick another",
   },
   CODE_GENERATION_FAILED: { status: 500, error: "Could not allocate a booking code" },
+  OCCUPANCY_MIGRATION_REQUIRED: {
+    status: 503,
+    error:
+      "Duration-aware reservations are not enabled yet — an operator must run ops:migrate-occupancy",
+  },
 };
 
 /**

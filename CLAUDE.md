@@ -143,7 +143,9 @@ Breaking any of these is a regression, even if a task seems to ask for it.
   Do not add DB calls to the frontend.
 - **The database model is additive-only.** Never rename a collection. Note the naming:
   the `RESERVATION` entity is stored in the **`bookings`** collection, `SITE_CONTENT` in
-  **`banners`**. The `role` field stores **`admin`** / **`user`** (presented as
+  **`banners`**, and charger occupancy in **`reservationoccupancy`** (singular — pinned on the
+  model, because Mongoose would otherwise pluralise it to `reservationoccupancies` and the ops
+  scripts would address a different collection than the app). The `role` field stores **`admin`** / **`user`** (presented as
   operator / driver).
 - **`bookings.status` and `bookings.lifecycle` are NOT duplicates — never collapse them.**
   `status` (lowercase `pending|confirmed|cancelled|completed|no_show`) is the **authoritative**

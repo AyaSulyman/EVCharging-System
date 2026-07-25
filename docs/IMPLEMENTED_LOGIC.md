@@ -4,7 +4,7 @@
 the presentation, the demo script and any slide deck can be built from one place — and so nobody has
 to reverse-engineer the reasoning out of the code under time pressure.
 
-**Last updated: 2026-07-25 (duration-aware reservations).** Read alongside:
+**Last updated: 2026-07-25 (duration-aware reservations, verified end-to-end).** Read alongside:
 - [`../CLAUDE.md`](../CLAUDE.md) — what the project is, and the invariants that must not break
 - [`../AGENTS.md`](../AGENTS.md) — how to work here
 - [`PROJECT_STATE.md`](PROJECT_STATE.md) — what is built vs. not, and the ops commands
@@ -786,6 +786,40 @@ the system models charger occupancy as time ranges.
 - **Why it matters:** Two adjacent 15-minute reservations and one 30-minute reservation occupy
   **identical time** but produce different row counts. Verified: both report 30 minutes, and two
   overlapping hour-long ranges report 90 minutes rather than 120.
+
+### 11.10 One availability model, not two ⭐
+- **Rule:** The flexible-request matcher and the booking wizard both read availability from
+  `reservationoccupancy`. Candidates are identified by `chargerId:startISO`, not by a slot id.
+- **Where:** `reservationRequest.service.ts` → `findCandidates`; `occupancy.service.ts`
+- **Why it matters:** For one commit the matcher still queried `slots` while the wizard queried
+  occupancy — **two different answers to "is this free"**, which is how a system eventually sells the
+  same time twice. Openings are computed, not stored, so there is no row to name them by; deriving
+  the id from the charger and the start means the same opening always gets the same id, which is what
+  lets a client hold a selection across a re-rank without it silently pointing at a different time.
+
+### 11.11 Verified end-to-end against the real database ⭐
+- **Rule:** `npm run ops:verify` creates real reservations through the real service functions,
+  asserts what the database contains, and deletes everything it created.
+- **Where:** `backend/scripts/verify-reservation-flow.ts`
+- **Why it matters:** Everything from the v2 lifecycle onward had been checked only by typecheck and
+  pure-function tests. Those prove the *logic*; they cannot prove the *wiring*. **A unique index never
+  exercised, an event never emitted and a projection that never consumed anything are three ways for a
+  system to be confidently broken.** 16/16 checks now pass against live data.
+- **Three real bugs it caught immediately**, none of which typecheck could see:
+  1. **Mongoose pluralised the collection** to `reservationoccupancies` while the migration and
+     harness addressed `reservationoccupancy` — two different collections, so the backfill would have
+     written where the app never reads, the conflict index would sit on an empty collection, and
+     **every range reservation would have looked free**. The name is now pinned on the model.
+  2. `process.exit()` inside a `finally` block **swallowed the propagating exception**, hiding the
+     error behind a tidy failure summary.
+  3. `createIndexes()` failed with `ns does not exist` because MongoDB creates a collection lazily on
+     first write — a collection nothing has written to genuinely does not exist.
+- **The assertion that matters most:** two **back-to-back** reservations must both succeed while two
+  **overlapping** ones must not. That pair proves the half-open atom boundary at the database level.
+  It is currently reported as a *blocked precondition* rather than a pass, because the un-rebuilt
+  `slotId` index refuses the second range reservation before occupancy is reached — which is itself
+  worth knowing.
+- **Demo:** `npm run ops:verify` — a clean 16/16 with the database left exactly as it was found.
 
 ---
 
