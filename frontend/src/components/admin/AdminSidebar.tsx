@@ -14,6 +14,7 @@ import {
   BarChart3,
   Gauge,
   Activity,
+  Target,
   LogOut,
   Menu,
   X,
@@ -30,6 +31,7 @@ const NAV = [
   { href: "/admin/users", label: "Users", icon: Users },
   { href: "/admin/reliability", label: "Reliability", icon: Gauge },
   { href: "/admin/behavior", label: "Behaviour", icon: Activity },
+  { href: "/admin/schedule-quality", label: "Schedule quality", icon: Target },
   { href: "/admin/reports", label: "Reports", icon: BarChart3 },
 ];
 

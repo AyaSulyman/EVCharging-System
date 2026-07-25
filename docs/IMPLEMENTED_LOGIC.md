@@ -4,7 +4,7 @@
 the presentation, the demo script and any slide deck can be built from one place — and so nobody has
 to reverse-engineer the reasoning out of the code under time pressure.
 
-**Last updated: 2026-07-25 (reservation scoring engine).** Read alongside:
+**Last updated: 2026-07-25 (schedule quality KPIs).** Read alongside:
 - [`../CLAUDE.md`](../CLAUDE.md) — what the project is, and the invariants that must not break
 - [`../AGENTS.md`](../AGENTS.md) — how to work here
 - [`PROJECT_STATE.md`](PROJECT_STATE.md) — what is built vs. not, and the ops commands
@@ -615,7 +615,89 @@ decision layer of the optimization engine — §6.3 was its first slice; this is
 
 ---
 
-# 10. Money & reporting
+# 10. Schedule Quality KPIs ⭐
+
+Sections 7 and 8 measure *customers*. This measures *us*: are people getting the times they asked
+for, is capacity being used, how long are they waiting, how many are actually served, and how often
+does a reservation end in a completed session.
+
+Keeping the two apart matters because the remedies differ — a poor no-show rate is a customer
+problem; a poor preference match rate is a capacity or scheduling problem.
+
+### 10.1 The denominators are the design, not the arithmetic ⭐
+- **Where:** `backend/src/models/scheduleQualityPolicy.ts`
+- **Why it matters:** Every one of these five metrics is a ratio, and each has an obvious wrong
+  denominator that would flatter the platform. Encoding each choice in a named function keeps the
+  reasoning next to the code instead of in a commit message.
+- **Verified, and the gap is large:**
+
+| Metric | Denominator chosen | Naive alternative |
+|---|---|---|
+| Utilization | bookable intervals (blocked **excluded**) | 75% vs **60%** understated |
+| Success rate | reservations whose window has **passed** | 85% vs **34%** if upcoming counted as failures |
+| Preference match | **flexible requests only** | near-100%, because a wizard pick matches by definition |
+| No-show rate (§8.6) | reservations that reached their start | flattered by frequent cancellers |
+
+### 10.2 Preference match covers flexible requests only ⭐
+- **Rule:** Denominator is fulfilled `reservationrequests`; granted start must be within
+  **30 minutes** of the requested one.
+- **Why it matters:** A customer who picked an exact slot in the rigid wizard got exactly what they
+  asked for *by definition*. Including those would report near-perfect performance regardless of how
+  the engine behaved. The only meaningful denominator is where a preference was expressed
+  **separately** from what was granted, so the platform actually had a choice to get wrong.
+- **Why 30 minutes:** one interval on this platform. A tighter threshold would report the engine as
+  failing every time it did exactly what flexibility is for.
+
+### 10.3 Blocked intervals leave the denominator entirely ⭐
+- **Rule:** Out-of-service intervals are removed, not counted as unused.
+- **Why it matters:** A bay closed for maintenance had no capacity to sell. Counting those hours as
+  unused would **blame the schedule for the closure** and make a maintenance window look like a
+  scheduling failure.
+
+### 10.4 Upcoming reservations are not failures ⭐
+- **Rule:** Success rate divides by reservations whose window has already passed.
+- **Why it matters:** Otherwise the metric drops every time somebody books ahead — punishing the
+  platform for exactly the behaviour it wants to encourage.
+
+### 10.5 Served customers are distinct, and quiet days count ⭐
+- **Rule:** Distinct customers with a completed session, averaged over **every** day in the period.
+- **Why it matters:** Counting sessions would let a handful of heavy users look like a growing
+  customer base. Excluding quiet days would inflate the average — a quiet Sunday is a real part of
+  how the platform performs.
+
+### 10.6 Nothing is stored ⭐
+- **Rule:** Computed live from `bookings`, `slots` and `reservationrequests` on every request.
+- **Why it matters:** Storing daily KPI rows would duplicate derivable data, need a backfill whenever
+  a definition changed, and go stale silently. Recomputing means **a redefinition applies
+  retroactively**, which is what you want from a measurement rather than from a record.
+
+### 10.7 Bookings, not the event log — and why that differs from §7/§8 ⭐
+- **Rule:** These KPIs read `bookings`; reliability and behaviour read `reservationevents`.
+- **Why it matters:** §7 and §8 measure *behaviour over time*, which current state cannot express.
+  These measure *outcomes*, and a booking is the durable artifact of an outcome — it exists for every
+  reservation ever made, including those predating the event log. Reading events here would report
+  zero for all historical data.
+- **Bug this caught:** the first version filtered on `scheduledStart`, a v2 field that is **absent
+  until the migration runs**. Every KPI read zero — indistinguishable from "we served nobody", the
+  worst way for an analytics screen to be wrong. Now filters on `startTime`, which exists on every
+  booking ever created. Live data went from `NO DATA` to a real 50% success rate over 6 reservations.
+
+### 10.8 "No data" is never rendered as zero ⭐
+- **Rule:** A KPI with an empty denominator returns `null`, and the widget shows **"No data"** plus
+  the reason.
+- **Why it matters:** 0% utilization and "no intervals published" are completely different findings,
+  and a widget rendering both as "0%" invites the wrong decision. Every widget also shows its
+  **sample size** — a percentage over 3 requests is not a trend.
+
+### 10.9 Dashboard widgets
+- **Where:** `/admin/schedule-quality` — five KPI widgets with targets, a daily served-customers
+  line chart, and utilization by station (**lowest first**: spare capacity is where the next customer
+  could have been served). Period selector 7/30/90 days, clamped server-side to 180.
+- **Demo:** open it, switch periods, hover a widget to show what the metric excludes.
+
+---
+
+# 11. Money & reporting
 
 ### 8.1 Cost basis captured per reservation
 - **Rule:** `appliedUnitPrice` and `appliedPowerKW` are snapshotted at claim time.
@@ -632,7 +714,7 @@ decision layer of the optimization engine — §6.3 was its first slice; this is
 
 ---
 
-# 11. Operational safety
+# 12. Operational safety
 
 ### 9.1 Every migration is dry-run first, snapshots, and self-verifies
 - **Rule:** Dry run by default; `--apply` snapshots to `backups/<timestamp>/` then writes, then
@@ -663,7 +745,7 @@ decision layer of the optimization engine — §6.3 was its first slice; this is
 
 ---
 
-# 12. What is simulated — never misrepresent this ⭐
+# 13. What is simulated — never misrepresent this ⭐
 
 Stating this plainly is more credible than overclaiming, and the architecture is the real
 contribution either way.
@@ -680,7 +762,7 @@ contribution either way.
 
 ---
 
-# 13. Suggested demo running order
+# 14. Suggested demo running order
 
 1. **Conflict-free claim** (§1.1) — two browsers, one slot. The core claim.
 2. **Deposit flow** (§3.1, §3.12) — book, see the countdown, **simulate a decline**, then pay.
@@ -691,9 +773,11 @@ contribution either way.
 6. **Move within consent** (§6.5, §6.9) — move a flexible reservation; then try a `STRICT` one and
    show the **explained refusal**.
 7. **Reliability** (§7.5) — `/admin/reliability`, sorted worst-first, with explanations.
-8. **Behaviour** (§8.11) — `/admin/behavior`, then a driver detail: delay distribution,
+8. **Schedule quality** (§10.9) — `/admin/schedule-quality`: the five KPIs with targets and
+   sample sizes. Hover one to show what it excludes.
+9. **Behaviour** (§8.11) — `/admin/behavior`, then a driver detail: delay distribution,
    cancellation lead-time breakdown, and the raw timeline the numbers came from.
-10. **Operational safety** (§11.1) — a migration dry run refusing to run out of order.
+11. **Operational safety** (§12.1) — a migration dry run refusing to run out of order.
 
 **Closing point for the presentation:** the recurring theme is *choosing where correctness lives*.
 The database arbitrates conflicts; a pure policy module decides money and movement; an append-only

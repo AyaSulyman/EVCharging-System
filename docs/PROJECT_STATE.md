@@ -1,6 +1,6 @@
 # PROJECT_STATE.md — what is built, what is not, what to do next
 
-**Last updated: 2026-07-25 (reservation scoring engine).** Read this after `CLAUDE.md` and
+**Last updated: 2026-07-25 (schedule quality KPIs).** Read this after `CLAUDE.md` and
 `AGENTS.md`, before writing code.
 
 See also **[`IMPLEMENTED_LOGIC.md`](IMPLEMENTED_LOGIC.md)** — the canonical register of every
@@ -30,6 +30,7 @@ same commit.**
 | Waitlists | **Not built.** Design only — extend `ReservationRequest`, do not add a new collection |
 | Extensions, overstay, delay propagation | **Not built.** Design only |
 | Reservation Scoring Engine | **Done** — five factors, breakdown + rationale stored per assignment |
+| Schedule Quality KPIs | **Done** — five platform metrics, computed live, nothing stored |
 | Reservation Optimization Engine (full scheduler) | **Design only** — multi-reservation plans and repair not built |
 | Customer reliability score | **Done** — the first event-log consumer, derived not accumulated |
 | Customer behaviour tracking | **Done** — second consumer: delays, cancellations, no-shows, arrival accuracy |
