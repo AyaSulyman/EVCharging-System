@@ -21,9 +21,11 @@ invariants you must not break**. This file is about *how to work*. Read both.
    rule, the file that owns it, why it matters, how to demo it. Read it to find out whether a
    behaviour already exists and where it lives. **This is also the file any presentation or
    slide deck is built from**, so it must stay current.
-4. **`backend/AGENTS.md`** — the backend's Next.js version is newer than most training data.
+4. **`docs/RUNBOOK.md`** — every ops command with expected output, the enforced migration order,
+   and the recovery path. Read it before running anything that touches a database.
+5. **`backend/AGENTS.md`** — the backend's Next.js version is newer than most training data.
    Read the installed docs before using an unfamiliar API.
-5. Only then, the design docs relevant to your task (`docs/RESERVATION_*.md`).
+6. Only then, the design docs relevant to your task (`docs/RESERVATION_*.md`).
 
 If a request contradicts an invariant in `CLAUDE.md` §2, **stop and say so**. Do not silently
 work around it, and do not silently implement the contradiction. Raising it is the expected

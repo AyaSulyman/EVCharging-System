@@ -4,7 +4,12 @@
 `AGENTS.md`, before writing code.
 
 See also **[`IMPLEMENTED_LOGIC.md`](IMPLEMENTED_LOGIC.md)** — the canonical register of every
-logic the system implements, and the file to build a presentation or slide deck from.
+logic the system implements, and the file to build a presentation or slide deck from — and
+**[`RUNBOOK.md`](RUNBOOK.md)** for every operational command with its expected output.
+
+**All four migrations have now been APPLIED to the working `chargehub` database, `ops:indexes` has
+been run, and `ops:verify` passes 19/19.** The §2 warnings below are kept for anyone setting up a
+different database.
 
 This file exists so a teammate — or a teammate's AI assistant — can pick the project up without
 re-deriving what has already been decided, re-implementing what already exists, or "fixing"
@@ -45,7 +50,7 @@ same commit.**
 The working database is `chargehub` on MongoDB Atlas. As of the date above it holds **6
 bookings** (5 `paid`, 1 `refunded`; statuses: 2 confirmed, 3 completed, 1 cancelled).
 
-**Four migrations are written, verified by dry run, and NOT YET APPLIED:**
+**Four migrations, all APPLIED to `chargehub` on 2026-07-25. For a different database, run them in this order:**
 
 1. `ops:migrate-v2` — backfills the v2 lifecycle fields. Dry run reports 6 bookings needing it.
 2. `ops:migrate-commitments` — backfills the deposit/commitment fields. **Refuses to run until

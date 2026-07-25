@@ -99,10 +99,15 @@ export function preferenceMatchRate(matched: number, total: number): KpiValue {
 }
 
 /**
- * Share of bookable interval-time that was actually taken.
+ * Share of bookable charger-time that was actually taken.
  *
- * `total` must already exclude out-of-service intervals: a station closed for maintenance had no
- * capacity to sell, and counting those hours as unused would blame the schedule for the closure.
+ * MEASURED IN MINUTES, NOT INTERVALS. Once reservations have arbitrary durations, counting rows is
+ * meaningless: a 15-minute reservation and a 90-minute one are one row each but occupy six times the
+ * capacity difference. The numerator is reserved minutes and the denominator is the charger-minutes
+ * the stations were open for.
+ *
+ * `total` must exclude time no bay was available to sell — a station closed for maintenance had no
+ * capacity, and counting those hours as unused would blame the schedule for the closure.
  */
 export function utilizationRate(taken: number, total: number): KpiValue {
   const value = pct(taken, total);
@@ -113,8 +118,8 @@ export function utilizationRate(taken: number, total: number): KpiValue {
     meetsTarget: value === null ? null : value >= KPI_TARGETS.utilizationRatePercent,
     note:
       total === 0
-        ? "No bookable intervals published in this period"
-        : "Intervals reserved or completed, over intervals published. Out-of-service intervals are excluded from the denominator rather than counted as unused.",
+        ? "No bookable charger-time in this period"
+        : "Reserved minutes over the charger-minutes the stations were open. Measured in minutes because reservations have arbitrary durations — counting reservations would treat a 15-minute session and a 90-minute one as equal.",
   };
 }
 

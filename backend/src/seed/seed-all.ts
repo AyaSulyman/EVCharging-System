@@ -1,9 +1,12 @@
 /**
- * Seeds EVERY collection (users, vehicles, vehicle connections, stations,
- * chargers, slots, bookings, notifications, banners) into the real MongoDB
- * Atlas database used by this backend.
+ * Seeds EVERY collection into the real MongoDB Atlas database used by this backend: users,
+ * vehicles, vehicle connections, stations, chargers, slots, bookings, notifications, banners —
+ * plus the occupancy rows that make seeded reservations visible to duration-aware availability.
  *
- * Safe to re-run: wipes all of these collections before inserting fresh data.
+ * Safe to re-run: wipes all of these collections, and everything derived from a reservation
+ * (occupancy, events, intents, refunds, requests, behaviour profiles), before inserting fresh data.
+ * Leaving any of those behind would leave the database describing reservations that no longer
+ * exist — and orphaned occupancy would hold charger time nobody could ever book.
  *
  * Run with:  npm run seed:all
  */
@@ -25,6 +28,13 @@ import Booking from "@/models/Booking";
 import Notification from "@/models/Notification";
 import Banner from "@/models/Banner";
 import { computeCommitmentAmount, REFUND_CUTOFF_HOURS } from "@/models/commitmentPolicy";
+import ReservationOccupancy from "@/models/ReservationOccupancy";
+import ReservationEvent from "@/models/ReservationEvent";
+import PaymentIntent from "@/models/PaymentIntent";
+import Refund from "@/models/Refund";
+import ReservationRequest from "@/models/ReservationRequest";
+import CustomerBehaviorProfile from "@/models/CustomerBehaviorProfile";
+import { atomsForRange, OCCUPANCY_ATOM_MINUTES } from "@/models/occupancyPolicy";
 
 const WIKI = "https://commons.wikimedia.org/wiki/Special:FilePath";
 
@@ -63,6 +73,21 @@ async function run() {
     Booking.deleteMany({}),
     Notification.deleteMany({}),
     Banner.deleteMany({}),
+    /**
+     * Everything derived from or attached to a reservation must go too.
+     *
+     * Occupancy above all: a lease left behind after its reservation is deleted holds charger time
+     * that no query can attribute to anyone and no driver can ever book — permanently, and
+     * invisibly. The event log, intents, refunds, requests and behaviour profiles are all keyed to
+     * reservations that will no longer exist, so leaving them would make the projections describe a
+     * history the database no longer contains.
+     */
+    ReservationOccupancy.deleteMany({}),
+    ReservationEvent.deleteMany({}),
+    PaymentIntent.deleteMany({}),
+    Refund.deleteMany({}),
+    ReservationRequest.deleteMany({}),
+    CustomerBehaviorProfile.deleteMany({}),
   ]);
 
   // ---------------- Users ----------------
@@ -250,8 +275,45 @@ async function run() {
       commitmentExpiresAt: null,
     };
   });
-  if (bookings.length) await Booking.create(bookings);
-  console.log(`Created ${bookings.length} sample bookings`);
+  const createdBookings = bookings.length ? await Booking.create(bookings) : [];
+  console.log(`Created ${createdBookings.length} sample bookings`);
+
+  /**
+   * Occupancy rows for the reservations that are still LIVE.
+   *
+   * Without this a freshly seeded database is quietly broken: seeded reservations hold a `slot`, but
+   * duration-aware availability reads `reservationoccupancy` — so those times would read as free and
+   * a range reservation could be sold straight over the top of a seeded one. Each mechanism
+   * internally consistent, collectively wrong.
+   *
+   * Only live reservations get rows. Occupancy is a lease on time; a completed or cancelled
+   * reservation holds none, and its history lives on the booking.
+   */
+  const liveSeeded = createdBookings.filter(
+    (b: { status: string }) => b.status === "confirmed" || b.status === "pending"
+  );
+  const occupancyRows = liveSeeded.flatMap(
+    (b: {
+      _id: unknown;
+      chargerId: unknown;
+      stationId: unknown;
+      userId: unknown;
+      startTime: Date;
+      endTime: Date;
+    }) =>
+      atomsForRange(new Date(b.startTime), new Date(b.endTime)).map((atomStart) => ({
+        bookingId: b._id,
+        chargerId: b.chargerId,
+        stationId: b.stationId,
+        userId: b.userId,
+        atomStart,
+        atomEnd: new Date(atomStart.getTime() + OCCUPANCY_ATOM_MINUTES * 60_000),
+      }))
+  );
+  if (occupancyRows.length) await ReservationOccupancy.insertMany(occupancyRows);
+  console.log(
+    `Created ${occupancyRows.length} occupancy atoms for ${liveSeeded.length} live reservations`
+  );
 
   // ---------------- Notifications ----------------
   await Notification.create([

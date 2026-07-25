@@ -10,6 +10,8 @@ is, how it is built, and the rules that must not be broken.
 >   built, which migrations have and have not been applied, and the exact ops commands.
 >   **Check it before implementing anything**, so you don't rebuild what exists or "fix" what
 >   is intentional. Update it in the same commit whenever you change the state of the project.
+> - **`docs/RUNBOOK.md`** — every operational command, what it does and what to expect, including
+>   the migration order and how to recover. **Read it before running anything against a database.**
 > - **`docs/IMPLEMENTED_LOGIC.md`** — **the canonical register of every logic the system
 >   implements**, each with the rule, the file that owns it, why it matters in plain language,
 >   and how to demo it. **This is the file to build a presentation or slide deck from.** Add an

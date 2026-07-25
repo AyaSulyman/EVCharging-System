@@ -20,6 +20,11 @@ const UserSchema = new Schema(
       default: [],
     },
     avatar: { type: String },
+    /**
+     * Marks a generated demo account. Same reason as on Booking: `ops:demo-data --clear` can then
+     * remove exactly what it created rather than guessing from a name or an email pattern.
+     */
+    isDemo: { type: Boolean, default: false },
 
     /* ----------------------------------------------------------------------------
      * Customer reliability — ADDITIVE, and entirely DERIVED.

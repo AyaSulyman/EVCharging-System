@@ -135,7 +135,7 @@ export default function ScheduleQualityPage() {
               label="Utilization"
               kpi={quality.utilizationRate}
               icon={Gauge}
-              sampleLabel="intervals"
+              sampleLabel="charger-minutes"
             />
             <KpiWidget
               label="Avg waiting time"
@@ -183,7 +183,7 @@ export default function ScheduleQualityPage() {
             <h2 className="text-sm font-semibold text-ink">Utilization by station</h2>
             <p className="mt-0.5 text-xs text-ink-soft">
               Lowest first — spare capacity is where the next customer could have been served.
-              Out-of-service intervals are excluded.
+              Measured in minutes reserved over minutes open; out-of-service chargers are excluded.
             </p>
             <div className="mt-4">
               {utilSeries.length > 0 ? (
@@ -200,7 +200,7 @@ export default function ScheduleQualityPage() {
                   <tr className="border-b border-line text-xs uppercase tracking-wide text-ink-soft">
                     <th className="pb-2 pr-4 font-medium">Station</th>
                     <th className="pb-2 pr-4 font-medium text-right">Utilization</th>
-                    <th className="pb-2 font-medium text-right">Intervals</th>
+                    <th className="pb-2 font-medium text-right">Open hours</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">

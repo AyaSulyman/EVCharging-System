@@ -94,6 +94,10 @@ export const EMPTY_RELIABILITY: ReliabilityResult = {
  *
  * Note the deliberate asymmetry: this gate applies to *penalties*. A completed session is credited
  * regardless of who caused what, because the driver did in fact turn up and charge.
+ *
+ * NOT used for `session.started`. That event carries `penalize: false` from the emitter as an
+ * explicit delegation ("the scorer decides"), so routing it through this gate would waive every late
+ * arrival. See the session.started branch below.
  */
 function isChargeable(event: ScorableEvent): boolean {
   if (event.fault && event.fault !== "customer") return false;
@@ -141,7 +145,22 @@ export function scoreFromEvents(events: ScorableEvent[]): ReliabilityResult {
         // Lateness is recorded on the event's basis by the session transition, which is the only
         // place it is computed. Anything else is an on-time arrival and costs nothing.
         if (event.basis !== "late_arrival") break;
-        if (!isChargeable(event)) {
+        /**
+         * Gated on FAULT ONLY, deliberately — not on `penalize`.
+         *
+         * The session transition emits `penalize: false` on every session.started, with the stated
+         * reasoning that "a penalty decision belongs to the scorer, not to the act of starting a
+         * session". `isChargeable` treats `penalize: false` as an outright waiver, so the two
+         * together meant a late arrival could never subtract anything: the emitter delegated the
+         * decision and the scorer assumed it had already been made. Verified against real data — 30
+         * late arrivals existed and every one was silently waived, so the -5 adjustment had never
+         * once applied.
+         *
+         * The scorer owns this decision, so it makes it here. Operator- and system-attributed
+         * lateness is still waived, which is the part that actually matters: a driver delayed by a
+         * charger failure is not penalised.
+         */
+        if (event.fault && event.fault !== "customer") {
           result.waivedEvents++;
           break;
         }

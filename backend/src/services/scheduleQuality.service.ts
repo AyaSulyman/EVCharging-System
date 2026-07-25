@@ -7,6 +7,12 @@
  * silently. Recomputing means a redefinition takes effect everywhere at once — including
  * retroactively, which is what you want from a measurement rather than from a record.
  *
+ * UTILIZATION IS MEASURED IN MINUTES, FROM RESERVATIONS. Slot statuses cannot answer it once
+ * reservations have arbitrary durations — a range reservation never touches `slots`, so the old
+ * slot-based count reported 0.5% while 178 reservations existed. Occupancy rows cannot answer it
+ * either: a row is a lease on *future* time and is deleted when a reservation ends, so historical
+ * utilization would always read zero. The durable record of occupied time is the reservation.
+ *
  * WHY BOOKINGS RATHER THAN THE EVENT LOG. Sections 7 and 8 read `reservationevents` because they
  * measure *behaviour over time*, which current state cannot express. These KPIs measure *outcomes*,
  * and a booking is the durable artifact of an outcome — it exists for every reservation ever made,
@@ -17,8 +23,8 @@ import { connectDB } from "@/config/database";
 import Booking from "@/models/Booking";
 import Charger from "@/models/Charger";
 import ReservationRequest from "@/models/ReservationRequest";
-import Slot from "@/models/Slot";
 import Station from "@/models/Station";
+import { OPERATING_FROM_HOUR, OPERATING_TO_HOUR } from "@/models/occupancyPolicy";
 import {
   avgWaitingTime,
   isPreferenceMatch,
@@ -69,7 +75,7 @@ export async function getScheduleQuality(
   const bookings = await Booking.find({
     startTime: { $gte: from, $lte: to },
   })
-    .select("userId status lifecycle scheduledStart scheduledEnd startTime")
+    .select("userId status lifecycle scheduledStart scheduledEnd startTime endTime durationMinutes stationId")
     .lean<
       {
         userId: unknown;
@@ -78,6 +84,9 @@ export async function getScheduleQuality(
         scheduledStart?: Date;
         scheduledEnd?: Date;
         startTime: Date;
+        endTime: Date;
+        durationMinutes?: number | null;
+        stationId: unknown;
       }[]
     >();
 
@@ -120,39 +129,68 @@ export async function getScheduleQuality(
 
   /* ---------------------------------------------------------------- utilization */
 
-  const slots = await Slot.find({ startTime: { $gte: from, $lte: to } })
-    .select("chargerId status")
-    .lean<{ chargerId: unknown; status: string }[]>();
-
-  // Blocked intervals are removed from the denominator entirely: a bay out of service had no
-  // capacity to sell, and counting those hours as unused would blame the schedule for maintenance.
-  const bookable = slots.filter((s) => s.status !== "blocked");
-  const taken = bookable.filter((s) => s.status === "booked" || s.status === "completed");
-
+  /**
+   * Utilization in MINUTES, computed from reservations rather than from slot statuses.
+   *
+   * Slot statuses cannot answer this any more. A duration-aware reservation never touches the `slots`
+   * collection, so a slot-based count reported 0.5% while 178 reservations existed — the metric was
+   * measuring a mechanism the platform had stopped using.
+   *
+   * Occupancy rows cannot answer it either, and that is worth being explicit about: an occupancy row
+   * is a *lease on future time*, deleted the moment a reservation ends. Historical utilization would
+   * therefore always read zero. The durable record of "this bay was occupied for this long" is the
+   * reservation itself, so the numerator comes from there.
+   *
+   * Cancelled reservations are excluded — the time was given back. No merging is needed within a
+   * charger because the unique occupancy index makes overlap impossible in the first place.
+   */
   const chargers = await Charger.find({})
-    .select("stationId")
-    .lean<{ _id: unknown; stationId: unknown }[]>();
-  const stationOfCharger = new Map(chargers.map((c) => [String(c._id), String(c.stationId)]));
+    .select("stationId status")
+    .lean<{ _id: unknown; stationId: unknown; status: string }[]>();
   const stations = await Station.find({})
     .select("name")
     .lean<{ _id: unknown; name: string }[]>();
   const stationName = new Map(stations.map((s) => [String(s._id), s.name]));
 
-  const perStation = new Map<string, { total: number; taken: number }>();
-  for (const s of bookable) {
-    const stationId = stationOfCharger.get(String(s.chargerId));
-    if (!stationId) continue;
-    const acc = perStation.get(stationId) ?? { total: 0, taken: 0 };
-    acc.total++;
-    if (s.status === "booked" || s.status === "completed") acc.taken++;
-    perStation.set(stationId, acc);
+  // Denominator: the charger-minutes the stations were actually open for. Out-of-service chargers are
+  // excluded rather than counted as unused, so maintenance never looks like a scheduling failure.
+  const openMinutesPerDayPerCharger = (OPERATING_TO_HOUR - OPERATING_FROM_HOUR) * 60;
+  const dayCount = Math.max(1, periodDays);
+  const perStationTotal = new Map<string, number>();
+  for (const c of chargers) {
+    if (c.status !== "available") continue;
+    const key = String(c.stationId);
+    perStationTotal.set(
+      key,
+      (perStationTotal.get(key) ?? 0) + openMinutesPerDayPerCharger * dayCount
+    );
   }
 
-  const utilizationByStation = [...perStation.entries()]
-    .map(([stationId, v]) => ({
+  // Numerator: minutes actually held. Uses the real duration where a reservation has one and falls
+  // back to the booked window for legacy slot-based reservations, so both models contribute.
+  const perStationTaken = new Map<string, number>();
+  for (const b of bookings) {
+    if (b.status === "cancelled") continue;
+    const key = String(b.stationId);
+    const minutes =
+      b.durationMinutes ??
+      Math.round(
+        (new Date(b.scheduledEnd ?? b.endTime).getTime() -
+          new Date(b.scheduledStart ?? b.startTime).getTime()) /
+          60_000
+      );
+    perStationTaken.set(key, (perStationTaken.get(key) ?? 0) + Math.max(0, minutes));
+  }
+
+  const totalBookableMinutes = [...perStationTotal.values()].reduce((n, v) => n + v, 0);
+  const totalTakenMinutes = [...perStationTaken.values()].reduce((n, v) => n + v, 0);
+
+  const utilizationByStation = [...perStationTotal.entries()]
+    .map(([stationId, total]) => ({
       station: (stationName.get(stationId) ?? "Unknown").replace("ChargeHub — ", ""),
-      utilizationPercent: v.total > 0 ? Math.round((v.taken / v.total) * 1000) / 10 : 0,
-      slots: v.total,
+      utilizationPercent:
+        total > 0 ? Math.round(((perStationTaken.get(stationId) ?? 0) / total) * 1000) / 10 : 0,
+      slots: Math.round(total / 60),
     }))
     // Worst first: the station with spare capacity is where the next customer could have been served.
     .sort((a, b) => a.utilizationPercent - b.utilizationPercent);
@@ -210,7 +248,7 @@ export async function getScheduleQuality(
     from,
     to,
     preferenceMatchRate: preferenceMatchRate(matched, fulfilled.length),
-    utilizationRate: utilizationRate(taken.length, bookable.length),
+    utilizationRate: utilizationRate(totalTakenMinutes, totalBookableMinutes),
     avgWaitingTime: avgWaitingTime(waitingMinutesTotal, fulfilled.length),
     servedCustomersPerDay: servedCustomersPerDay(daily),
     reservationSuccessRate: reservationSuccessRate(completed.length, resolved.length),

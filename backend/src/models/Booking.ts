@@ -146,6 +146,15 @@ const BookingSchema = new Schema(
       default: "self",
     },
     createdByStaffId: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    /**
+     * Marks a reservation as generated demo data rather than a real booking.
+     *
+     * Exists so `ops:demo-data --clear` can remove exactly what it created, with no heuristic. The
+     * alternative — matching on a booking-code prefix — would eventually delete a real reservation
+     * whose random code happened to match, which is not a risk worth taking against reservation data.
+     * It also leaves the door open to excluding demo rows from analytics later.
+     */
+    isDemo: { type: Boolean, default: false },
 
     /* ----------------------------------------------------------------------------
      * Reservation commitment — also ADDITIVE, and also simulated.
