@@ -313,6 +313,26 @@ export async function handleGatewayEvent(
     actorRole,
   });
 
+  // The capacity counterpart, emitted alongside the money event for the same reason
+  // commitment.expired is paired with reservation.released: a consumer that cares about
+  // occupancy should not have to understand deposits to know a bay is now firmly taken. The
+  // other place this fires is claimReservation, for desk bookings that never reach a gateway.
+  await emitReservationEvent({
+    type: "reservation.confirmed",
+    bookingId: booking._id,
+    userId: booking.userId,
+    stationId: booking.stationId,
+    slotId: booking.slotId,
+    lifecycle: booking.lifecycle,
+    fault: "customer",
+    penalize: false,
+    basis: "commitment_settled",
+    amount: intent.amount,
+    paymentIntentId: intent._id,
+    actorId,
+    actorRole,
+  });
+
   return { intent, booking, applied: true };
 }
 

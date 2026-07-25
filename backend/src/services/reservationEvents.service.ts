@@ -21,6 +21,7 @@ import type { FaultAttribution } from "@/models/commitmentPolicy";
 export interface EmitReservationEventInput {
   type: ReservationEventType;
   bookingId?: unknown;
+  requestId?: unknown;
   userId?: unknown;
   stationId?: unknown;
   slotId?: unknown;

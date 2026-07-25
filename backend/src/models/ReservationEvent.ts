@@ -31,6 +31,20 @@ import { Schema, models, model } from "mongoose";
  * a renamed type silently erases history for anything aggregating over it.
  */
 export const RESERVATION_EVENT_TYPES = [
+  /**
+   * Reservation and capacity lifecycle.
+   *
+   * `reservation.created` and `reservation.confirmed` are the capacity counterparts to the
+   * commitment events below, and both are needed because they answer different questions:
+   * created is *demand* (a bay left the pool, and the denominator for every conversion and
+   * no-show rate), confirmed is *committed occupancy*. `commitment.succeeded` cannot serve as
+   * confirmed — a desk booking skips the gateway entirely, so it would be missing exactly the
+   * reservations staff created.
+   */
+  "reservation.created", // claimed, whether or not a commitment is outstanding
+  "reservation.confirmed", // lifecycle reached RESERVED — the bay is firmly taken
+  "session.started", // charging began; carries delayMinutes against the promised start
+  "session.ended", // charging finished; carries scheduled vs actual end
   // Commitment lifecycle
   "commitment.required", // reservation claimed, commitment outstanding
   "commitment.succeeded", // commitment made; the reservation is now held firm
@@ -51,6 +65,10 @@ const ReservationEventSchema = new Schema(
     // The reservation this happened to. Not a hard ref constraint: events outlive the records
     // they describe, and an event must never be lost because a reservation was removed.
     bookingId: { type: Schema.Types.ObjectId, index: true },
+    // The flexible request this reservation came from, where one exists. Optional and separate
+    // from bookingId because a request generates behavioural signal *before* it becomes a
+    // booking — and may never become one, which is itself the signal worth keeping.
+    requestId: { type: Schema.Types.ObjectId, index: true },
     // The driver, denormalised so per-customer history is one indexed query with no join.
     // This is the access path the reliability scorer will use.
     userId: { type: Schema.Types.ObjectId, index: true },

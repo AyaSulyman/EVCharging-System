@@ -56,6 +56,11 @@ export interface ClaimReservationInput {
    * commits immediately — there is no window to wait out, so it goes straight to RESERVED.
    */
   commitmentCompleted?: boolean;
+  /**
+   * The flexible request this claim is fulfilling, when it came from one. Recorded on the
+   * created event so the conversion from a flexible request to a held bay is measurable.
+   */
+  requestId?: string;
 }
 
 /**
@@ -86,6 +91,7 @@ export async function claimReservation({
   createdVia = "self",
   createdByStaffId = undefined,
   commitmentCompleted = false,
+  requestId = undefined,
 }: ClaimReservationInput) {
   await connectDB();
 
@@ -191,6 +197,45 @@ export async function claimReservation({
     // The interval was taken or blocked in between. Undo our own write.
     await Booking.deleteOne({ _id: booking._id });
     throw new Error("SLOT_UNAVAILABLE");
+  }
+
+  // Emitted only after the interval is genuinely held. Emitting before step 2 would record a
+  // reservation that the undo above may have just deleted, so utilization would count bays that
+  // were never taken.
+  await emitReservationEvent({
+    type: "reservation.created",
+    bookingId: booking._id,
+    requestId: requestId ?? undefined,
+    userId,
+    stationId: charger.stationId,
+    slotId,
+    lifecycle: booking.lifecycle,
+    fault: "customer",
+    basis: createdVia,
+    amount: depositAmount,
+    actorId: createdByStaffId ?? userId,
+    actorRole: createdVia === "staff_onsite" ? "staff" : "user",
+    metadata: { scheduledStart: slot.startTime, scheduledEnd: slot.endTime },
+  });
+
+  // A desk booking reaches RESERVED here rather than through the gateway, so this is the only
+  // place it can be recorded. Without it, every staff-created reservation would be invisible to
+  // occupancy analytics for its entire life.
+  if (commitmentCompleted) {
+    await emitReservationEvent({
+      type: "reservation.confirmed",
+      bookingId: booking._id,
+      requestId: requestId ?? undefined,
+      userId,
+      stationId: charger.stationId,
+      slotId,
+      lifecycle: booking.lifecycle,
+      fault: "customer",
+      basis: "committed_at_creation",
+      amount: depositAmount,
+      actorId: createdByStaffId ?? userId,
+      actorRole: createdVia === "staff_onsite" ? "staff" : "user",
+    });
   }
 
   return booking;
@@ -416,6 +461,30 @@ export async function startCharging(bookingId: string) {
   }
 
   await booking.save();
+
+  // Arrival punctuality is computed once, here, and nowhere else — so this event is the only
+  // record of how late this driver actually was. Delay propagation needs the real start; the
+  // reliability scorer needs the lateness distribution per driver.
+  await emitReservationEvent({
+    type: "session.started",
+    bookingId: booking._id,
+    userId: booking.userId,
+    stationId: booking.stationId,
+    slotId: booking.slotId,
+    lifecycle: booking.lifecycle,
+    fault: "customer",
+    // Lateness is not misconduct — the grace period exists precisely to absorb it. A penalty
+    // decision belongs to the scorer reading this, not to the act of starting a session.
+    penalize: false,
+    basis: booking.delayMinutes > 0 ? "late_arrival" : "on_time",
+    metadata: {
+      delayMinutes: booking.delayMinutes,
+      scheduledStart: scheduled,
+      actualStart: booking.actualStart,
+      actualArrival: booking.actualArrival,
+    },
+  });
+
   return booking;
 }
 
@@ -444,13 +513,41 @@ export async function endCharging(bookingId: string) {
     { $set: { status: "completed" } }
   );
 
-  // A session that ends before its scheduled end returns real capacity to the station, which is
-  // exactly what the waitlist matcher and the optimizer want to know about. Recorded with the
-  // minutes recovered so a consumer can decide whether the remainder is worth offering.
   const scheduledEnd = booking.scheduledEnd ?? booking.endTime;
   const minutesEarly = scheduledEnd
     ? Math.round((new Date(scheduledEnd).getTime() - booking.actualEnd.getTime()) / 60000)
     : 0;
+
+  // Every completion, early or not. Actual duration is only knowable here: once the reservation
+  // is COMPLETED nothing else records how long the bay was really occupied, which is the
+  // numerator of station utilization and the "average actual duration" metric.
+  await emitReservationEvent({
+    type: "session.ended",
+    bookingId: booking._id,
+    userId: booking.userId,
+    stationId: booking.stationId,
+    slotId: booking.slotId,
+    lifecycle: booking.lifecycle,
+    fault: "customer",
+    penalize: false,
+    basis: minutesEarly > 0 ? "early_departure" : "ran_to_schedule",
+    metadata: {
+      scheduledEnd,
+      actualEnd: booking.actualEnd,
+      actualStart: booking.actualStart,
+      minutesEarly: Math.max(0, minutesEarly),
+      // Negative would mean an overstay. Recorded rather than clamped, because overstay
+      // handling is a later phase and will want the history.
+      minutesOverstayed: minutesEarly < 0 ? Math.abs(minutesEarly) : 0,
+      actualDurationMinutes: booking.actualStart
+        ? Math.round((booking.actualEnd.getTime() - new Date(booking.actualStart).getTime()) / 60000)
+        : null,
+    },
+  });
+
+  // A session that ends before its scheduled end returns real capacity to the station, which is
+  // exactly what the waitlist matcher and the optimizer want to know about. Separate from the
+  // completion above: a consumer reacting to freed capacity should not have to parse durations.
   if (minutesEarly > 0) {
     booking.releasedEarly = true;
     await booking.save();
