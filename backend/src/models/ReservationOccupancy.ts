@@ -22,6 +22,11 @@ import { Schema, models, model } from "mongoose";
  * stays on the booking where it belongs. That removes the subtlety entirely — there is no status to
  * filter on and no way for a released atom to stay indexed.
  *
+ * A ROW HAS EXACTLY ONE HOLDER — a booking or a recommendation, never both and never neither. That
+ * is what lets one index arbitrate provisional and firm claims together, so an optimizer offer and a
+ * customer booking contend for a bay through the same mechanism rather than through two that have to
+ * be kept in agreement.
+ *
  * ROWS ARE DERIVED AND DISPOSABLE. Every row is reconstructable from its booking's range. If this
  * collection is ever lost, `ops:migrate-occupancy` rebuilds it. What must never happen is the
  * reverse — an atom held here with no live booking behind it — which is why release is keyed on
@@ -30,9 +35,37 @@ import { Schema, models, model } from "mongoose";
 
 const ReservationOccupancySchema = new Schema(
   {
-    // The reservation holding this atom. Indexed because release is always "free everything this
-    // booking holds", which must be one query rather than one per atom.
-    bookingId: { type: Schema.Types.ObjectId, ref: "Booking", required: true, index: true },
+    /**
+     * The reservation holding this atom, when the hold is firm.
+     *
+     * Null while an optimizer recommendation holds it instead — see `recommendationId`. Exactly one
+     * of the two is set. Indexed because release is always "free everything this holder holds", which
+     * must be one query rather than one per atom.
+     */
+    bookingId: { type: Schema.Types.ObjectId, ref: "Booking", default: null, index: true },
+    /**
+     * The optimizer offer holding this atom, when the hold is provisional.
+     *
+     * PROVISIONAL AND FIRM HOLDS SHARE THIS COLLECTION DELIBERATELY. The unique index below then
+     * governs both, which buys three things at once: an offer cannot be made on a bay someone is
+     * booking, a booking cannot take a bay that is under offer, and accepting an offer is a field
+     * update rather than a fresh claim that could fail. Splitting them into two collections would
+     * mean two arbiters of the same resource and a reconciliation problem between them.
+     */
+    recommendationId: {
+      type: Schema.Types.ObjectId,
+      ref: "Recommendation",
+      default: null,
+      index: true,
+    },
+    /**
+     * When a provisional hold lapses. Null on a firm reservation, which does not expire.
+     *
+     * Five minutes from issue, independent of how long the reservation itself is. Availability reads
+     * treat a lapsed hold as free, so capacity is recoverable the instant anyone looks — the sweep
+     * only materialises that and fires the release event.
+     */
+    holdExpiresAt: { type: Date, default: null },
     chargerId: { type: Schema.Types.ObjectId, ref: "Charger", required: true },
     // Denormalised so station-level availability and utilization do not need a charger join on a
     // read path that runs on every booking screen.
@@ -79,6 +112,12 @@ ReservationOccupancySchema.index({ chargerId: 1, atomStart: 1 }, { unique: true 
  * chargers at a station at once.
  */
 ReservationOccupancySchema.index({ stationId: 1, atomStart: 1 });
+
+/**
+ * The expiry sweep: "provisional holds past their window". Frequent, and small — a five-minute hold
+ * that lingers is precisely the frozen inventory the short window exists to prevent.
+ */
+ReservationOccupancySchema.index({ holdExpiresAt: 1 });
 
 export default models.ReservationOccupancy ||
   model("ReservationOccupancy", ReservationOccupancySchema);

@@ -40,8 +40,12 @@ export const OCCUPANCY_ATOM_MINUTES = 15;
  * An explicit list rather than a min/max range: each value is an exact multiple of the atom, and a
  * free-form number would let a request for 37 minutes through to be silently rounded — which is the
  * kind of quiet adjustment that makes a driver distrust the whole system.
+ *
+ * 120 minutes raises MAX_ATOMS_PER_RESERVATION from 6 to 8, which is the one number that moves when
+ * the list grows: it is the ceiling on how many index writes a single claim performs, and the guard
+ * in `claimOccupancy` that stops a bad range issuing thousands of them.
  */
-export const ALLOWED_DURATIONS_MINUTES = [15, 30, 45, 60, 90] as const;
+export const ALLOWED_DURATIONS_MINUTES = [15, 30, 45, 60, 90, 120] as const;
 
 export type AllowedDuration = (typeof ALLOWED_DURATIONS_MINUTES)[number];
 

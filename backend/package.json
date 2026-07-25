@@ -20,7 +20,8 @@
     "ops:expire-commitments": "tsx scripts/expire-commitments.ts",
     "ops:reliability": "tsx scripts/recompute-reliability.ts",
     "ops:behavior": "tsx scripts/recompute-behavior.ts",
-    "ops:verify": "tsx scripts/verify-reservation-flow.ts",
+    "ops:verify": "tsx scripts/verify-scheduler.ts && tsx scripts/verify-reservation-flow.ts",
+    "ops:verify-scheduler": "tsx scripts/verify-scheduler.ts",
     "ops:demo-data": "tsx scripts/generate-demo-data.ts"
   },
   "dependencies": {

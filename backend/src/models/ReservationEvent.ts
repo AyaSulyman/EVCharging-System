@@ -56,6 +56,18 @@ export const RESERVATION_EVENT_TYPES = [
   "commitment.expired", // window closed without a commitment; the interval is released
   "commitment.refunded", // commitment returned to the driver
   "commitment.forfeited", // commitment kept (cancel inside the cutoff, or a no-show)
+  /**
+   * Optimizer offers. Separate from the reservation events because an offer is not a reservation —
+   * it is a proposal that holds capacity, and most of them end without one being made. Counting a
+   * declined offer as a cancellation would make every indecisive customer look unreliable.
+   */
+  "recommendation.issued",
+  "recommendation.accepted",
+  "recommendation.rejected",
+  "recommendation.expired",
+  // Demand-pool transitions. `waitlisted` is a capacity failure on our side, not the customer's.
+  "request.waitlisted",
+  "request.reopened",
   // Reservation outcomes that carry behavioural signal
   "reservation.cancelled",
   "reservation.no_show",

@@ -30,11 +30,23 @@ import { FLEXIBILITY_TYPES, DEFAULT_FLEXIBILITY } from "./flexibilityPolicy";
  * consumer scanning for work has one predicate rather than a set of exclusions.
  */
 export const RESERVATION_REQUEST_STATUSES = [
-  "OPEN", // awaiting fulfilment — the waitlist state, when waitlists arrive
+  "OPEN", // in the demand pool, awaiting an optimizer pass
+  "PENDING_ACCEPTANCE", // an offer is live and holding capacity; see activeRecommendationId
+  "WAITLISTED", // no feasible option existed; re-evaluated when capacity frees up
   "FULFILLED", // became a booking; see fulfilledBookingId
   "EXPIRED", // its window passed unfulfilled
   "CANCELLED", // withdrawn by the driver
 ] as const;
+
+/**
+ * States in which a request is still competing for capacity.
+ *
+ * OPEN and WAITLISTED are both actionable — the difference is only whether the last pass found
+ * anything, and a waitlisted request becomes schedulable again the moment a bay frees up. Treating
+ * them as one set is what makes waitlists part of the optimizer rather than a separate system
+ * bolted alongside it.
+ */
+export const ACTIVE_REQUEST_STATUSES = ["OPEN", "WAITLISTED"] as const;
 
 export type ReservationRequestStatus = (typeof RESERVATION_REQUEST_STATUSES)[number];
 
@@ -136,6 +148,27 @@ const ReservationRequestSchema = new Schema(
       default: "standard",
     },
 
+    /* ------------------------------------------------------------------ optimizer */
+
+    /**
+     * The offer currently holding capacity for this request, if any.
+     *
+     * At most one, enforced in the service: a customer answers one question at a time, and each extra
+     * pending offer freezes another bay against the same single decision.
+     */
+    activeRecommendationId: {
+      type: Schema.Types.ObjectId,
+      ref: "Recommendation",
+      default: null,
+    },
+    /** How many offers this request has been made. A rising count means the optimizer keeps missing. */
+    recommendationCount: { type: Number, default: 0 },
+    /** When the last optimizer pass looked at it, so a sweep can skip what it just evaluated. */
+    lastEvaluatedAt: { type: Date, default: null },
+    /** When it was waitlisted, and why — so an operator sees whether to add capacity or talk to the customer. */
+    waitlistedAt: { type: Date, default: null },
+    waitlistReason: { type: String, default: null },
+
     /** Set when fulfilled. The link between what was wanted and what was actually held. */
     fulfilledBookingId: { type: Schema.Types.ObjectId, ref: "Booking", default: null },
     fulfilledAt: { type: Date, default: null },
@@ -187,6 +220,12 @@ ReservationRequestSchema.path("preferredStart").default(function (this: { earlie
  * and by the expiry sweep. Declared now so it exists before the first consumer needs it.
  */
 ReservationRequestSchema.index({ status: 1, expiresAt: 1 });
+
+/**
+ * The optimizer's own read: "active requests at these stations, soonest window first". Runs on
+ * every capacity release, so it must not scan the collection.
+ */
+ReservationRequestSchema.index({ status: 1, stationIds: 1, earliestStart: 1 });
 
 /** "This driver's requests, newest first" — the driver-facing list. */
 ReservationRequestSchema.index({ userId: 1, createdAt: -1 });

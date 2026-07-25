@@ -46,6 +46,9 @@ async function run() {
     // conflicts for range reservations — the direct equivalent of the partial unique index on
     // bookings.slotId. It is an invariant, not tuning.
     import("@/models/ReservationOccupancy"),
+    // The demand pool and its offers.
+    import("@/models/Recommendation"),
+    import("@/models/OptimizationRun"),
   ]);
 
   await mongoose.connect(uri);
