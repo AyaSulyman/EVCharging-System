@@ -4,32 +4,16 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { useState } from "react";
-import {
-  LayoutDashboard,
-  Zap,
-  CalendarCheck,
-  Clock,
-  Users,
-  UserCog,
-  BarChart3,
-  LogOut,
-  Menu,
-  X,
-} from "lucide-react";
+import { LayoutDashboard, CalendarPlus, LogOut, Menu, X } from "lucide-react";
 import { Logo } from "@/components/ui/Primitives";
 import { cn } from "@/lib/utils";
 
 const NAV = [
-  { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/admin/stations", label: "Stations", icon: Zap },
-  { href: "/admin/bookings", label: "Bookings", icon: CalendarCheck },
-  { href: "/admin/slots", label: "Slots", icon: Clock },
-  { href: "/admin/staff", label: "Staff", icon: UserCog },
-  { href: "/admin/users", label: "Users", icon: Users },
-  { href: "/admin/reports", label: "Reports", icon: BarChart3 },
+  { href: "/staff", label: "Station board", icon: LayoutDashboard },
+  { href: "/staff/book", label: "On-site booking", icon: CalendarPlus },
 ];
 
-export function AdminSidebar() {
+export function StaffSidebar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -37,14 +21,12 @@ export function AdminSidebar() {
     <nav className="flex h-full flex-col">
       <div className="px-5 py-5 [&_span]:text-white">
         <Logo />
-        <p className="mt-1 pl-11 text-xs font-medium text-white/40">Admin</p>
+        <p className="mt-1 pl-11 text-xs font-medium text-white/40">Staff</p>
       </div>
       <div className="flex-1 space-y-1 px-3">
         {NAV.map((item) => {
           const active =
-            item.href === "/admin"
-              ? pathname === "/admin"
-              : pathname.startsWith(item.href);
+            item.href === "/staff" ? pathname === "/staff" : pathname.startsWith(item.href);
           return (
             <Link
               key={item.href}

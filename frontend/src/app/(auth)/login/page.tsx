@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { signIn, getSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2, Zap } from "lucide-react";
@@ -35,7 +35,12 @@ export default function LoginPage() {
       setError("Incorrect email or password");
       return;
     }
-    router.push("/dashboard");
+
+    // Land each role on its home surface. The session carries the role once signed in.
+    const session = await getSession();
+    const role = (session?.user as { role?: string } | undefined)?.role;
+    const home = role === "admin" ? "/admin" : role === "staff" ? "/staff" : "/dashboard";
+    router.push(home);
     router.refresh();
   }
 

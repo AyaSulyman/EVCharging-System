@@ -9,7 +9,7 @@ if (!JWT_SECRET) {
 export interface TokenPayload {
   id: string;
   email: string;
-  role: "admin" | "user";
+  role: "admin" | "staff" | "user";
   /** Session generation at issue time. Compared against the account on every request. */
   gen?: number;
 }

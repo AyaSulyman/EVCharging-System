@@ -12,6 +12,13 @@ export default withAuth(
         return NextResponse.redirect(new URL("/dashboard", req.url));
       }
     }
+
+    // Staff surface: staff run their station here; admin is admitted as a superset.
+    if (pathname.startsWith("/staff")) {
+      if (token?.role !== "staff" && token?.role !== "admin") {
+        return NextResponse.redirect(new URL("/dashboard", req.url));
+      }
+    }
     return NextResponse.next();
   },
   {
@@ -32,5 +39,6 @@ export const config = {
     "/notifications/:path*",
     "/profile/:path*",
     "/admin/:path*",
+    "/staff/:path*",
   ],
 };
