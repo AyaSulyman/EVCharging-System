@@ -134,32 +134,42 @@ npm run ops:migrate-v2 -- --apply && npm run ops:migrate-commitments -- --apply 
 
 Be precise about these. Do not describe them as finished.
 
-- **Runtime verification now exists and passes.** `npm run ops:verify` runs 16 assertions against
-  live data — range claim, atom count, duration-scaled cost, availability by duration, the deposit
-  decline-then-retry path, the gateway promotion, event emission and both projections — and cleans up
-  after itself. Three assertions remain **blocked, not failing**: the overlap rejection, the
-  back-to-back acceptance, and the `slotId` index check, all waiting on `ops:migrate-occupancy`.
+- **Runtime verification now exists and passes.** `npm run ops:verify` runs **63/63** assertions
+  against live data across three harnesses — scheduler properties, the reservation-flow suite
+  (range claim, atom count, duration-scaled cost, availability by duration, the deposit
+  decline-then-retry path, the gateway promotion, event emission and both projections), and the
+  recommendation/optimizer suite. `ops:migrate-occupancy` has been applied, so nothing is blocked —
+  the overlap rejection, the back-to-back acceptance and the `slotId` index check all pass.
 - **Charging session check-in is collapsed.** `startCharging` moves
   `RESERVED → CHARGING` in one step and stamps `actualArrival` itself. The designed flow has an
   explicit `ARRIVED` check-in between them. Splitting it is outstanding work.
-- **`reservationevents` has two consumers** — the reliability score and behaviour profiles. Both *derive* rather than accumulate. 14 event types are written and indexed; nothing else reads
-  them. Waitlist notification and optimizer invalidation are the remaining intended consumers;
-  per `CLAUDE.md` §7 they must stay **consumers** and never be called inline from a domain
-  service — nothing in `booking.service` or `commitment.service` calls the reliability service. Emission sites: `reservation.created` / `reservation.confirmed` (claim path,
-  plus `confirmed` again on the gateway path for self-service), `session.started` /
-  `session.ended` (session transitions), `commitment.*` (commitment service),
-  `reservation.cancelled` / `no_show` / `released` (update, expiry, early departure, request
-  expiry).
-- **Event emission is best-effort.** `emitReservationEvent` never throws — a committed
-  reservation must not be reported as failed because its audit write was. So the log is suitable
-  for behavioural history and analytics, **not** as the system of record for reservation state.
+- **`reservationevents` has three consumers** — the reliability score, behaviour profiles, and the
+  optimizer's capacity-release consumer (§6e). All three *derive* rather than accumulate. 14 event
+  types are written and indexed. Event-driven **notification delivery** is the one intended consumer
+  still missing: an offer being issued, a bay coming free, a reservation being cancelled — none of
+  it reaches a driver except by opening the relevant screen. Per `CLAUDE.md` §7 consumers must stay
+  **consumers** and never be called inline from a domain service — nothing in `booking.service` or
+  `commitment.service` calls the reliability service or the optimizer. Emission sites:
+  `reservation.created` / `reservation.confirmed` (claim path, plus `confirmed` again on the gateway
+  path for self-service), `session.started` / `session.ended` (session transitions), `commitment.*`
+  (commitment service), `reservation.cancelled` / `no_show` / `released` (update, expiry, early
+  departure, request expiry), `recommendation.*` (recommendation service).
+- **Event emission is best-effort — and now a live-capacity risk, not only an analytics one.**
+  `emitReservationEvent` never throws — a committed reservation must not be reported as failed
+  because its audit write was. That was an acceptable trade while the only consumers were derived
+  scores that self-correct on the next recompute. The optimizer's capacity-release consumer changes
+  the stakes: it is a **resumable cursor**, which fixes a *late* event (a delayed pass just means a
+  bigger window next time) but not a *dropped* one — if an emission never writes, no row exists for
+  the cursor to ever find, so a freed bay can go unoffered with nothing in the system surfacing the
+  gap. This was flagged before the consumer was built (see the former §7 item 4) and was not closed
+  by it; it remains open. An outbox or a reconciling sweep would close it.
 - **No PaymentIntent records exist for pre-migration reservations**, deliberately: inventing an
   attempt that never happened would put fiction in the ledger. Refunding such a reservation
   records the reservation-side outcome but creates no `Refund` row. `settleCommitment` handles
   this case.
-- **Extension requests, overstay handling, delay propagation, waitlists** — designed, not built.
+- **Extension requests, overstay handling, delay propagation** — designed, not built.
   `PaymentIntent.purpose` already accepts `extension_commitment` so extensions need no schema
-  change.
+  change. (Waitlists are no longer in this list — see §6e; they are built.)
 - **Admin reporting does not surface deposits.** The data is there; no column has been added.
 
 ---

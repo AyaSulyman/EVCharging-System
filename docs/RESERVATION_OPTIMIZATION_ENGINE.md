@@ -1,8 +1,18 @@
 # ChargeHub — Reservation Optimization Engine (Architecture)
 
-**Status: DESIGN — no code.** Extends `RESERVATION_ARCHITECTURE_V2.md`. Depends on data the
-implemented **Phase 1** already collects (`noShow`, `delayMinutes`, `releasedEarly`,
-`actualArrival/Start/End`, `extensionCount`) and the **Phase 2** staff surface.
+**Status: PARTIALLY IMPLEMENTED (Phase H).** This document is the architecture this was built
+against; it is kept as the design record and is **not updated to track implementation status** —
+`docs/PROJECT_STATE.md` §6e and `docs/IMPLEMENTED_LOGIC.md` §15/§15b are the current source of
+truth for what exists. In this doc's own vocabulary (§10's integration order), **steps 1–5 are
+built and verified**: `ReservationRequest` + flexibility capture, `ReliabilityProfile`-equivalent
+scoring, the pure snapshot/constraints/scoring/scheduler, the commit protocol with conflict re-plan,
+and the capacity-release/waitlist consumer. **Not built:** per-station policy tuning (§2.3's
+`optimizationpolicy` — weights are process-wide constants today), incident `recovery`
+re-placement of already-committed reservations (§3.1's `INCIDENT` trigger), and the `PERIODIC`
+trigger (§7.3) — reserved, deliberately unimplemented. Overbooking (§6.6) remains off, as
+recommended here. Extends `RESERVATION_ARCHITECTURE_V2.md`. Depends on data the implemented
+**Phase 1** already collects (`noShow`, `delayMinutes`, `releasedEarly`, `actualArrival/Start/End`,
+`extensionCount`) and the **Phase 2** staff surface.
 
 ---
 
@@ -636,4 +646,6 @@ nothing before step 5 writes to the database.
 
 ---
 
-*Architecture only. No code. Nothing here overrides `CLAUDE.md` until implemented and verified.*
+*Design record as originally written — see the status note at the top of this file for what has
+since been implemented and verified. Where this document and the live system disagree, `CLAUDE.md`,
+`docs/PROJECT_STATE.md`, and `docs/IMPLEMENTED_LOGIC.md` govern.*

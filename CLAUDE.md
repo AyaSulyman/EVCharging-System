@@ -254,9 +254,11 @@ behavioural log) · `reservationrequests` (flexible demand) · `reservationoccup
   expiry-and-release, the 24-hour refund cutoff, the operator-fault waiver and the no-show
   forfeiture all genuinely work; the gateway behind them is `MockGateway` and takes no money
   and no card details. Say "simulated payment", never "payment".
-- **`reservationevents` has no consumers yet.** Events are written; nothing reads them. The
-  reliability score, waitlist notification and optimizer invalidation that will consume them
-  do not exist — do not claim they do.
+- **`reservationevents` has three consumers**: the reliability score, customer behaviour profiles,
+  and the optimizer's capacity-release consumer (waitlist re-evaluation + offer commit). What still
+  does not exist is a consumer that turns an event into a **delivered notification** — an offer
+  being issued or a bay coming free reaches nobody except by opening the relevant screen. Do not
+  claim event-driven notification delivery exists.
 - **No energy metering and no charging-hardware control** — by design.
 - **Nearest-location** currently ranks from a fixed reference point; the geospatial index
   is ready to make it per-driver.
