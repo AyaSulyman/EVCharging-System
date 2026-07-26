@@ -6,6 +6,10 @@ import {
   listRequests,
 } from "@/services/reservationRequest.service";
 import { explainChoice } from "@/services/optimization/scoring";
+import { runOptimization } from "@/services/optimization/runner";
+import { secondsRemaining } from "@/models/recommendationPolicy";
+import Recommendation from "@/models/Recommendation";
+import ReservationRequest from "@/models/ReservationRequest";
 import {
   cancelReservationRequestSchema,
   createReservationRequestSchema,
@@ -25,6 +29,19 @@ const ERRORS = {
   FORBIDDEN: { status: 403, error: "Forbidden" },
   REQUEST_NOT_OPEN: { status: 409, error: "That request is no longer open" },
 };
+
+/** The issued offer with its charger and station resolved, for rendering the card in one pass. */
+function getOffer(recommendationId: string) {
+  return Recommendation.findById(recommendationId)
+    .populate("chargerId", "label connectorType powerKW")
+    .populate("stationId", "name address")
+    .lean<{ expiresAt: Date } | null>();
+}
+
+/** The request re-read after the pass, so its status reflects what the optimizer just did to it. */
+function reload(requestId: string) {
+  return ReservationRequest.findById(requestId).lean();
+}
 
 /** The caller's own flexible requests. */
 export async function GET(req: Request) {
@@ -61,6 +78,32 @@ export async function POST(req: Request) {
       durationMinutes: input.durationMinutes,
       stationFlex: input.stationFlex,
     });
+
+    /**
+     * The offer path: let the optimizer choose one interval and hold it.
+     *
+     * Composed HERE, at the boundary, rather than inside `createRequest`. The route may orchestrate
+     * two services; the request service must not grow a dependency on the optimizer, or creating a
+     * request starts being able to fail because a planning pass did. Same reasoning that keeps the
+     * capacity-release trigger a consumer — see CLAUDE.md §7.
+     */
+    if (input.autoOffer) {
+      const result = await runOptimization({
+        trigger: "request_created",
+        requestIds: [String(request._id)],
+      });
+      const offer = result.issued.length > 0 ? await getOffer(result.issued[0].recommendationId) : null;
+
+      return json(
+        {
+          request: serialize(await reload(String(request._id))),
+          offer: offer ? serialize(offer) : null,
+          secondsRemaining: offer ? secondsRemaining(offer.expiresAt) : 0,
+          waitlisted: result.waitlisted[0]?.label ?? null,
+        },
+        { status: 201 }
+      );
+    }
 
     const candidates = await findCandidates(String(request._id));
 

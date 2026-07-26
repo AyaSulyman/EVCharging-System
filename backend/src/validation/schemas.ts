@@ -163,6 +163,17 @@ export const createReservationRequestSchema = z
     /** Ongoing consent to be re-timed after fulfilment — a separate axis from the window above. */
     flexibilityType: flexibilityTypeEnum.optional(),
     /**
+     * Ask the optimizer to choose and hold one interval, instead of returning a shortlist to pick
+     * from.
+     *
+     * Opt-in, and it has to be: an offer freezes a real bay for five minutes, so issuing one for
+     * every request created would freeze capacity for every driver who is still browsing. The two
+     * paths are genuinely different products — "here are your options" versus "we picked one and it
+     * is yours if you answer" — and conflating them would mean the browsing path silently started
+     * costing the station inventory.
+     */
+    autoOffer: z.boolean().optional(),
+    /**
      * Scoring priority. Deliberately NOT accepted from a driver — `onSite` and `recovery` outrank
      * every standard request, so a self-service caller who could set it would jump the queue at
      * will. The service derives it from the request's origin instead; a staff-facing route may pass
@@ -203,6 +214,33 @@ export const fulfillReservationRequestSchema = z.object({
 /** Withdrawing a request. */
 export const cancelReservationRequestSchema = z.object({
   requestId: objectId,
+});
+
+/* ------------------------------------------------------------------ optimizer offers */
+
+/**
+ * Answering an optimizer offer.
+ *
+ * Only the id. Nothing about the offer — charger, time, score — is accepted from the client: the
+ * offer already exists server-side holding real capacity, and letting a caller restate its terms
+ * would let them accept a better reservation than the one they were made. `reason` is free text a
+ * driver may attach when declining, and is never interpreted.
+ */
+export const answerRecommendationSchema = z.object({
+  recommendationId: objectId,
+  reason: z.string().trim().max(200).optional(),
+});
+
+/**
+ * An operator-triggered optimization pass.
+ *
+ * `commit` defaults to false. This endpoint freezes real charger capacity when it commits, so the
+ * safe mode is the one you get by saying nothing.
+ */
+export const runOptimizerSchema = z.object({
+  stationIds: z.array(objectId).optional(),
+  requestIds: z.array(objectId).optional(),
+  commit: z.boolean().default(false),
 });
 
 /* ------------------------------------------------------------------ flexibility & moves */
