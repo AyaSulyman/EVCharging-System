@@ -1,6 +1,7 @@
 # PROJECT_STATE.md — what is built, what is not, what to do next
 
-**Last updated: 2026-07-26 (Phase H — the reservation optimization engine — wired end to end).**
+**Last updated: 2026-07-26 (charging session lifecycle — check-in split from session start,
+departure recorded).**
 Read this after `CLAUDE.md` and `AGENTS.md`, before writing code.
 
 See also **[`IMPLEMENTED_LOGIC.md`](IMPLEMENTED_LOGIC.md)** — the canonical register of every
@@ -8,7 +9,7 @@ logic the system implements, and the file to build a presentation or slide deck 
 **[`RUNBOOK.md`](RUNBOOK.md)** for every operational command with its expected output.
 
 **All four migrations have now been APPLIED to the working `chargehub` database, `ops:indexes` has
-been run, and `ops:verify` passes 63/63** (scheduler + reservation-flow + recommendations
+been run, and `ops:verify` passes 73/73** (scheduler + reservation-flow + recommendations
 harnesses). The §2 warnings below are kept for anyone setting up a different database.
 
 This file exists so a teammate — or a teammate's AI assistant — can pick the project up without
@@ -25,10 +26,10 @@ same commit.**
 | Reservation core (atomic claim, partial unique index) | **Done, shipped, do not redesign** |
 | **Duration-aware reservations** (15/30/45/60/90 min, range occupancy) | **Done** — fixed slots are no longer the bookable unit |
 | Vehicle provider abstraction (Mock/Tesla) | Done. Tesla errors by design |
-| Reservation v2 domain foundation (`lifecycle`, scheduled/actual times, grace) | **Code done. Migration NOT applied to the live DB** |
+| Reservation v2 domain foundation (`lifecycle`, scheduled/actual times, grace) | **Done, migration applied** |
 | Staff accounts + station-scoped RBAC | Code done |
-| Charging session start/end | Partial — see §4 |
-| Reservation commitment / deposit system | **Code done. Migration NOT applied** |
+| Charging session check-in / start / end | **Done** — check-in, charging start and charging end are three dedicated transitions. See §4, `IMPLEMENTED_LOGIC.md` §2.4–2.5 |
+| Reservation commitment / deposit system | **Done, migration applied** |
 | Mock payment gateway + webhook path | Done |
 | `reservationevents` append-only log | Written to; **three consumers** — reliability score, behaviour profiles, and the optimizer's capacity-release consumer |
 | **Flexibility windows — pre-booking** (`reservationrequests` + candidate scoring) | **Done** — first slice of the optimization engine |
@@ -134,15 +135,19 @@ npm run ops:migrate-v2 -- --apply && npm run ops:migrate-commitments -- --apply 
 
 Be precise about these. Do not describe them as finished.
 
-- **Runtime verification now exists and passes.** `npm run ops:verify` runs **63/63** assertions
+- **Runtime verification now exists and passes.** `npm run ops:verify` runs **73/73** assertions
   against live data across three harnesses — scheduler properties, the reservation-flow suite
   (range claim, atom count, duration-scaled cost, availability by duration, the deposit
   decline-then-retry path, the gateway promotion, event emission and both projections), and the
   recommendation/optimizer suite. `ops:migrate-occupancy` has been applied, so nothing is blocked —
   the overlap rejection, the back-to-back acceptance and the `slotId` index check all pass.
-- **Charging session check-in is collapsed.** `startCharging` moves
-  `RESERVED → CHARGING` in one step and stamps `actualArrival` itself. The designed flow has an
-  explicit `ARRIVED` check-in between them. Splitting it is outstanding work.
+- ~~**Charging session check-in is collapsed.**~~ **Done.** `checkIn` (`booking.service.ts`) moves
+  `RESERVED/LATE/AT_RISK → ARRIVED` and stamps `actualArrival` explicitly. It is optional, not a new
+  requirement on the happy path: `startCharging` already deferred to a pre-existing `actualArrival`
+  and already accepted `ARRIVED` as a starting state, so it needed no changes at all — a desk that
+  skips check-in still works exactly as before. `departedAt` is also now recorded (set equal to
+  `actualEnd` at session end — the only real signal available with no hardware integration). See
+  `IMPLEMENTED_LOGIC.md` §2.4–2.5.
 - **`reservationevents` has three consumers** — the reliability score, behaviour profiles, and the
   optimizer's capacity-release consumer (§6e). All three *derive* rather than accumulate. 14 event
   types are written and indexed. Event-driven **notification delivery** is the one intended consumer
@@ -407,8 +412,8 @@ promptly; only responsiveness does.
 ## 7. Suggested next work, in dependency order
 
 1. **Apply the two migrations** (owner) and schedule `ops:expire-commitments`.
-2. **Split the `ARRIVED` check-in** out of `startCharging` (§4). Small, self-contained, unblocks
-   accurate arrival analytics.
+2. ~~**Split the `ARRIVED` check-in** out of `startCharging`~~ — **done**. See §4 and
+   `IMPLEMENTED_LOGIC.md` §2.4–2.5.
 3. ~~First `reservationevents` consumer~~ — **done**: the reliability score. See
    `IMPLEMENTED_LOGIC.md` §7.
 4. ~~**Waitlists**~~ — **done** (Phase H): the offer lifecycle (offer → time-limited acceptance →

@@ -11,6 +11,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Shuffle,
+  MapPin,
 } from "lucide-react";
 import { MovePanel } from "@/components/staff/MovePanel";
 import { ReliabilityBadge } from "@/components/ui/ReliabilityBadge";
@@ -25,6 +26,7 @@ interface BoardReservation {
   chargerLabel: string;
   scheduledStart: string;
   scheduledEnd: string;
+  actualArrival: string | null;
   createdVia: string;
   customerName: string;
   vehicle: string;
@@ -52,6 +54,8 @@ interface Board {
 }
 
 const STARTABLE = ["RESERVED", "ARRIVED", "LATE", "AT_RISK"];
+// Not yet arrived — the only states a check-in makes sense from. Once ARRIVED, only Start applies.
+const CHECK_INABLE = ["RESERVED", "LATE", "AT_RISK"];
 
 const LIFECYCLE_STYLE: Record<string, string> = {
   PENDING_PAYMENT: "bg-amber-100 text-amber-800",
@@ -98,7 +102,7 @@ export default function StaffBoardPage() {
     load();
   }, [token, load]);
 
-  async function act(id: string, action: "start" | "end") {
+  async function act(id: string, action: "checkin" | "start" | "end") {
     setBusyId(id);
     setError("");
     const res = await call(`/api/staff/sessions/${action}`, {
@@ -281,6 +285,23 @@ export default function StaffBoardPage() {
                       </button>
                     ) : (
                       <span className="text-xs text-ink-soft">—</span>
+                    )}
+
+                    {/*
+                      Optional, not required — Start already stamps arrival on its own if this is
+                      skipped. Offered alongside Start because checking in first, before the bay is
+                      actually free, makes the arrival timestamp (and everything derived from it)
+                      more accurate than waiting until charging can begin.
+                    */}
+                    {CHECK_INABLE.includes(r.lifecycle) && (
+                      <button
+                        onClick={() => act(r._id, "checkin")}
+                        disabled={busyId === r._id}
+                        className="btn-ghost ml-auto mt-1.5 inline-flex items-center gap-1.5 text-ink-soft"
+                      >
+                        <MapPin className="h-4 w-4" />
+                        Check in
+                      </button>
                     )}
 
                     {/*

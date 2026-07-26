@@ -4,8 +4,8 @@
 the presentation, the demo script and any slide deck can be built from one place — and so nobody has
 to reverse-engineer the reasoning out of the code under time pressure.
 
-**Last updated: 2026-07-26 (multi-request optimization & offers, verified end-to-end).** Read
-alongside:
+**Last updated: 2026-07-26 (charging session lifecycle — check-in split from session start,
+departure recorded — verified end-to-end).** Read alongside:
 - [`../CLAUDE.md`](../CLAUDE.md) — what the project is, and the invariants that must not break
 - [`../AGENTS.md`](../AGENTS.md) — how to work here
 - [`PROJECT_STATE.md`](PROJECT_STATE.md) — what is built vs. not, and the ops commands
@@ -116,6 +116,40 @@ alongside:
 - **Where:** `backend/src/models/Booking.ts`
 - **Why it matters:** Defaults run both on creation *and* when an older document missing the path is
   hydrated — so existing bookings pick up new fields transparently, even before a migration runs.
+
+### 2.4 The charging session is split from the reservation by function, not by a second field ⭐
+- **Rule:** Check-in (`checkIn`), charging start (`startCharging`) and charging end (`endCharging`)
+  are three dedicated service functions that move `lifecycle` through
+  `RESERVED → ARRIVED → CHARGING → COMPLETED`. None of them touch `status` before `COMPLETED`, and
+  none of them introduce a second state field.
+- **Where:** `backend/src/services/booking.service.ts`
+- **Why it matters:** `CLAUDE.md` already rejects a third parallel state field elsewhere in this
+  model (there is deliberately no `commitmentStatus` — `lifecycle` carries it). "The charging
+  session stays separate from the reservation" is real here, but it is a separation of
+  **responsibility** — a customer's payment/cancellation concerns never move a session forward, and
+  a session transition never re-derives the deposit or refund state — not a separation of *storage*.
+  Two enums for the same document inviting disagreement is a bigger risk than the one this avoids.
+- **`startCharging` needed zero changes to split check-in out.** It already deferred to a
+  pre-existing `actualArrival` (`if (!booking.actualArrival) booking.actualArrival = now`) and
+  already accepted `ARRIVED` as a starting state — both written for a check-in step that did not
+  exist yet. `checkIn` is the missing piece, not a rewrite of what was there.
+- **Verified:** starting a session after check-in preserves the check-in timestamp rather than
+  re-stamping it at charging-start time; a second check-in on an already-arrived reservation is
+  rejected; starting *without* a prior check-in still auto-stamps arrival exactly as before.
+- **Demo:** staff board — "Check in" moves a reservation to ARRIVED (only "Start" remains); "Start"
+  alone still works too, unchanged, for a desk that skips the extra step.
+
+### 2.5 Departure time — an honest default, not an invented signal ⭐
+- **Rule:** `departedAt` is recorded, set equal to `actualEnd` at the moment a session ends.
+- **Where:** `backend/src/models/Booking.ts`, `booking.service.ts` → `endCharging`
+- **Why it matters:** This platform has no hardware integration and senses nothing about a vehicle
+  physically leaving a bay (`CLAUDE.md` §5) — "charging stopped" is the only real signal available,
+  so it is also the honest value for "departed" *today*. The field is kept distinct from `actualEnd`
+  rather than reusing it, because a future overstay/departure-confirmation phase is expected to make
+  them genuinely diverge (a car can stop charging and still occupy the bay) — that is a decision for
+  when overstay handling is built, not a hardware sensor invented now to justify the field existing.
+- **Not built, deliberately:** a "confirm departure" action distinct from ending the session. Adding
+  one now would be a stub for a feature (overstay handling) that does not exist — `AGENTS.md` §9.
 
 ---
 
@@ -805,7 +839,7 @@ the system models charger occupancy as time ranges.
 - **Why it matters:** Everything from the v2 lifecycle onward had been checked only by typecheck and
   pure-function tests. Those prove the *logic*; they cannot prove the *wiring*. **A unique index never
   exercised, an event never emitted and a projection that never consumed anything are three ways for a
-  system to be confidently broken.** 19/19 checks now pass against live data.
+  system to be confidently broken.** 29/29 checks now pass against live data.
 - **Three real bugs it caught immediately**, none of which typecheck could see:
   1. **Mongoose pluralised the collection** to `reservationoccupancies` while the migration and
      harness addressed `reservationoccupancy` — two different collections, so the backfill would have
@@ -821,7 +855,7 @@ the system models charger occupancy as time ranges.
   `slotId` index no longer refuses the second range reservation before occupancy is reached. (On a
   database where that migration has not run, this pair reports as a *blocked precondition* rather
   than a pass — see `PROJECT_STATE.md` §2.)
-- **Demo:** `npm run ops:verify` — a clean 19/19 with the database left exactly as it was found.
+- **Demo:** `npm run ops:verify` — a clean 29/29 with the database left exactly as it was found.
 
 ---
 
@@ -1017,7 +1051,7 @@ charger time.
   priority ordering, every duration schedulable, budget respected). `verify-recommendations.ts` runs
   26 checks against the real database (offer-vs-booking conflict enforcement in both directions,
   acceptance rewriting rows rather than inserting, a lapsed hold free to read *and* free to write,
-  the offer cap, the capacity-release consumer). Both run as part of `npm run ops:verify` — 63/63
+  the offer cap, the capacity-release consumer). Both run as part of `npm run ops:verify` — 73/73
   overall with the reservation-flow harness.
 - **Why it matters:** Properties rather than examples, because asserting "request A lands at 12:00"
   pins an implementation detail and breaks on any reordering that is still correct.
@@ -1051,7 +1085,8 @@ straight through `claimReservation` with no optimizer involvement (`RESERVATION_
 3. **Refund honesty** (§3.4) — open the cancel modal >24h out, then <24h out. Different, truthful.
 4. **Flexible booking** (§6.1, §9) — a window, the ranked options *with their reasons*, then
    expand **"Why this score?"** to show the five-factor breakdown.
-5. **Staff board** (§4.1, §7.5) — reliability badges, take a deposit at the desk, start a session.
+5. **Staff board** (§4.1, §7.5, §2.4) — reliability badges, take a deposit at the desk, check a
+   driver in, then start and end the session.
 6. **Move within consent** (§6.5, §6.9) — move a flexible reservation; then try a `STRICT` one and
    show the **explained refusal**.
 7. **Reliability** (§7.5) — `/admin/reliability`, sorted worst-first, with explanations.

@@ -466,6 +466,47 @@ export async function updateReservation({ id, actorId, actorRole, updates }: Upd
  */
 const STARTABLE_LIFECYCLES = ["RESERVED", "ARRIVED", "LATE", "AT_RISK"] as const;
 
+/** Lifecycle states from which a driver may be checked in (holding, not yet arrived). */
+const CHECK_INABLE_LIFECYCLES = ["RESERVED", "LATE", "AT_RISK"] as const;
+
+/**
+ * Checks a driver in at the bay: stamps `actualArrival` and moves the reservation to ARRIVED,
+ * without starting the session. `status` is untouched — arriving is not charging, and the
+ * legacy field only ever changes at a terminal transition.
+ *
+ * This is the split PROJECT_STATE.md §4 named as outstanding: `startCharging` used to be the
+ * only place arrival was ever recorded, collapsing "the driver is here" and "the charger is
+ * plugged in" into one timestamp. It still can be — this function is optional, not a new
+ * requirement on the happy path. `startCharging` already defers to a pre-existing
+ * `actualArrival` (`if (!booking.actualArrival) booking.actualArrival = now`) and already
+ * accepts ARRIVED as a starting state, so calling this first needs no change there: it simply
+ * makes the arrival timestamp — and everything derived from it (delayMinutes, and from there
+ * the reliability score and behaviour profile) — as accurate as the desk chooses to make it.
+ *
+ * No event is emitted here, deliberately. `actualArrival` is a durable field on the booking
+ * itself, never overwritten once set, so nothing about this moment is lost the way an
+ * unrecorded fact would be — the event log exists for signals current state cannot express,
+ * and this one already can. `session.started` remains the event that carries the delay
+ * signal reliability/behaviour read; its shape is unchanged by this function.
+ *
+ * Throws: BOOKING_NOT_FOUND · INVALID_SESSION_STATE
+ */
+export async function checkIn(bookingId: string) {
+  await connectDB();
+
+  const booking = await Booking.findById(bookingId);
+  if (!booking) throw new Error("BOOKING_NOT_FOUND");
+  if (!CHECK_INABLE_LIFECYCLES.includes(booking.lifecycle)) {
+    throw new Error("INVALID_SESSION_STATE");
+  }
+
+  booking.actualArrival = new Date();
+  booking.lifecycle = "ARRIVED";
+  await booking.save();
+
+  return booking;
+}
+
 /**
  * Starts the charging session for a reservation: stamps arrival/start and moves it to
  * CHARGING. Idempotency is intentional-guarded — a session already CHARGING or already
@@ -537,6 +578,11 @@ export async function endCharging(bookingId: string) {
   if (booking.lifecycle !== "CHARGING") throw new Error("INVALID_SESSION_STATE");
 
   booking.actualEnd = new Date();
+  // Departure is recorded as the same moment charging ended — the only real signal this
+  // platform has for it (see the field comment on Booking.ts). Assigning it explicitly rather
+  // than leaving it derived keeps the field meaningful on its own once something other than
+  // "session ended" can set it.
+  booking.departedAt = booking.actualEnd;
   booking.lifecycle = "COMPLETED";
   booking.status = "completed";
   await booking.save();

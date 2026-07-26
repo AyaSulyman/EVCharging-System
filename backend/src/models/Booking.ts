@@ -100,6 +100,13 @@ const BookingSchema = new Schema(
     actualArrival: { type: Date, default: null },
     actualStart: { type: Date, default: null },
     actualEnd: { type: Date, default: null },
+    // When the bay was actually vacated. Set equal to `actualEnd` at session end today, because
+    // nothing in this platform senses a car physically leaving (CLAUDE.md — no hardware
+    // integration) — "charging stopped" is the only real signal available, so it is also the
+    // honest default for "departed". Kept as its own field rather than reusing `actualEnd`
+    // because a future overstay/departure-confirmation phase (PROJECT_STATE.md §7) is expected
+    // to make the two diverge — a car can stop charging and still occupy the bay.
+    departedAt: { type: Date, default: null },
     /* ----------------------------------------------------------------------------
      * Scheduling flexibility — the driver's standing permission for the scheduler to
      * re-time this reservation. ADDITIVE.

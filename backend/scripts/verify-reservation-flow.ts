@@ -58,7 +58,9 @@ async function run() {
 
   // Imported after dotenv: a static import is hoisted above config(), and config/database reads
   // MONGODB_URI at module-evaluation time.
-  const { claimRangeReservation } = await import("@/services/booking.service");
+  const { claimRangeReservation, checkIn, startCharging, endCharging } = await import(
+    "@/services/booking.service"
+  );
   const { availabilityForStation, occupiedRangesForCharger } = await import(
     "@/services/occupancy.service"
   );
@@ -373,6 +375,101 @@ async function run() {
       beh.totalReservations > 0,
       `${beh.totalReservations} reservations, accuracy ${beh.arrivalAccuracy.accuracyPercent}%`
     );
+
+    /* ------------------------------------------------------------ 7. charging session lifecycle */
+
+    console.log("\n7. Charging session lifecycle");
+
+    // 7a. Check in, then start — the split path. `first` is RESERVED from section 5.
+    const arrived = await checkIn(String(first._id));
+    record(
+      "check-in moves RESERVED -> ARRIVED and stamps actualArrival",
+      arrived.lifecycle === "ARRIVED" && arrived.actualArrival instanceof Date,
+      `${arrived.lifecycle}, actualArrival ${arrived.actualArrival?.toISOString()}`
+    );
+    record(
+      "check-in does not touch the legacy status — arriving is not charging",
+      arrived.status === "confirmed",
+      arrived.status
+    );
+
+    let doubleCheckInRejected = false;
+    try {
+      await checkIn(String(first._id));
+    } catch (err) {
+      doubleCheckInRejected = (err as Error).message === "INVALID_SESSION_STATE";
+    }
+    record("a second check-in on the same reservation is rejected", doubleCheckInRejected);
+
+    const arrivalStamp = arrived.actualArrival!.getTime();
+    const charging = await startCharging(String(first._id));
+    record(
+      "starting after check-in moves ARRIVED -> CHARGING",
+      charging.lifecycle === "CHARGING" && charging.actualStart instanceof Date
+    );
+    // The contradiction this guards against: startCharging silently re-stamping arrival would
+    // make delayMinutes (and everything reliability/behaviour derive from it) reflect the wrong
+    // moment — the driver's wait for a bay, not their actual lateness.
+    record(
+      "starting a session preserves the check-in arrival time rather than overwriting it",
+      charging.actualArrival!.getTime() === arrivalStamp,
+      `check-in ${new Date(arrivalStamp).toISOString()}, after start ${charging.actualArrival?.toISOString()}`
+    );
+
+    const completed = await endCharging(String(first._id));
+    record(
+      "ending a session moves CHARGING -> COMPLETED and settles the legacy status",
+      completed.lifecycle === "COMPLETED" && completed.status === "completed"
+    );
+    record(
+      "departedAt is recorded alongside actualEnd",
+      completed.departedAt instanceof Date &&
+        completed.departedAt.getTime() === completed.actualEnd!.getTime(),
+      `actualEnd ${completed.actualEnd?.toISOString()}, departedAt ${completed.departedAt?.toISOString()}`
+    );
+
+    const sessionEvents = await Events.find({ bookingId: first._id }).toArray();
+    const sessionTypes = sessionEvents.map((e) => e.type as string);
+    record(
+      "session.started and session.ended are still the events emitted — check-in emits neither",
+      sessionTypes.includes("session.started") && sessionTypes.includes("session.ended"),
+      sessionTypes.join(", ")
+    );
+    const startedEvent = sessionEvents.find((e) => e.type === "session.started");
+    record(
+      "session.started still carries the delay signal reliability/behaviour read",
+      typeof startedEvent?.metadata?.delayMinutes === "number",
+      `delayMinutes ${startedEvent?.metadata?.delayMinutes}`
+    );
+
+    // 7b. Skip check-in entirely — the pre-existing, unmodified path must still work exactly as
+    // before: startCharging auto-stamps arrival when none was recorded.
+    const skipCheckIn = await claimRangeReservation({
+      userId: String(driver._id),
+      vehicleId: String(vehicle._id),
+      chargerId: String(charger._id),
+      startTime: new Date(baseStart.getTime() + 90 * 60_000),
+      durationMinutes: 15,
+    });
+    createdBookings.push(skipCheckIn._id as mongoose.Types.ObjectId);
+    const skipIntent = await openCommitment({
+      bookingId: String(skipCheckIn._id),
+      actorId: String(driver._id),
+      actorRole: "user",
+    });
+    await confirmCommitment({
+      intentId: String(skipIntent.intent._id),
+      actorId: String(driver._id),
+      actorRole: "user",
+      simulate: "success",
+    });
+    const startedWithoutCheckIn = await startCharging(String(skipCheckIn._id));
+    record(
+      "starting without a prior check-in still auto-stamps arrival (unmodified path)",
+      startedWithoutCheckIn.lifecycle === "CHARGING" &&
+        startedWithoutCheckIn.actualArrival?.getTime() === startedWithoutCheckIn.actualStart?.getTime()
+    );
+    await endCharging(String(skipCheckIn._id));
   } finally {
     /* ------------------------------------------------------------ cleanup */
 

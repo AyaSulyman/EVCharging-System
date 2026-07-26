@@ -16,7 +16,7 @@ import Station from "@/models/Station";
 import User from "@/models/User";
 import Vehicle from "@/models/Vehicle";
 import { assertStationInScope, type StaffAuth } from "@/middleware/auth";
-import { claimReservation, startCharging, endCharging } from "@/services/booking.service";
+import { claimReservation, checkIn, startCharging, endCharging } from "@/services/booking.service";
 import { openCommitment, confirmCommitment } from "@/services/commitment.service";
 import { reliabilityForUsers } from "@/services/reliability.service";
 
@@ -96,6 +96,7 @@ export async function getStaffBoard(auth: StaffAuth) {
       chargerLabel: charger?.label ?? "—",
       scheduledStart: b.scheduledStart ?? b.startTime,
       scheduledEnd: b.scheduledEnd ?? b.endTime,
+      actualArrival: b.actualArrival ?? null,
       actualStart: b.actualStart ?? null,
       createdVia: b.createdVia ?? "self",
       // Deposit state, so the desk can see at a glance who still owes one and how long they
@@ -253,6 +254,13 @@ async function assertBookingInScope(auth: StaffAuth, bookingId: string) {
   const booking = await Booking.findById(bookingId).select("stationId").lean<{ stationId: unknown } | null>();
   if (!booking) throw new Error("BOOKING_NOT_FOUND");
   assertStationInScope(auth, String(booking.stationId));
+}
+
+/** Checks a driver in at the bay, after checking the booking is at a station in scope. */
+export async function checkInSession(auth: StaffAuth, bookingId: string) {
+  await connectDB();
+  await assertBookingInScope(auth, bookingId);
+  return checkIn(bookingId);
 }
 
 /** Starts a charging session, after checking the booking is at a station in scope. */

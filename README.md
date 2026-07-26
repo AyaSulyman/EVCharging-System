@@ -27,7 +27,7 @@ and write crosses the API boundary.
 ## ✅ What is implemented and working
 
 Everything in this section is built, type-checked, and exercised against a real database by
-`npm run ops:verify` (63/63 passing).
+`npm run ops:verify` (73/73 passing).
 
 ### Reservations
 - **Duration-aware reservations** — 15, 30, 45, 60, 90 or 120 minutes, on a 15-minute start grid.
@@ -36,8 +36,9 @@ Everything in this section is built, type-checked, and exercised against a real 
 - **Availability computed per duration** — the same free hour offers four 15-minute starts, one
   60-minute start and no 90-minute start. There is no stored "available" flag, because no single
   boolean can answer the question for every driver.
-- Enforced lifecycle: 11 states from `PENDING_PAYMENT` through `RESERVED`, `CHARGING`, `COMPLETED`,
-  with `LATE`, `AT_RISK`, `CANCELLED`, `NO_SHOW`, `RELEASED` as branches.
+- Enforced lifecycle: 11 states from `PENDING_PAYMENT` through `RESERVED`, `ARRIVED`, `CHARGING`,
+  `COMPLETED`, with `LATE`, `AT_RISK`, `CANCELLED`, `NO_SHOW`, `RELEASED` as branches. Check-in,
+  charging start and charging end are three separate, explicit transitions — not one collapsed step.
 - Cancellation with a **truthful refund quote shown before you confirm**, computed by the same
   function that performs the refund.
 
@@ -74,7 +75,7 @@ Everything in this section is built, type-checked, and exercised against a real 
 
 ### Staff operations
 - A dedicated **station-scoped staff role**. Station board with live reservations, on-site booking at
-  the desk, deposit collection, and charging session start/end.
+  the desk, deposit collection, and check-in / charging session start / end.
 - Revoking access invalidates outstanding tokens immediately.
 
 ### Analytics
@@ -196,7 +197,7 @@ npm run ops:demo-data
 npm run ops:verify
 ```
 
-Expect **63/63 checks passed**. It creates real reservations and optimizer offers, asserts what the
+Expect **73/73 checks passed**. It creates real reservations and optimizer offers, asserts what the
 database contains, and deletes everything it created.
 
 **Run both applications**
