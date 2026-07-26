@@ -58,9 +58,8 @@ async function run() {
 
   // Imported after dotenv: a static import is hoisted above config(), and config/database reads
   // MONGODB_URI at module-evaluation time.
-  const { claimRangeReservation, checkIn, startCharging, endCharging } = await import(
-    "@/services/booking.service"
-  );
+  const { claimRangeReservation, checkIn, startCharging, endCharging, sweepNoShows, updateReservation } =
+    await import("@/services/booking.service");
   const { availabilityForStation, occupiedRangesForCharger } = await import(
     "@/services/occupancy.service"
   );
@@ -68,6 +67,8 @@ async function run() {
   const { ALLOWED_DURATIONS_MINUTES, OCCUPANCY_ATOM_MINUTES } = await import(
     "@/models/occupancyPolicy"
   );
+  const { classifyArrival, DEFAULT_GRACE_PERIOD_MINUTES, DEFAULT_NO_SHOW_THRESHOLD_MINUTES } =
+    await import("@/models/reservationLifecycle");
 
   await mongoose.connect(uri);
   const db = mongoose.connection.db!;
@@ -470,6 +471,261 @@ async function run() {
         startedWithoutCheckIn.actualArrival?.getTime() === startedWithoutCheckIn.actualStart?.getTime()
     );
     await endCharging(String(skipCheckIn._id));
+
+    /* ------------------------------------------------------------ 8. Late Arrival Engine */
+
+    console.log("\n8. Late Arrival Engine");
+
+    // 8a. Pure classification boundaries — no DB, no wall clock. classifyArrival is the single
+    // place ON_TIME/EARLY/GRACE/LATE is decided; both checkIn and startCharging's fallback call
+    // it, so getting the boundaries right here is getting them right everywhere.
+    const grace = DEFAULT_GRACE_PERIOD_MINUTES;
+    const sched = new Date("2026-01-01T10:00:00.000Z");
+    const at = (offsetMinutes: number) => new Date(sched.getTime() + offsetMinutes * 60_000);
+
+    const onTime = classifyArrival(sched, at(0), grace);
+    record(
+      "classifyArrival: arrival at exactly the scheduled minute is ON_TIME",
+      onTime.outcome === "ON_TIME" && onTime.minutesEarly === 0 && onTime.minutesLate === 0
+    );
+
+    const early = classifyArrival(sched, at(-12), grace);
+    record(
+      "classifyArrival: arrival before the scheduled start is EARLY, minutesEarly tracked",
+      early.outcome === "EARLY" && early.minutesEarly === 12 && early.minutesLate === 0
+    );
+
+    const graceEdge = classifyArrival(sched, at(grace), grace);
+    record(
+      "classifyArrival: arrival exactly at the grace boundary is GRACE (inclusive)",
+      graceEdge.outcome === "GRACE" && graceEdge.minutesLate === grace,
+      `${graceEdge.outcome}, minutesLate ${graceEdge.minutesLate}`
+    );
+
+    const lateEdge = classifyArrival(sched, at(grace + 1), grace);
+    record(
+      "classifyArrival: one minute past the grace boundary is LATE",
+      lateEdge.outcome === "LATE" && lateEdge.minutesLate === grace + 1
+    );
+
+    // Proves delayMinutes' VALUE is unchanged by this feature: the old computation was
+    // `Math.max(0, round((arrival - scheduled) / 60000))`. Same inputs must produce the same
+    // number via the new shared function, for both late and on-time/early deltas.
+    const oldDelayMinutes = (deltaMin: number) => Math.max(0, deltaMin);
+    record(
+      "classifyArrival.minutesLate matches the pre-existing delayMinutes computation exactly",
+      lateEdge.minutesLate === oldDelayMinutes(grace + 1) &&
+        onTime.minutesLate === oldDelayMinutes(0) &&
+        early.minutesLate === oldDelayMinutes(-12)
+    );
+
+    // 8b. Integration: check-in and start-charging persist the classification and the event
+    // carries it, additively — delayMinutes' key and value in the event are unchanged.
+    const lateArrivalBooking = await claimRangeReservation({
+      userId: String(driver._id),
+      vehicleId: String(vehicle._id),
+      chargerId: String(charger._id),
+      startTime: new Date(baseStart.getTime() + 105 * 60_000),
+      durationMinutes: 15,
+    });
+    createdBookings.push(lateArrivalBooking._id as mongoose.Types.ObjectId);
+    const lateIntent = await openCommitment({
+      bookingId: String(lateArrivalBooking._id),
+      actorId: String(driver._id),
+      actorRole: "user",
+    });
+    await confirmCommitment({
+      intentId: String(lateIntent.intent._id),
+      actorId: String(driver._id),
+      actorRole: "user",
+      simulate: "success",
+    });
+    // Backdated directly, the same way ops:demo-data seeds historical activity — the claim path
+    // correctly refuses a past start time, so the only way to test a LATE arrival against real
+    // service functions is to age an already-claimed reservation's promised start.
+    const lateScheduledStart = new Date(Date.now() - (grace + 5) * 60_000);
+    await Bookings.updateOne(
+      { _id: lateArrivalBooking._id },
+      { $set: { scheduledStart: lateScheduledStart } }
+    );
+    const arrivedLate = await checkIn(String(lateArrivalBooking._id));
+    record(
+      "check-in classifies a real LATE arrival and persists it on the booking",
+      arrivedLate.arrivalOutcome === "LATE" && (arrivedLate.delayMinutes ?? 0) >= grace,
+      `${arrivedLate.arrivalOutcome}, delayMinutes ${arrivedLate.delayMinutes}`
+    );
+    await startCharging(String(lateArrivalBooking._id));
+    const lateEvent = await Events.findOne({
+      bookingId: lateArrivalBooking._id,
+      type: "session.started",
+    });
+    record(
+      "session.started carries arrivalOutcome/minutesEarly additively, delayMinutes unchanged",
+      lateEvent?.metadata?.arrivalOutcome === "LATE" &&
+        lateEvent?.metadata?.minutesEarly === 0 &&
+        typeof lateEvent?.metadata?.delayMinutes === "number"
+    );
+    record(
+      "reliability basis for a LATE (past-grace) arrival is 'late_arrival', preserving current architecture",
+      lateEvent?.basis === "late_arrival"
+    );
+    await endCharging(String(lateArrivalBooking._id));
+
+    // The deliberately-preserved boundary: GRACE arrivals are STILL scored as late_arrival today,
+    // exactly as before this feature — grace is not (yet) read by reliability. See
+    // IMPLEMENTED_LOGIC.md for why this is a documented choice, not an oversight.
+    const graceArrivalBooking = await claimRangeReservation({
+      userId: String(driver._id),
+      vehicleId: String(vehicle._id),
+      chargerId: String(charger._id),
+      startTime: new Date(baseStart.getTime() + 120 * 60_000),
+      durationMinutes: 15,
+    });
+    createdBookings.push(graceArrivalBooking._id as mongoose.Types.ObjectId);
+    const graceIntent = await openCommitment({
+      bookingId: String(graceArrivalBooking._id),
+      actorId: String(driver._id),
+      actorRole: "user",
+    });
+    await confirmCommitment({
+      intentId: String(graceIntent.intent._id),
+      actorId: String(driver._id),
+      actorRole: "user",
+      simulate: "success",
+    });
+    await Bookings.updateOne(
+      { _id: graceArrivalBooking._id },
+      { $set: { scheduledStart: new Date(Date.now() - 3 * 60_000) } }
+    );
+    const arrivedInGrace = await checkIn(String(graceArrivalBooking._id));
+    record(
+      "check-in classifies a real GRACE arrival",
+      arrivedInGrace.arrivalOutcome === "GRACE"
+    );
+    await startCharging(String(graceArrivalBooking._id));
+    const graceEvent = await Events.findOne({
+      bookingId: graceArrivalBooking._id,
+      type: "session.started",
+    });
+    record(
+      "GRACE arrival is NOT treated specially by reliability's basis — same as before this feature",
+      graceEvent?.basis === "late_arrival"
+    );
+    await endCharging(String(graceArrivalBooking._id));
+
+    // 8c. No-show: the automatic sweep, exercised for real against real data.
+    const autoNoShow = await claimRangeReservation({
+      userId: String(driver._id),
+      vehicleId: String(vehicle._id),
+      chargerId: String(charger._id),
+      startTime: new Date(baseStart.getTime() + 135 * 60_000),
+      durationMinutes: 15,
+    });
+    createdBookings.push(autoNoShow._id as mongoose.Types.ObjectId);
+    const autoIntent = await openCommitment({
+      bookingId: String(autoNoShow._id),
+      actorId: String(driver._id),
+      actorRole: "user",
+    });
+    await confirmCommitment({
+      intentId: String(autoIntent.intent._id),
+      actorId: String(driver._id),
+      actorRole: "user",
+      simulate: "success",
+    });
+    const wellPastThreshold = new Date(
+      Date.now() - (grace + DEFAULT_NO_SHOW_THRESHOLD_MINUTES + 5) * 60_000
+    );
+    await Bookings.updateOne(
+      { _id: autoNoShow._id },
+      { $set: { scheduledStart: wellPastThreshold } }
+    );
+    // Scoped to this run's own fixture — this harness's stated safety promise is that it never
+    // modifies pre-existing data, and an unscoped sweep would break that the moment a real,
+    // genuinely stale reservation existed in the database.
+    const sweepReport = await sweepNoShows(new Date(), [autoNoShow._id]);
+    const autoNoShowAfter = await Bookings.findOne({ _id: autoNoShow._id });
+    record(
+      "sweepNoShows declares a no-show for a reservation past its threshold and releases capacity",
+      sweepReport.processed >= 1 &&
+        autoNoShowAfter?.lifecycle === "NO_SHOW" &&
+        autoNoShowAfter?.status === "no_show" &&
+        autoNoShowAfter?.arrivalOutcome === "NO_SHOW" &&
+        autoNoShowAfter?.noShow === true,
+      `processed ${sweepReport.processed} of ${sweepReport.found} candidates`
+    );
+    const autoNoShowAtoms = await Occupancy.countDocuments({ bookingId: autoNoShow._id });
+    record("the automatic no-show releases occupancy exactly like the manual path", autoNoShowAtoms === 0);
+    const autoNoShowEvent = await Events.findOne({
+      bookingId: autoNoShow._id,
+      type: "reservation.no_show",
+    });
+    record(
+      "the automatic no-show emits reservation.no_show — already in the optimizer's capacity-release event list",
+      autoNoShowEvent?.fault === "customer" && autoNoShowEvent?.penalize === true
+    );
+
+    // 8d. Manual vs automatic no-show must be equivalent — the whole reason applyNoShow is a
+    // single shared function rather than two implementations.
+    const admin = await db.collection("users").findOne({ role: "admin" });
+    if (!admin) {
+      warn("Manual-vs-automatic no-show equivalence not tested", "no admin account found");
+    } else {
+      const manualNoShow = await claimRangeReservation({
+        userId: String(driver._id),
+        vehicleId: String(vehicle._id),
+        chargerId: String(charger._id),
+        startTime: new Date(baseStart.getTime() + 150 * 60_000),
+        durationMinutes: 15,
+      });
+      createdBookings.push(manualNoShow._id as mongoose.Types.ObjectId);
+      const manualIntent = await openCommitment({
+        bookingId: String(manualNoShow._id),
+        actorId: String(driver._id),
+        actorRole: "user",
+      });
+      await confirmCommitment({
+        intentId: String(manualIntent.intent._id),
+        actorId: String(driver._id),
+        actorRole: "user",
+        simulate: "success",
+      });
+      const manualResult = await updateReservation({
+        id: String(manualNoShow._id),
+        actorId: String(admin._id),
+        actorRole: "admin",
+        updates: { status: "no_show" },
+      });
+      const manualAtoms = await Occupancy.countDocuments({ bookingId: manualNoShow._id });
+      record(
+        "manual (admin) and automatic no-show produce identical resulting state",
+        manualResult.lifecycle === autoNoShowAfter?.lifecycle &&
+          manualResult.status === autoNoShowAfter?.status &&
+          manualResult.arrivalOutcome === autoNoShowAfter?.arrivalOutcome &&
+          manualResult.paymentStatus === autoNoShowAfter?.paymentStatus &&
+          manualAtoms === autoNoShowAtoms,
+        `manual: ${manualResult.lifecycle}/${manualResult.status}/${manualResult.paymentStatus} · automatic: ${autoNoShowAfter?.lifecycle}/${autoNoShowAfter?.status}/${autoNoShowAfter?.paymentStatus}`
+      );
+    }
+
+    // 8e. Behaviour tracking actually consumes the new signal now, and reliability is unaffected
+    // by anything this feature added (still reads only `basis`, never the numeric fields).
+    const { recomputeForUser: recomputeBehaviorAgain } = await import(
+      "@/services/customerBehavior.service"
+    );
+    const behAfter = await recomputeBehaviorAgain(String(driver._id));
+    record(
+      "behaviour profile folds the new minutesEarly/arrivalOutcome-bearing events without error",
+      behAfter.totalReservations > 0
+    );
+    const { recomputeForUser: recomputeReliabilityAgain } = await import(
+      "@/services/reliability.service"
+    );
+    const relAfter = await recomputeReliabilityAgain(String(driver._id));
+    record(
+      "reliability recomputes cleanly against the new events — architecture unchanged, no crash or drift in shape",
+      relAfter.totalReservations > 0
+    );
   } finally {
     /* ------------------------------------------------------------ cleanup */
 

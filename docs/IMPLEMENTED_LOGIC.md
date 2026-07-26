@@ -730,6 +730,22 @@ problem; a poor preference match rate is a capacity or scheduling problem.
   could have been served). Period selector 7/30/90 days, clamped server-side to 180.
 - **Demo:** open it, switch periods, hover a widget to show what the metric excludes.
 
+### 10.10 Five more: the Late Arrival Engine's platform-wide arrival-outcome rates ⭐
+- **Rule:** Early / on-time / grace-period-usage / late / no-show rate, all sharing one denominator
+  — reservations with a determined `arrivalOutcome` — rather than "resolved" (§10.4's denominator).
+- **Where:** `backend/src/models/scheduleQualityPolicy.ts` → `ArrivalOutcomeCounts`
+- **Why a different denominator than the rest of this section:** an outcome is decided at arrival
+  (or by the no-show sweep), which can be well before `scheduledEnd`. Gating on the session having
+  *ended*, like `reservationSuccessRate` correctly does, would undercount a reservation that is
+  still charging but already has a perfectly good arrival outcome. Both denominators independently
+  exclude cancellations, for the same underlying reason: neither an unresolved future reservation
+  nor a cancelled one ever gets the fact this section is measuring.
+- **Not the same computation as §8.6's per-customer no-show rate.** Both correctly exclude
+  cancellations from the denominator, but this one counts from the stored `arrivalOutcome` field
+  across the whole platform; §8.6 folds `reservationevents` per customer. Two honest denominators
+  answering two different questions ("us" vs. "this one driver"), not one duplicated.
+- **Demo:** `/admin/schedule-quality`, second row of widgets.
+
 ---
 
 # 11. Duration-aware reservations ⭐
@@ -839,7 +855,7 @@ the system models charger occupancy as time ranges.
 - **Why it matters:** Everything from the v2 lifecycle onward had been checked only by typecheck and
   pure-function tests. Those prove the *logic*; they cannot prove the *wiring*. **A unique index never
   exercised, an event never emitted and a projection that never consumed anything are three ways for a
-  system to be confidently broken.** 29/29 checks now pass against live data.
+  system to be confidently broken.** 45/45 checks now pass against live data.
 - **Three real bugs it caught immediately**, none of which typecheck could see:
   1. **Mongoose pluralised the collection** to `reservationoccupancies` while the migration and
      harness addressed `reservationoccupancy` — two different collections, so the backfill would have
@@ -855,7 +871,7 @@ the system models charger occupancy as time ranges.
   `slotId` index no longer refuses the second range reservation before occupancy is reached. (On a
   database where that migration has not run, this pair reports as a *blocked precondition* rather
   than a pass — see `PROJECT_STATE.md` §2.)
-- **Demo:** `npm run ops:verify` — a clean 29/29 with the database left exactly as it was found.
+- **Demo:** `npm run ops:verify` — a clean 45/45 with the database left exactly as it was found.
 
 ---
 
@@ -1051,7 +1067,7 @@ charger time.
   priority ordering, every duration schedulable, budget respected). `verify-recommendations.ts` runs
   26 checks against the real database (offer-vs-booking conflict enforcement in both directions,
   acceptance rewriting rows rather than inserting, a lapsed hold free to read *and* free to write,
-  the offer cap, the capacity-release consumer). Both run as part of `npm run ops:verify` — 73/73
+  the offer cap, the capacity-release consumer). Both run as part of `npm run ops:verify` — 89/89
   overall with the reservation-flow harness.
 - **Why it matters:** Properties rather than examples, because asserting "request A lands at 12:00"
   pins an implementation detail and breaks on any reordering that is still correct.
@@ -1076,7 +1092,159 @@ straight through `claimReservation` with no optimizer involvement (`RESERVATION_
 
 ---
 
-# 16. Suggested demo running order
+# 16. The Late Arrival Engine ⭐
+
+Answers two questions §2's lifecycle states gesture at but never actually decided: *how* punctual
+was an arrival, and *did anyone arrive at all*. Extends the existing reservation lifecycle, event
+log, reliability service, behaviour tracking and schedule-quality KPIs — no new state machine, no
+new event type, no bypass of any of them.
+
+### 16.1 Arrival outcome is stamped once, not a lifecycle state ⭐
+- **Rule:** `bookings.arrivalOutcome` — `ON_TIME | EARLY | GRACE | LATE | NO_SHOW` — set at
+  check-in (or at charging-start if check-in was skipped) or by the no-show sweep. `lifecycle`
+  still only ever holds `RESERVED → ARRIVED → CHARGING → COMPLETED` (or `NO_SHOW`); this field
+  records *how* that happened, never *whether*.
+- **Where:** `backend/src/models/Booking.ts`, `reservationLifecycle.ts` → `classifyArrival`
+- **Why it matters:** `CLAUDE.md` already rejects a third parallel state field for `commitmentStatus`
+  — `lifecycle` carries it. The same reasoning applies here: `arrivalOutcome` is the same shape as
+  the pre-existing `noShow`/`releasedEarly` booleans, a permanent fact recorded alongside the state
+  machine, not a second one that could disagree with it about what state a reservation is in.
+- **One function, two callers, so they cannot disagree.** `classifyArrival` is pure — given a
+  scheduled start, an actual arrival, and the grace window in force, it returns the outcome and
+  both `minutesEarly`/`minutesLate`. Called from `checkIn` and from `startCharging`'s fallback for
+  a skipped check-in. Recomputing in the fallback is provably idempotent: the function is pure, so
+  the same `actualArrival` always classifies the same way regardless of which caller ran it.
+- **ON_TIME is exact-match, not a tolerance window.** Arrival at precisely the scheduled minute is
+  `ON_TIME`; any earlier is `EARLY`; any later is `GRACE` (within the window, inclusive of the
+  boundary) or `LATE` (past it). The spec this was built from defined ON_TIME and EARLY with
+  overlapping language ("before or at" vs. "before") — resolved here as exact-match vs.
+  strictly-earlier, stated explicitly because the ambiguity was real, not glossed over.
+- **Verified:** all four boundaries as pure-function checks (ON_TIME at delta 0, EARLY with a
+  negative delta, GRACE exactly at the grace boundary — inclusive — LATE one minute past it), plus
+  two real check-ins against the live database (one LATE, one GRACE) confirming the booking and the
+  emitted event agree.
+
+### 16.2 `delayMinutes` is unchanged — proven, not just claimed ⭐
+- **Rule:** `delayMinutes` keeps its exact pre-existing meaning and computation
+  (`Math.max(0, minutes late)`). Early arrival is carried in a new, additive field
+  (`minutesEarly`) and a new, additive `session.started` metadata key of the same name — never by
+  making `delayMinutes` negative.
+- **Where:** `booking.service.ts`, `Booking.ts`
+- **Why it matters:** `reliability.service.ts`'s `basis` check and `customerBehaviorPolicy.ts`'s
+  fold both had an established contract with `delayMinutes` never going negative before this
+  feature existed. Two additive fields cost one extra column; changing what an existing field means
+  risks every consumer that already trusted it, discoverable only by reading each one — which is
+  exactly what was done here instead of assuming.
+- **customerBehaviorPolicy.ts's early-arrival branch was already written, and was dead code** —
+  it branched on `delay < 0`, a case the only producer (`startCharging`, flooring at 0) could never
+  emit. Rather than making `delayMinutes` finally go negative to feed it, the fold now reconstructs
+  a signed value from the two additive, always-non-negative fields (`late > 0 ? late : early > 0 ?
+  -early : 0`), leaving `delayMinutes` itself untouched everywhere else. Historical events lacking
+  `minutesEarly` fold exactly as they always did — `num()` already treats a missing key as 0.
+- **Verified:** `classifyArrival`'s `minutesLate` output matches the old inline formula exactly for
+  the same inputs, for a late, an on-time, and an early delta.
+
+### 16.3 Reliability's scoring boundary is deliberately unchanged ⭐
+- **Rule:** `basis: delayMinutes > 0 ? "late_arrival" : "on_time"` — any lateness, not only
+  past-grace lateness — is exactly what it computed before this feature.
+- **Where:** `booking.service.ts` → `startCharging`; unchanged in `reliabilityPolicy.ts`
+- **Why it matters — a decision, stated instead of made silently:** before this feature, the grace
+  period had no effect on reliability scoring at all — a driver one minute late and a driver ninety
+  minutes late were scored identically. Introducing a `GRACE` outcome invites the assumption that
+  grace should now be forgiven for scoring too. It is **not**, in this change: the instruction
+  going in was to preserve reliability's existing architecture and make any scoring-boundary change
+  its own explicit, documented decision — not bundle one into an unrelated feature. `arrivalOutcome`
+  is available in the event metadata for exactly that decision, if and when the owner makes it.
+- **Verified:** a real GRACE-classified arrival and a real LATE-classified arrival both emit
+  `session.started` with `basis: "late_arrival"` — proving the boundary is untouched, not merely
+  unedited.
+
+### 16.4 No-show has exactly one implementation, two triggers ⭐
+- **Rule:** `applyNoShow` (private to `booking.service.ts`) performs the entire no-show
+  transition — refund assessment, `settleCommitment`, the `reservation.no_show` event, slot/occupancy
+  release. Called by the manual admin action (`updateReservation`) and by the new automatic sweep
+  (`sweepNoShows`).
+- **Where:** `backend/src/services/booking.service.ts`
+- **Why it matters:** No-show was manual-only before this feature. Adding a second, automatic
+  trigger and reimplementing the transition next to the existing one would let a manual and an
+  automatic no-show produce different money or capacity outcomes for the same fact — the exact
+  contradiction shape `AGENTS.md` §4b catalogues repeatedly. One function, two callers, makes that
+  structurally impossible rather than a matter of remembering to keep two copies in sync.
+- **Verified:** a reservation aged past its threshold and swept automatically, and an equivalent one
+  marked no-show manually by an admin, produce identical `lifecycle`/`status`/`arrivalOutcome`/
+  `paymentStatus` and identical occupancy release.
+
+### 16.5 The no-show sweep — why one is needed at all, and how it stays safe ⭐
+- **Rule:** `sweepNoShows` finds `RESERVED`/`LATE`/`AT_RISK` reservations whose
+  `scheduledStart + gracePeriodMinutes + noShowThresholdMinutes` has passed, atomically claims each
+  one (`findOneAndUpdate` conditional on still being eligible) before processing it, then calls
+  `applyNoShow`.
+- **Where:** `backend/src/services/booking.service.ts`; run from `scripts/expire-commitments.ts`
+- **Why a sweep at all:** no-show is defined by the *absence* of an event — nobody ever checks in —
+  so nothing can react to it the way a consumer reacts to a cancellation. Something has to
+  periodically look, mirroring `commitment.service.ts`'s `expirePendingCommitments` exactly,
+  including the atomic-claim-first discipline that makes two concurrent sweeps, or a sweep racing a
+  driver checking in at the last second, safe.
+- **Scope is deliberately narrow.** Only `RESERVED`/`LATE`/`AT_RISK` — a reservation that reached
+  `ARRIVED` did show up. Whatever happens after (checked in, never started charging) is a different,
+  not-built case, not a no-show.
+- **Swept in the same job as commitment-hold and stale-request expiry**, for the same reason those
+  two already share one job: all three are "a window closed, stop holding it open."
+- **`sweepNoShows` accepts an optional booking-id scope**, mirroring `runOptimization`'s
+  `requestIds` scoping — added specifically so `ops:verify` could exercise it against the real
+  database without the risk every other assertion in that harness explicitly avoids: touching a
+  reservation it did not create. An earlier version of this check called the sweep unscoped and
+  found 9 real candidates instead of the 1 it created; none were actually past due so nothing broke,
+  but the harness's own stated safety promise — "never modifies pre-existing data" — was briefly
+  false. Caught and fixed before verification was reported complete, not after.
+
+### 16.6 Release matches the pre-existing asymmetry — not "fixed" into consistency ⭐
+- **Rule:** On no-show, the legacy slot is marked `"completed"` (spent, not recycled); a range
+  reservation's remaining `reservationoccupancy` rows ARE released.
+- **Why it matters:** This is exactly what the manual no-show path already did before this feature.
+  Reproducing it precisely — rather than making both paths release the slot for "consistency" — is
+  what an occupancy-invariant change would look like if introduced by accident. `reservation.no_show`
+  was already in the optimizer's `CAPACITY_RELEASING_EVENTS` before this feature existed, so
+  waitlist and optimizer re-evaluation on a no-show needed zero new integration code.
+- **Verified:** occupancy row count is 0 immediately after both the automatic and the manual
+  no-show path.
+
+### 16.7 Configuration — env-overridable, snapshotted per booking ⭐
+- **Rule:** `GRACE_PERIOD_MINUTES` (default 15, unchanged) and `NO_SHOW_THRESHOLD_MINUTES`
+  (default 30, additional minutes past the *end of grace*) both follow the `Number(process.env.X ??
+  default)` pattern already established by `COMMITMENT_WINDOW_MINUTES` and
+  `RECOMMENDATION_HOLD_MINUTES`. Both are snapshotted onto the booking at claim time, the same
+  discipline as `gracePeriodMinutes` and `refundCutoffHours`.
+- **Why it matters:** `DEFAULT_GRACE_PERIOD_MINUTES` was the one hardcoded outlier before this
+  change — every other business-tunable window in the codebase already followed the env pattern.
+  Snapshotting means a later policy change never rewrites the terms an existing reservation was
+  held under.
+- **The no-show threshold's default is a starting point, not a settled figure** — unlike grace
+  (documented, prior business reasoning) and the commitment window (documented, prior business
+  reasoning), 30 minutes past grace has no such history behind it. Stated plainly rather than
+  presented as equally considered.
+
+### 16.8 Recommendation Engine coupling: none, confirmed rather than assumed ⭐
+- **Rule:** `optimization/scoring.ts` and `recommendationPolicy.ts` have zero references to
+  `arrivalOutcome`, `minutesEarly`, `delayMinutes`, or any other arrival-timing field.
+- **Why it matters:** Confirmed by diff after implementation, not merely by design intent —
+  neither file appears in this feature's changeset at all. Reliability's `showProbability` remains
+  the only channel through which a driver's punctuality can ever shade a recommendation, exactly as
+  before.
+
+### 16.9 Analytics — five more honest-denominator rates
+- Covered alongside the rest of Schedule Quality KPIs — see §10.10.
+
+### 16.10 Verified end-to-end
+- **Rule:** `verify-reservation-flow.ts` §8 — 16 checks: four pure classification boundaries, the
+  `delayMinutes`-unchanged proof, two real classified check-ins against the database (LATE, GRACE)
+  with their events, the preserved reliability boundary for both, a real automatic no-show sweep, a
+  real manual no-show, their equivalence, occupancy release, and a clean behaviour/reliability
+  recompute against the new event shape. `npm run ops:verify` — **89/89** overall.
+
+---
+
+# 17. Suggested demo running order
 
 1. **Conflict-free claim** (§1.1, §11.1) — two browsers, same charger and time. The core claim.
 1b. **Duration-aware booking** (§11.3) — on the time step, switch 15/30/45/60/90 and watch the

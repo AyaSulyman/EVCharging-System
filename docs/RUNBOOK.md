@@ -25,7 +25,7 @@ Read alongside [`PROJECT_STATE.md`](PROJECT_STATE.md) (what is built) and
 | Running in production | [§6 Scheduled jobs](#6-scheduled-jobs) |
 
 **Status as of 2026-07-26:** all four migrations have been applied to the working `chargehub`
-database, `ops:indexes` has been run, and `ops:verify` passes 73/73 (scheduler, reservation flow,
+database, `ops:indexes` has been run, and `ops:verify` passes 89/89 (scheduler, reservation flow,
 and recommendations/optimizer harnesses). If you are working on that database you do **not** need
 §2.
 
@@ -58,7 +58,7 @@ Publishes bookable inventory. Idempotent. Without it the booking wizard is empty
 ```bash
 npm run ops:verify
 ```
-Confirms the whole stack works. Expect **73/73 checks passed** and no blocked preconditions.
+Confirms the whole stack works. Expect **89/89 checks passed** and no blocked preconditions.
 
 ---
 
@@ -117,7 +117,7 @@ guarantee at all. Expect `migration complete and coherent : YES`.
 ```bash
 npm run ops:verify
 ```
-Last. Expect **73/73 and zero blocked preconditions**. In particular:
+Last. Expect **89/89 and zero blocked preconditions**. In particular:
 
 ```
 PASS  OVERLAPPING reservation rejected by the index — CHARGER_BUSY
@@ -229,13 +229,16 @@ Two commands need to run on a schedule in production:
 ```bash
 npm run ops:expire-commitments
 ```
-Releases reservations whose deposit hold window closed. **Writes by default**; `-- --dry-run` to
-report only. Every few minutes is right.
+Releases reservations whose deposit hold window closed, **and** declares a no-show for every
+reservation nobody arrived for within its no-show threshold (Late Arrival Engine). **Writes by
+default**; `-- --dry-run` to report only. Every few minutes is right.
 
-It is *not* what makes release timely — the claim path releases an expired hold on the slot being
-claimed, and the availability read reports expired holds as free, so a bay is bookable the instant
-anyone looks at it. This job materialises that state and fires the events for reservations nobody
-happens to be looking at.
+For commitment-hold release, this job is *not* what makes it timely — the claim path releases an
+expired hold on the slot being claimed, and the availability read reports expired holds as free, so
+a bay is bookable the instant anyone looks at it; this job only materialises that state and fires
+the events for reservations nobody happens to be looking at. **No-show detection has no such
+fallback** — nothing else notices the absence of an arrival, so unlike commitment-hold release, a
+no-show genuinely waits for this job to run.
 
 ```bash
 npm run ops:optimizer-consumer
@@ -273,7 +276,7 @@ only when you want that one effect in isolation.
 | `ops:migrate-commitments` | Dry run | Refuses until v2 applied |
 | `ops:migrate-flexibility` | Dry run | Refuses until v2 applied |
 | `ops:migrate-occupancy` | Dry run | **Non-additive.** Rebuilds the `slotId` index |
-| `ops:verify` | Self-cleaning | Runs `ops:verify-scheduler` + `ops:verify-reservation-flow` (via `verify-reservation-flow.ts`) + `ops:verify-recommendations`; 73/73 expected |
+| `ops:verify` | Self-cleaning | Runs `ops:verify-scheduler` + `ops:verify-reservation-flow` (via `verify-reservation-flow.ts`) + `ops:verify-recommendations`; 89/89 expected |
 | `ops:demo-data` | Tagged `isDemo` | `-- --clear` removes it |
 | `ops:reliability` | Yes | Rebuilds a cache |
 | `ops:behavior` | Yes | Rebuilds a cache |

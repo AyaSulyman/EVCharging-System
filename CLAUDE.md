@@ -254,6 +254,12 @@ behavioural log) · `reservationrequests` (flexible demand) · `reservationoccup
   expiry-and-release, the 24-hour refund cutoff, the operator-fault waiver and the no-show
   forfeiture all genuinely work; the gateway behind them is `MockGateway` and takes no money
   and no card details. Say "simulated payment", never "payment".
+- **No-show is detected automatically, not only declared by staff.** The Late Arrival Engine's
+  `sweepNoShows` (run alongside `ops:expire-commitments`) and the manual "mark no-show" action
+  both go through the same `applyNoShow` — one implementation, two triggers, so they cannot
+  diverge. Arrival is classified into `ON_TIME`/`EARLY`/`GRACE`/`LATE`/`NO_SHOW`
+  (`bookings.arrivalOutcome`), stamped once at check-in/charging-start or by the sweep — not a
+  second lifecycle field.
 - **`reservationevents` has three consumers**: the reliability score, customer behaviour profiles,
   and the optimizer's capacity-release consumer (waitlist re-evaluation + offer commit). What still
   does not exist is a consumer that turns an event into a **delivered notification** — an offer

@@ -255,7 +255,16 @@ export function metricsFromEvents(
         break;
 
       case "session.started": {
-        const delay = num(e.metadata?.delayMinutes);
+        // Reconstructed from two additive, always-non-negative fields rather than trusting a
+        // signed one: `delayMinutes` never goes negative (booking.service.ts floors it, and other
+        // consumers — reliability.service.ts's `basis` check, this fold's own history before the
+        // Late Arrival Engine — already depend on that), so early arrival is carried separately in
+        // `minutesEarly` (added by that engine; distinct from session.ended's field of the same
+        // name, which means early *departure*). Events emitted before that change simply lack
+        // `minutesEarly` — `num()` defaults it to 0, so they fold exactly as they always did.
+        const late = num(e.metadata?.delayMinutes);
+        const early = num(e.metadata?.minutesEarly);
+        const delay = late > 0 ? late : early > 0 ? -early : 0;
         // Deviation is absolute: arriving 20 minutes early is also inaccurate, and a driver who
         // consistently turns up early occupies the bay before their window in practice.
         absoluteDeviations.push(Math.abs(delay));

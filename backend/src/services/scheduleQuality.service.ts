@@ -27,11 +27,17 @@ import Station from "@/models/Station";
 import { OPERATING_FROM_HOUR, OPERATING_TO_HOUR } from "@/models/occupancyPolicy";
 import {
   avgWaitingTime,
+  earlyArrivalRate,
+  gracePeriodUsageRate,
   isPreferenceMatch,
+  lateArrivalRate,
+  noShowRate,
+  onTimeRate,
   preferenceMatchRate,
   reservationSuccessRate,
   servedCustomersPerDay,
   utilizationRate,
+  type ArrivalOutcomeCounts,
   type DailyPoint,
   type ScheduleQuality,
 } from "@/models/scheduleQualityPolicy";
@@ -75,7 +81,9 @@ export async function getScheduleQuality(
   const bookings = await Booking.find({
     startTime: { $gte: from, $lte: to },
   })
-    .select("userId status lifecycle scheduledStart scheduledEnd startTime endTime durationMinutes stationId")
+    .select(
+      "userId status lifecycle scheduledStart scheduledEnd startTime endTime durationMinutes stationId arrivalOutcome"
+    )
     .lean<
       {
         userId: unknown;
@@ -87,6 +95,7 @@ export async function getScheduleQuality(
         endTime: Date;
         durationMinutes?: number | null;
         stationId: unknown;
+        arrivalOutcome?: string | null;
       }[]
     >();
 
@@ -97,6 +106,33 @@ export async function getScheduleQuality(
     return new Date(end) <= now;
   });
   const completed = resolved.filter((b) => b.status === "completed");
+
+  // Arrival-outcome counts — over the FULL period's bookings, not `resolved`. An outcome is
+  // decided at arrival (or by the no-show sweep), which can be well before `scheduledEnd`, so
+  // gating on the session having ended would undercount reservations still charging.
+  const arrivalCounts: ArrivalOutcomeCounts = { onTime: 0, early: 0, grace: 0, late: 0, noShow: 0, known: 0 };
+  for (const b of bookings) {
+    switch (b.arrivalOutcome) {
+      case "ON_TIME":
+        arrivalCounts.onTime++;
+        break;
+      case "EARLY":
+        arrivalCounts.early++;
+        break;
+      case "GRACE":
+        arrivalCounts.grace++;
+        break;
+      case "LATE":
+        arrivalCounts.late++;
+        break;
+      case "NO_SHOW":
+        arrivalCounts.noShow++;
+        break;
+      default:
+        continue;
+    }
+    arrivalCounts.known++;
+  }
 
   /* ---------------------------------------------------------------- daily series */
 
@@ -252,6 +288,11 @@ export async function getScheduleQuality(
     avgWaitingTime: avgWaitingTime(waitingMinutesTotal, fulfilled.length),
     servedCustomersPerDay: servedCustomersPerDay(daily),
     reservationSuccessRate: reservationSuccessRate(completed.length, resolved.length),
+    earlyArrivalRate: earlyArrivalRate(arrivalCounts),
+    onTimeRate: onTimeRate(arrivalCounts),
+    gracePeriodUsageRate: gracePeriodUsageRate(arrivalCounts),
+    lateArrivalRate: lateArrivalRate(arrivalCounts),
+    noShowRate: noShowRate(arrivalCounts),
     daily,
     utilizationByStation,
   };

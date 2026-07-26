@@ -27,7 +27,7 @@ and write crosses the API boundary.
 ## ✅ What is implemented and working
 
 Everything in this section is built, type-checked, and exercised against a real database by
-`npm run ops:verify` (73/73 passing).
+`npm run ops:verify` (89/89 passing).
 
 ### Reservations
 - **Duration-aware reservations** — 15, 30, 45, 60, 90 or 120 minutes, on a 15-minute start grid.
@@ -39,6 +39,9 @@ Everything in this section is built, type-checked, and exercised against a real 
 - Enforced lifecycle: 11 states from `PENDING_PAYMENT` through `RESERVED`, `ARRIVED`, `CHARGING`,
   `COMPLETED`, with `LATE`, `AT_RISK`, `CANCELLED`, `NO_SHOW`, `RELEASED` as branches. Check-in,
   charging start and charging end are three separate, explicit transitions — not one collapsed step.
+- **Late Arrival Engine** — every arrival is classified `ON_TIME`/`EARLY`/`GRACE`/`LATE`, and
+  no-show is detected automatically (configurable grace period and no-show threshold), not only
+  declared manually by staff. One shared implementation for both triggers.
 - Cancellation with a **truthful refund quote shown before you confirm**, computed by the same
   function that performs the refund.
 
@@ -84,8 +87,9 @@ Everything in this section is built, type-checked, and exercised against a real 
   accuracy, trend, with the raw event timeline underneath.
 - **Reservation scoring engine** — five factors (station utilization, preference match, waiting time,
   priority, reliability) with a full breakdown and a plain-language rationale.
-- **Schedule Quality KPIs** — preference match rate, utilization, average waiting time, customers
-  served per day, reservation success rate.
+- **Schedule Quality KPIs** — ten metrics: preference match rate, utilization, average waiting time,
+  customers served per day, reservation success rate, and five arrival-outcome rates (early, on-time,
+  grace-period usage, late, no-show).
 
 ### Vehicles
 - Manufacturer-agnostic provider layer with a simulated provider; battery- and distance-aware
@@ -197,7 +201,7 @@ npm run ops:demo-data
 npm run ops:verify
 ```
 
-Expect **73/73 checks passed**. It creates real reservations and optimizer offers, asserts what the
+Expect **89/89 checks passed**. It creates real reservations and optimizer offers, asserts what the
 database contains, and deletes everything it created.
 
 **Run both applications**

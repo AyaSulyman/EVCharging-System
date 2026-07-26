@@ -69,6 +69,11 @@ export interface ScheduleQuality {
   avgWaitingTime: KpiValue;
   servedCustomersPerDay: KpiValue;
   reservationSuccessRate: KpiValue;
+  earlyArrivalRate: KpiValue;
+  onTimeRate: KpiValue;
+  gracePeriodUsageRate: KpiValue;
+  lateArrivalRate: KpiValue;
+  noShowRate: KpiValue;
   daily: DailyPoint[];
   /** Utilization broken out per station, worst first — where to add or move capacity. */
   utilizationByStation: { station: string; utilizationPercent: number; slots: number }[];
@@ -189,4 +194,59 @@ export function reservationSuccessRate(completed: number, resolved: number): Kpi
 export function isPreferenceMatch(preferredStart: Date, grantedStart: Date): boolean {
   const driftMinutes = Math.abs(grantedStart.getTime() - preferredStart.getTime()) / 60_000;
   return driftMinutes <= PREFERENCE_MATCH_TOLERANCE_MINUTES;
+}
+
+/**
+ * Arrival-outcome KPIs — the Late Arrival Engine's platform-wide counterpart to the per-customer
+ * bucketing in `customerBehaviorPolicy.ts`.
+ *
+ * SAME DENOMINATOR FOR ALL FIVE, AND WHY IT ISN'T "resolved". `arrivalOutcome` is set once, either
+ * at check-in/charging-start or by the no-show sweep — a cancelled reservation never gets one
+ * (nobody ever arrived or was declared no-show; they left first), and a future reservation hasn't
+ * reached its window yet. Both are correctly excluded by requiring `known` rather than requiring
+ * the *session* to have ended (`resolved`, used by `reservationSuccessRate`): an outcome is decided
+ * at arrival, which can be well before `scheduledEnd`. Using `resolved` here would undercount a
+ * currently-charging reservation that already has a perfectly good arrival outcome.
+ */
+export interface ArrivalOutcomeCounts {
+  onTime: number;
+  early: number;
+  grace: number;
+  late: number;
+  noShow: number;
+  /** Denominator: reservations with any determined arrival outcome (the sum of the five above). */
+  known: number;
+}
+
+function arrivalOutcomeRate(count: number, known: number, description: string): KpiValue {
+  const value = pct(count, known);
+  return {
+    value,
+    sampleSize: known,
+    meetsTarget: null,
+    note:
+      known === 0
+        ? "No reservations with a determined arrival outcome in this period"
+        : `${description}, over reservations that reached arrival or were marked no-show. Cancelled and not-yet-due reservations are excluded — neither ever gets an arrival outcome.`,
+  };
+}
+
+export function earlyArrivalRate(c: ArrivalOutcomeCounts): KpiValue {
+  return arrivalOutcomeRate(c.early, c.known, "Arrived before the scheduled start");
+}
+
+export function onTimeRate(c: ArrivalOutcomeCounts): KpiValue {
+  return arrivalOutcomeRate(c.onTime, c.known, "Arrived exactly at the scheduled start");
+}
+
+export function gracePeriodUsageRate(c: ArrivalOutcomeCounts): KpiValue {
+  return arrivalOutcomeRate(c.grace, c.known, "Arrived late but within the grace period");
+}
+
+export function lateArrivalRate(c: ArrivalOutcomeCounts): KpiValue {
+  return arrivalOutcomeRate(c.late, c.known, "Arrived after the grace period");
+}
+
+export function noShowRate(c: ArrivalOutcomeCounts): KpiValue {
+  return arrivalOutcomeRate(c.noShow, c.known, "Never arrived, past the no-show threshold");
 }

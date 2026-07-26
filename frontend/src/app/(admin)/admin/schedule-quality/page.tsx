@@ -9,6 +9,11 @@ import {
   Users,
   CheckCircle2,
   Info,
+  Sunrise,
+  Clock3,
+  ShieldAlert,
+  AlarmClockOff,
+  UserX,
 } from "lucide-react";
 import { KpiWidget, type KpiValue } from "@/components/admin/KpiWidget";
 import { BookingsLineChart, UtilizationBarChart } from "@/components/admin/Charts";
@@ -41,6 +46,11 @@ interface Quality {
   avgWaitingTime: KpiValue;
   servedCustomersPerDay: KpiValue;
   reservationSuccessRate: KpiValue;
+  earlyArrivalRate: KpiValue;
+  onTimeRate: KpiValue;
+  gracePeriodUsageRate: KpiValue;
+  lateArrivalRate: KpiValue;
+  noShowRate: KpiValue;
   daily: DailyPoint[];
   utilizationByStation: { station: string; utilizationPercent: number; slots: number }[];
 }
@@ -157,6 +167,41 @@ export default function ScheduleQualityPage() {
               kpi={quality.reservationSuccessRate}
               icon={CheckCircle2}
               sampleLabel="resolved reservations"
+            />
+          </div>
+
+          {/* Arrival outcomes — the Late Arrival Engine's platform view. Same "no data isn't
+              zero" and sample-size discipline as the five KPIs above; see their shared note. */}
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <KpiWidget
+              label="Early arrivals"
+              kpi={quality.earlyArrivalRate}
+              icon={Sunrise}
+              sampleLabel="arrivals with an outcome"
+            />
+            <KpiWidget
+              label="On time"
+              kpi={quality.onTimeRate}
+              icon={Clock3}
+              sampleLabel="arrivals with an outcome"
+            />
+            <KpiWidget
+              label="Grace period usage"
+              kpi={quality.gracePeriodUsageRate}
+              icon={ShieldAlert}
+              sampleLabel="arrivals with an outcome"
+            />
+            <KpiWidget
+              label="Late arrivals"
+              kpi={quality.lateArrivalRate}
+              icon={AlarmClockOff}
+              sampleLabel="arrivals with an outcome"
+            />
+            <KpiWidget
+              label="No-shows"
+              kpi={quality.noShowRate}
+              icon={UserX}
+              sampleLabel="arrivals with an outcome"
             />
           </div>
 

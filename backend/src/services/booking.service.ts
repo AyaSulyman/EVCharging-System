@@ -3,7 +3,11 @@ import Booking from "@/models/Booking";
 import Slot from "@/models/Slot";
 import Charger from "@/models/Charger";
 import Vehicle from "@/models/Vehicle";
-import { DEFAULT_GRACE_PERIOD_MINUTES } from "@/models/reservationLifecycle";
+import {
+  DEFAULT_GRACE_PERIOD_MINUTES,
+  DEFAULT_NO_SHOW_THRESHOLD_MINUTES,
+  classifyArrival,
+} from "@/models/reservationLifecycle";
 import { DEFAULT_FLEXIBILITY } from "@/models/flexibilityPolicy";
 import { atomCountFor, endOfRange, validateRange } from "@/models/occupancyPolicy";
 import {
@@ -291,6 +295,86 @@ export interface UpdateReservationInput {
 }
 
 /**
+ * The one no-show transition, called by both the manual desk/admin action (via
+ * `updateReservation`) and the automatic threshold sweep (`sweepNoShows`).
+ *
+ * WHY THIS IS EXTRACTED. Before the Late Arrival Engine, no-show only ever happened manually, so
+ * this logic lived inline in `updateReservation`. Adding a second, automatic trigger for the same
+ * transition and reimplementing the refund assessment / event emission / capacity release next to
+ * it would let the two drift — a manual no-show and an automatic one producing different money or
+ * capacity outcomes for the same fact. One function, two callers, closes that off structurally
+ * rather than by discipline.
+ *
+ * `booking` must already be loaded and its transition validity already checked by the caller —
+ * `updateReservation` checks ownership/ALLOWED_TRANSITIONS/FORBIDDEN_FAULT_CLAIM (all specific to
+ * a human actor); `sweepNoShows` claims the row atomically first (see there). This function only
+ * performs the transition itself, identically either way.
+ */
+async function applyNoShow(booking: InstanceType<typeof Booking>, {
+  reason,
+  actorId = null,
+  actorRole = "system",
+}: { reason?: string; actorId?: string | null; actorRole?: string }) {
+  booking.status = "no_show";
+  booking.lifecycle = "NO_SHOW";
+  booking.noShow = true;
+  // The fifth arrival outcome — stamped here rather than by classifyArrival, which requires an
+  // actual arrival timestamp that, by definition, a no-show never has.
+  booking.arrivalOutcome = "NO_SHOW";
+
+  // Same function the read path uses to quote a driver beforehand, so the quote shown and the
+  // outcome delivered cannot diverge. A no-show forfeits and is penalised, unless fault was
+  // attributed to the operator — the caller is responsible for that reason being legitimate.
+  const assessment = assessRefund({
+    commitmentAmount: booking.depositAmount,
+    paymentStatus: booking.paymentStatus,
+    scheduledStart: booking.scheduledStart ?? booking.startTime,
+    cutoffHours: booking.refundCutoffHours,
+    reason,
+    noShow: true,
+  });
+
+  // Mutates the in-memory booking; the save below is the single write.
+  await settleCommitment({ booking, assessment, reason, actorId: actorId ?? undefined, actorRole });
+
+  await emitReservationEvent({
+    type: "reservation.no_show",
+    bookingId: booking._id,
+    userId: booking.userId,
+    stationId: booking.stationId,
+    slotId: booking.slotId,
+    lifecycle: booking.lifecycle,
+    fault: assessment.fault,
+    penalize: assessment.penalize,
+    basis: assessment.basis,
+    reason,
+    amount: booking.depositAmount,
+    actorId: actorId ?? undefined,
+    actorRole,
+    metadata: {
+      hoursUntilStart: Math.round(assessment.hoursUntilStart * 10) / 10,
+      scheduledStart: booking.scheduledStart ?? booking.startTime,
+      refundOutcome: assessment.outcome,
+    },
+  });
+
+  await booking.save();
+
+  // The interval is spent: it is neither free nor still held for a future arrival. Matches the
+  // "completed" branch exactly — a legacy slot is marked spent, not made bookable again, while a
+  // range reservation's remaining occupancy IS released, which is what already makes a range
+  // reservation's time free again on a no-show even without a `reservation.released` event; this
+  // event type is already in the optimizer's CAPACITY_RELEASING_EVENTS.
+  await Slot.findOneAndUpdate(
+    { _id: booking.slotId, status: "booked" },
+    { $set: { status: "completed" } }
+  );
+  await releaseOccupancy(booking._id);
+
+  return booking;
+}
+
+/**
  * Applies an operator or owner change to a reservation.
  *
  * Replaces an unfiltered Object.assign of the request body, which let a driver write
@@ -342,28 +426,28 @@ export async function updateReservation({ id, actorId, actorRole, updates }: Upd
 
   Object.assign(booking, applied);
 
-  // Keep the v2 lifecycle (and its derived flags) coherent with the legacy status change.
-  // Phase 1 only mirrors the terminal transitions the existing flow already performs; the
-  // richer intermediate states (ARRIVED, CHARGING, LATE, AT_RISK, …) are driven by the
-  // dedicated session/clock services introduced in later phases, not by this route.
+  // No-show is the one terminal transition delegated to a shared function — see applyNoShow's
+  // own comment for why. Everything above this point (ownership, ALLOWED_TRANSITIONS,
+  // FORBIDDEN_FAULT_CLAIM) still applies; only the transition mechanics themselves are shared
+  // with the automatic sweep.
+  if (nextStatus === "no_show") {
+    const reason = (applied.cancellationReason as string | undefined) ?? booking.cancellationReason;
+    return applyNoShow(booking, { reason, actorId, actorRole });
+  }
+
+  // Keep the v2 lifecycle coherent with the legacy status change. Phase 1 only mirrors the
+  // terminal transitions the existing flow already performs; the richer intermediate states
+  // (ARRIVED, CHARGING, LATE, AT_RISK, …) are driven by the dedicated session/clock services.
   if (nextStatus === "cancelled") {
     booking.lifecycle = "CANCELLED";
   } else if (nextStatus === "completed") {
     booking.lifecycle = "COMPLETED";
-  } else if (nextStatus === "no_show") {
-    booking.lifecycle = "NO_SHOW";
-    booking.noShow = true;
   }
 
-  // Apply the commitment policy on every terminating transition.
-  //
-  // The reason and the no-show flag both feed the assessment: an operator-fault reason
-  // (technical_incident, charger_failure, maintenance, delay_propagation, operator_reschedule)
-  // waives forfeiture outright and suppresses the reliability penalty, so a driver is never
-  // charged for our equipment failing. A no-show forfeits and IS penalised. assessRefund is the
-  // same function the read path uses to quote the driver beforehand, so the quote a driver was
-  // shown and the outcome they get cannot diverge.
-  if (nextStatus === "cancelled" || nextStatus === "no_show") {
+  // Apply the commitment policy on the cancellation transition. assessRefund is the same
+  // function the read path uses to quote the driver beforehand, so the quote shown and the
+  // outcome delivered cannot diverge.
+  if (nextStatus === "cancelled") {
     const reason = (applied.cancellationReason as string | undefined) ?? booking.cancellationReason;
     const assessment = assessRefund({
       commitmentAmount: booking.depositAmount,
@@ -371,7 +455,7 @@ export async function updateReservation({ id, actorId, actorRole, updates }: Upd
       scheduledStart: booking.scheduledStart ?? booking.startTime,
       cutoffHours: booking.refundCutoffHours,
       reason,
-      noShow: nextStatus === "no_show",
+      noShow: false,
     });
 
     // Mutates the in-memory booking; the save below is the single write.
@@ -384,7 +468,7 @@ export async function updateReservation({ id, actorId, actorRole, updates }: Upd
     });
 
     await emitReservationEvent({
-      type: nextStatus === "no_show" ? "reservation.no_show" : "reservation.cancelled",
+      type: "reservation.cancelled",
       bookingId: booking._id,
       userId: booking.userId,
       stationId: booking.stationId,
@@ -431,7 +515,7 @@ export async function updateReservation({ id, actorId, actorRole, updates }: Upd
       actorId,
       actorRole,
     });
-  } else if (nextStatus === "completed" || nextStatus === "no_show") {
+  } else if (nextStatus === "completed") {
     // The interval is spent: it is neither free nor still held for a future arrival.
     await Slot.findOneAndUpdate(
       { _id: booking.slotId, status: "booked" },
@@ -443,6 +527,87 @@ export async function updateReservation({ id, actorId, actorRole, updates }: Upd
   }
 
   return booking;
+}
+
+export interface NoShowSweepReport {
+  found: number;
+  processed: number;
+}
+
+/**
+ * Declares a no-show for every reservation nobody arrived for within its threshold, and releases
+ * the capacity behind it — the automatic counterpart to the manual "mark no-show" action.
+ *
+ * WHY A SWEEP AT ALL. No-show is defined by the *absence* of an event (no check-in, ever), so
+ * nothing can react to it — something has to periodically look. This mirrors
+ * `commitment.service.ts`'s `expirePendingCommitments` exactly: a conditional `findOneAndUpdate`
+ * claims one candidate at a time before doing anything else, so two concurrent sweeps — or a
+ * sweep racing a driver who checks in at the last second — cannot both process the same
+ * reservation. The loser's claim matches nothing and it moves on.
+ *
+ * Scope is deliberately narrow: only RESERVED/LATE/AT_RISK — a reservation that has already
+ * reached ARRIVED did show up, whatever happened after is a different, not-yet-built case
+ * (abandoned after arrival), not a no-show.
+ *
+ * Idempotent and safe to run repeatedly; a second run finds nothing new. Intended to run
+ * alongside `ops:expire-commitments`, the same "a window closed" scheduling slot.
+ */
+export async function sweepNoShows(
+  now: Date = new Date(),
+  /**
+   * Restricts the sweep to specific bookings. Omitted in production — a sweep exists to scan
+   * everything. Exists so `ops:verify` can exercise this against real data without the risk every
+   * other harness assertion explicitly avoids: touching a reservation it did not create. Mirrors
+   * `runOptimization`'s optional `requestIds` scoping for the same reason.
+   */
+  bookingIds?: unknown[]
+): Promise<NoShowSweepReport> {
+  await connectDB();
+
+  const filter: Record<string, unknown> = { lifecycle: { $in: ["RESERVED", "LATE", "AT_RISK"] } };
+  if (bookingIds) filter._id = { $in: bookingIds };
+
+  const candidates = await Booking.find(filter)
+    .select("_id scheduledStart startTime gracePeriodMinutes noShowThresholdMinutes")
+    .lean<
+      {
+        _id: unknown;
+        scheduledStart?: Date;
+        startTime: Date;
+        gracePeriodMinutes?: number;
+        noShowThresholdMinutes?: number;
+      }[]
+    >();
+
+  let processed = 0;
+  for (const candidate of candidates) {
+    const scheduled = candidate.scheduledStart ?? candidate.startTime;
+    if (!scheduled) continue;
+
+    const grace = candidate.gracePeriodMinutes ?? DEFAULT_GRACE_PERIOD_MINUTES;
+    const threshold = candidate.noShowThresholdMinutes ?? DEFAULT_NO_SHOW_THRESHOLD_MINUTES;
+    const deadline = new Date(new Date(scheduled).getTime() + (grace + threshold) * 60_000);
+    if (deadline > now) continue;
+
+    // Atomic claim, conditional on still being in a no-show-eligible state. A booking a
+    // concurrent writer already moved (check-in, cancellation, another sweep) matches nothing.
+    const claimed = await Booking.findOneAndUpdate(
+      { _id: candidate._id, lifecycle: { $in: ["RESERVED", "LATE", "AT_RISK"] } },
+      { $set: { lifecycle: "NO_SHOW" } }
+    );
+    if (!claimed) continue;
+
+    const booking = await Booking.findById(candidate._id);
+    if (!booking) continue;
+
+    await applyNoShow(booking, {
+      reason: "Scheduled start passed without arrival",
+      actorRole: "system",
+    });
+    processed++;
+  }
+
+  return { found: candidates.length, processed };
 }
 
 /* ============================================================================
@@ -489,6 +654,10 @@ const CHECK_INABLE_LIFECYCLES = ["RESERVED", "LATE", "AT_RISK"] as const;
  * and this one already can. `session.started` remains the event that carries the delay
  * signal reliability/behaviour read; its shape is unchanged by this function.
  *
+ * Also classifies the arrival (`arrivalOutcome`, `minutesEarly`, `delayMinutes`) via the same
+ * pure `classifyArrival` that `startCharging`'s fallback branch calls, so the two paths cannot
+ * disagree about what "on time" or "late" means.
+ *
  * Throws: BOOKING_NOT_FOUND · INVALID_SESSION_STATE
  */
 export async function checkIn(bookingId: string) {
@@ -500,8 +669,22 @@ export async function checkIn(bookingId: string) {
     throw new Error("INVALID_SESSION_STATE");
   }
 
-  booking.actualArrival = new Date();
+  const now = new Date();
+  booking.actualArrival = now;
   booking.lifecycle = "ARRIVED";
+
+  const scheduled = booking.scheduledStart ?? booking.startTime;
+  if (scheduled) {
+    const classification = classifyArrival(
+      new Date(scheduled),
+      now,
+      booking.gracePeriodMinutes ?? DEFAULT_GRACE_PERIOD_MINUTES
+    );
+    booking.arrivalOutcome = classification.outcome;
+    booking.minutesEarly = classification.minutesEarly;
+    booking.delayMinutes = classification.minutesLate;
+  }
+
   await booking.save();
 
   return booking;
@@ -528,11 +711,22 @@ export async function startCharging(bookingId: string) {
   booking.actualStart = now;
   booking.lifecycle = "CHARGING";
 
-  // Lateness against the promised start, floored at zero. Recorded once, at start.
+  // Classified from whatever `actualArrival` now holds — pre-existing from `checkIn`, or just
+  // stamped above. Recomputing here is idempotent: classifyArrival is a pure function of
+  // (scheduled, actualArrival, grace), so this reproduces exactly what checkIn already stored
+  // rather than risking a second, divergent answer. `delayMinutes`'s value and meaning are
+  // unchanged from before the Late Arrival Engine — still Math.max(0, minutes late) — this is a
+  // refactor of where it is computed, not a change to what it computes.
   const scheduled = booking.scheduledStart ?? booking.startTime;
   if (scheduled) {
-    const late = Math.round((booking.actualArrival.getTime() - new Date(scheduled).getTime()) / 60000);
-    booking.delayMinutes = Math.max(0, late);
+    const classification = classifyArrival(
+      new Date(scheduled),
+      booking.actualArrival,
+      booking.gracePeriodMinutes ?? DEFAULT_GRACE_PERIOD_MINUTES
+    );
+    booking.arrivalOutcome = classification.outcome;
+    booking.minutesEarly = classification.minutesEarly;
+    booking.delayMinutes = classification.minutesLate;
   }
 
   await booking.save();
@@ -540,6 +734,11 @@ export async function startCharging(bookingId: string) {
   // Arrival punctuality is computed once, here, and nowhere else — so this event is the only
   // record of how late this driver actually was. Delay propagation needs the real start; the
   // reliability scorer needs the lateness distribution per driver.
+  //
+  // basis is computed exactly as before the Late Arrival Engine: ANY lateness (delayMinutes > 0)
+  // is "late_arrival", regardless of grace. This is a deliberate choice to preserve reliability's
+  // existing scoring architecture unchanged — see IMPLEMENTED_LOGIC.md for why grace is not (yet)
+  // read here, and what would need to change to make it so.
   await emitReservationEvent({
     type: "session.started",
     bookingId: booking._id,
@@ -554,6 +753,11 @@ export async function startCharging(bookingId: string) {
     basis: booking.delayMinutes > 0 ? "late_arrival" : "on_time",
     metadata: {
       delayMinutes: booking.delayMinutes,
+      // Additive metadata, both new. Historical events predating this change simply lack these
+      // keys; every reader treats a missing numeric key as 0 (see customerBehaviorPolicy.ts's
+      // `num()`), so old and new events fold together without a migration.
+      minutesEarly: booking.minutesEarly,
+      arrivalOutcome: booking.arrivalOutcome,
       scheduledStart: scheduled,
       actualStart: booking.actualStart,
       actualArrival: booking.actualArrival,

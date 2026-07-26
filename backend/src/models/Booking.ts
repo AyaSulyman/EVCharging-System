@@ -2,6 +2,8 @@ import { Schema, models, model } from "mongoose";
 import {
   RESERVATION_LIFECYCLE,
   DEFAULT_GRACE_PERIOD_MINUTES,
+  DEFAULT_NO_SHOW_THRESHOLD_MINUTES,
+  ARRIVAL_OUTCOMES,
   legacyStatusToLifecycle,
 } from "./reservationLifecycle";
 import { REFUND_CUTOFF_HOURS } from "./commitmentPolicy";
@@ -139,9 +141,21 @@ const BookingSchema = new Schema(
 
     // Grace snapshotted at claim time, so a later policy change never rewrites history.
     gracePeriodMinutes: { type: Number, default: DEFAULT_GRACE_PERIOD_MINUTES },
+    // Same reasoning, same snapshot discipline, for the no-show sweep — see reservationLifecycle.ts.
+    noShowThresholdMinutes: { type: Number, default: DEFAULT_NO_SHOW_THRESHOLD_MINUTES },
     extensionCount: { type: Number, default: 0 },
-    // Minutes late = actualArrival − scheduledStart, once arrival is recorded.
+    // Minutes late = actualArrival − scheduledStart, once arrival is recorded. Unchanged by the
+    // Late Arrival Engine — still floored at 0, still exactly what "minutesLate" means.
     delayMinutes: { type: Number, default: 0 },
+    // Minutes early = scheduledStart − actualArrival, floored at 0. Zero unless arrivalOutcome is
+    // EARLY. Additive: delayMinutes above is left alone rather than made signed, because
+    // customerBehaviorPolicy.ts and reliability.service.ts already have an established contract
+    // with its floored-at-0 meaning.
+    minutesEarly: { type: Number, default: 0 },
+    // Stamped once, at check-in (or at charging-start if check-in was skipped) or by the no-show
+    // sweep. Not a lifecycle state — a permanent classification of what happened, the same shape
+    // as `noShow`/`releasedEarly` below. See reservationLifecycle.ts → classifyArrival.
+    arrivalOutcome: { type: String, enum: ARRIVAL_OUTCOMES, default: null },
     noShow: { type: Boolean, default: false },
     releasedEarly: { type: Boolean, default: false },
     // How the reservation was created. "self" is a driver booking through the app;
