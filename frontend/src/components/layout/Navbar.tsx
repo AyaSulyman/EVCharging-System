@@ -140,6 +140,7 @@ export function Navbar() {
                       <MenuLink href="/dashboard" icon={LayoutDashboard} label="Dashboard" />
                       <MenuLink href="/bookings" icon={CalendarCheck} label="My bookings" />
                       <MenuLink href="/vehicles" icon={Car} label="My vehicles" />
+                      <MenuLink href="/offers" icon={Sparkles} label="Your offers" />
                       <MenuLink href="/recommendations" icon={Sparkles} label="Recommendations" />
                       <MenuLink href="/profile" icon={UserIcon} label="Profile" />
                       {isAdmin && (
@@ -204,6 +205,7 @@ export function Navbar() {
                 <MobileLink href="/book" label="Book now" />
                 <MobileLink href="/bookings" label="My bookings" />
                 <MobileLink href="/vehicles" label="My vehicles" />
+                <MobileLink href="/offers" label="Your offers" />
                 <MobileLink href="/recommendations" label="Recommendations" />
                 <MobileLink href="/notifications" label={`Notifications${unread ? ` (${unread})` : ""}`} />
                 <MobileLink href="/profile" label="Profile" />

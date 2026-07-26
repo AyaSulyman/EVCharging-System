@@ -24,9 +24,10 @@ Read alongside [`PROJECT_STATE.md`](PROJECT_STATE.md) (what is built) and
 | Something looks wrong in the data | [§5 Repair](#5-repair) |
 | Running in production | [§6 Scheduled jobs](#6-scheduled-jobs) |
 
-**Status as of 2026-07-25:** all four migrations have been applied to the working `chargehub`
-database, `ops:indexes` has been run, and `ops:verify` passes 19/19. If you are working on that
-database you do **not** need §2.
+**Status as of 2026-07-26:** all four migrations have been applied to the working `chargehub`
+database, `ops:indexes` has been run, and `ops:verify` passes 63/63 (scheduler, reservation flow,
+and recommendations/optimizer harnesses). If you are working on that database you do **not** need
+§2.
 
 ---
 
@@ -57,7 +58,7 @@ Publishes bookable inventory. Idempotent. Without it the booking wizard is empty
 ```bash
 npm run ops:verify
 ```
-Confirms the whole stack works. Expect **19/19 checks passed** and no blocked preconditions.
+Confirms the whole stack works. Expect **63/63 checks passed** and no blocked preconditions.
 
 ---
 
@@ -116,7 +117,7 @@ guarantee at all. Expect `migration complete and coherent : YES`.
 ```bash
 npm run ops:verify
 ```
-Last. Expect **19/19 and zero blocked preconditions**. In particular:
+Last. Expect **63/63 and zero blocked preconditions**. In particular:
 
 ```
 PASS  OVERLAPPING reservation rejected by the index — CHARGER_BUSY
@@ -223,7 +224,7 @@ wholesale — this rebuilds it.
 
 ## 6. Scheduled jobs
 
-Only one command needs to run on a schedule in production:
+Two commands need to run on a schedule in production:
 
 ```bash
 npm run ops:expire-commitments
@@ -235,6 +236,29 @@ It is *not* what makes release timely — the claim path releases an expired hol
 claimed, and the availability read reports expired holds as free, so a bay is bookable the instant
 anyone looks at it. This job materialises that state and fires the events for reservations nobody
 happens to be looking at.
+
+```bash
+npm run ops:optimizer-consumer
+```
+```bash
+npm run ops:optimizer-consumer -- --dry
+```
+Reacts to charger time freed since its own last committed run — cancellations, no-shows, expired
+commitments, early departures, and lapsed or declined offers — and re-plans the waitlisted and open
+requests that could use it. Resumable and idempotent: it reads its cursor from the newest
+`capacity_released` `OptimizationRun`, so a missed or late run is just a bigger window next time,
+never a lost release. A minute or two is right, alongside `ops:expire-commitments`. It also sweeps
+lapsed offers itself, so **`ops:sweep-recommendations` below does not need its own schedule** — it
+exists as a standalone tool for running that step alone (e.g. after a manual investigation).
+
+Not a migration and safe to run at any time:
+
+```bash
+npm run ops:sweep-recommendations
+```
+Releases optimizer offers whose 5-minute hold has lapsed, fires the expiry event, and returns the
+request to the pool. Already run as the first step of `ops:optimizer-consumer` — run this on its own
+only when you want that one effect in isolation.
 
 ---
 
@@ -249,9 +273,12 @@ happens to be looking at.
 | `ops:migrate-commitments` | Dry run | Refuses until v2 applied |
 | `ops:migrate-flexibility` | Dry run | Refuses until v2 applied |
 | `ops:migrate-occupancy` | Dry run | **Non-additive.** Rebuilds the `slotId` index |
-| `ops:verify` | Self-cleaning | 19/19 expected |
+| `ops:verify` | Self-cleaning | Runs `ops:verify-scheduler` + `ops:verify-reservation-flow` (via `verify-reservation-flow.ts`) + `ops:verify-recommendations`; 63/63 expected |
 | `ops:demo-data` | Tagged `isDemo` | `-- --clear` removes it |
 | `ops:reliability` | Yes | Rebuilds a cache |
 | `ops:behavior` | Yes | Rebuilds a cache |
 | `ops:expire-commitments` | Yes | For a scheduler |
+| `ops:optimizer-consumer` | Yes | For a scheduler. `-- --dry` to plan without issuing offers |
+| `ops:sweep-recommendations` | Yes | Standalone; already run by `ops:optimizer-consumer` |
+| `ops:optimize` | Yes by default | Runs one optimizer pass on demand; same code path as the admin "run now" |
 | `ops:reconcile` | Dry run | Repair tool |

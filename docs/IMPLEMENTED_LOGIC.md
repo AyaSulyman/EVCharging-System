@@ -4,7 +4,8 @@
 the presentation, the demo script and any slide deck can be built from one place — and so nobody has
 to reverse-engineer the reasoning out of the code under time pressure.
 
-**Last updated: 2026-07-25 (duration-aware reservations, verified end-to-end).** Read alongside:
+**Last updated: 2026-07-26 (multi-request optimization & offers, verified end-to-end).** Read
+alongside:
 - [`../CLAUDE.md`](../CLAUDE.md) — what the project is, and the invariants that must not break
 - [`../AGENTS.md`](../AGENTS.md) — how to work here
 - [`PROJECT_STATE.md`](PROJECT_STATE.md) — what is built vs. not, and the ops commands
@@ -804,7 +805,7 @@ the system models charger occupancy as time ranges.
 - **Why it matters:** Everything from the v2 lifecycle onward had been checked only by typecheck and
   pure-function tests. Those prove the *logic*; they cannot prove the *wiring*. **A unique index never
   exercised, an event never emitted and a projection that never consumed anything are three ways for a
-  system to be confidently broken.** 16/16 checks now pass against live data.
+  system to be confidently broken.** 19/19 checks now pass against live data.
 - **Three real bugs it caught immediately**, none of which typecheck could see:
   1. **Mongoose pluralised the collection** to `reservationoccupancies` while the migration and
      harness addressed `reservationoccupancy` — two different collections, so the backfill would have
@@ -816,10 +817,11 @@ the system models charger occupancy as time ranges.
      first write — a collection nothing has written to genuinely does not exist.
 - **The assertion that matters most:** two **back-to-back** reservations must both succeed while two
   **overlapping** ones must not. That pair proves the half-open atom boundary at the database level.
-  It is currently reported as a *blocked precondition* rather than a pass, because the un-rebuilt
-  `slotId` index refuses the second range reservation before occupancy is reached — which is itself
-  worth knowing.
-- **Demo:** `npm run ops:verify` — a clean 16/16 with the database left exactly as it was found.
+  Both now pass — `ops:migrate-occupancy` has been applied to the working database, so the
+  `slotId` index no longer refuses the second range reservation before occupancy is reached. (On a
+  database where that migration has not run, this pair reports as a *blocked precondition* rather
+  than a pass — see `PROJECT_STATE.md` §2.)
+- **Demo:** `npm run ops:verify` — a clean 19/19 with the database left exactly as it was found.
 
 ---
 
@@ -881,14 +883,166 @@ contribution either way.
 | **Deposits** | The state machine is real — hold window, expiry, refund cliff, waiver, forfeiture. The **gateway is a mock**: no money moves, no card data exists. Say "simulated payment". |
 | **Vehicle telemetry** | Simulated via `MockProvider`. The provider architecture is real; battery/range are generated. Tesla errors **by design** — use Mock. |
 | **Notifications** | Store and read/mark-read UI complete; **nothing generates them from events yet**. Samples are seeded. |
-| **Event consumers** | Reliability scoring is the **only** consumer. Waitlist notification and optimizer invalidation do not exist. |
-| **Optimization engine** | Candidate ranking is built. The full scheduler (plans, multi-reservation repair) is **design only**. |
+| **Event consumers** | Three: reliability scoring, behaviour profiles, and the optimizer's capacity-release consumer. Notification delivery on a released bay does not exist. |
+| **Optimization engine** | The multi-request scheduler, the offer/hold commit path, and the capacity-release consumer are built and verified (§15). Incident-triggered `recovery` re-placement and per-station weight tuning are **not built** — weights are constants. |
 | **Money figures** | All labelled **estimated** or **simulated**. |
 | **Energy metering / hardware control** | Do not exist, by design. |
 
 ---
 
-# 15. Suggested demo running order
+# 15. Multi-request optimization & offers ⭐
+
+Phase H. Section 9's scoring engine answers "which opening is best for **one** request?" This
+answers the harder question a grid of independent lookups cannot: **given many requests competing
+for the same chargers, who gets what** — and it does so without ever becoming a second arbiter of
+charger time.
+
+### 15.1 An offer holds real capacity — the design decision everything else follows from ⭐
+- **Rule:** While `PENDING_ACCEPTANCE`, a `Recommendation` owns rows in `reservationoccupancy` —
+  the same collection and the same unique index firm reservations use, tagged with a
+  `recommendationId` instead of a `bookingId`.
+- **Where:** `backend/src/models/Recommendation.ts`, `backend/src/services/occupancy.service.ts`
+  (`holdOccupancy` / `releaseHold` / `convertHoldToBooking`)
+- **Why it matters:** A plan proposed against twenty open requests and then offered one at a time
+  would conflict with itself the moment two customers said yes to overlapping options — a second,
+  unguarded arbiter of the exact resource `CLAUDE.md` §2 says the database alone arbitrates. Sharing
+  the collection instead buys three things at once: an offer cannot be made on a bay someone is
+  booking, a booking cannot take a bay under offer, and accepting is a field update on rows already
+  owned rather than a fresh claim that could lose a race.
+- **Verified:** a booking cannot take time held by a live offer (rejected by the unique index); an
+  accepted offer rewrites the same occupancy rows rather than inserting new ones — no duplicate rows.
+
+### 15.2 Five minutes, independent of session length ⭐
+- **Rule:** `RECOMMENDATION_HOLD_MINUTES = 5`, fixed. A 120-minute reservation gets the same hold as
+  a 15-minute one.
+- **Where:** `backend/src/models/recommendationPolicy.ts`
+- **Why it matters:** Held capacity is frozen inventory, so the freeze has to scale with the number
+  of *pending decisions*, never with the length of the sessions being offered — tying it to duration
+  would make the most valuable offers the most expensive ones to make. One pending offer per
+  customer for the same reason: a customer answers one question at a time, and every extra pending
+  offer freezes another bay against that same single decision.
+
+### 15.3 The scheduler is pure — a plan is a proposal, not a write ⭐
+- **Rule:** `scheduler.ts` takes a snapshot and returns a plan; no I/O, no clock of its own, `now` is
+  an input. Committing is a separate step (`runner.ts`) that tries each assignment against reality.
+- **Where:** `backend/src/services/optimization/{scheduler,snapshot,runner}.ts`
+- **Why it matters:** The same purity discipline as `commitmentPolicy.ts` and `flexibilityPolicy.ts`
+  — a plan can be previewed, diffed and demoed before anything commits, and `commit: false` runs the
+  identical code path a real commit does, so the preview is evidence of what would actually happen
+  rather than a separate, divergable code path.
+- **Verified:** identical snapshots produce identical plans (determinism); a previewed plan is the
+  plan that commits.
+
+### 15.4 Ordering is the fairness policy, not the scoring ⭐
+- **Rule:** Priority first (`recovery` > `onSite` > `standard`), then window tightness — a rigid
+  request placed after a flexible one may find its only possible slot already taken — then waiting
+  time as the starvation guard, then id for a stable tie-break.
+- **Where:** `scheduler.ts`
+- **Why it matters:** A flexible request placed before a rigid one takes the only slot the rigid one
+  could have used, and both end up worse off than the reverse order — the same tight-windows-first
+  reasoning as the design doc's §4.4, independent of any score.
+- **Verified:** a rigid and a flexible request contending for the same opening both get served only
+  when the rigid one is placed first.
+
+### 15.5 The counterfactual is computed during the pass, not after ⭐
+- **Rule:** What plain first-come-first-served would have served on the *same* snapshot is computed
+  as part of the pass and stored on the `OptimizationRun`.
+- **Where:** `scheduler.ts`, `models/OptimizationRun.ts`
+- **Why it matters:** The occupancy a later query would compare against has already changed by the
+  time anyone asks — this is the one number that supports or refutes the optimizer's entire claim to
+  be better than the naive alternative, and it cannot be reconstructed retroactively.
+- **Demo:** `/admin/optimizer`, a run's `counterfactualServed` next to what was actually served.
+
+### 15.6 Accepting late is not an error ⭐
+- **Rule:** A hold that lapsed before the customer answers does not fail the accept — it
+  re-optimizes for that one request and returns either a fresh offer (`superseded`) or a waitlist
+  place, both under a 200.
+- **Where:** `recommendation.service.ts` → `acceptRecommendation`; `optimization/runner.ts` →
+  `reoptimizeRequest`
+- **Why it matters:** The customer did nothing wrong and is still trying to buy something; a `410
+  Gone` ends the interaction with nothing to act on. Re-optimizing scopes to the one request rather
+  than the whole pool, so answering late does not re-time offers other customers are currently
+  looking at.
+
+### 15.7 Waitlisting is the request pool, not a new mechanism ⭐
+- **Rule:** A request the scheduler cannot place is marked `WAITLISTED` with one of five reasons
+  (`no_free_capacity`, `no_compatible_charger`, `window_too_narrow`, `outside_operating_hours`,
+  `displaced_by_higher_priority`). `OPEN` and `WAITLISTED` are one pool.
+- **Where:** `recommendationPolicy.ts` → `WAITLIST_REASONS`, `isWorthReevaluating`
+- **Why it matters:** This is what collapses the planned `waitlistentries` collection out of the
+  design entirely (ADR-2 in `RESERVATION_OPTIMIZATION_ENGINE.md`) — a waitlist entry is exactly a
+  request nothing has fulfilled yet. `no_compatible_charger` is excluded from re-evaluation: no
+  amount of freed time creates a matching connector, so re-planning it on every release would be
+  pure waste on a path that fires often.
+
+### 15.8 The capacity-release trigger is a consumer, never a call from cancellation ⭐
+- **Rule:** `consumer.ts` reads `reservationevents` for capacity-releasing types
+  (`reservation.cancelled`, `reservation.released`, `reservation.no_show`, `commitment.expired`,
+  `session.ended`, `recommendation.expired`, `recommendation.rejected`) since its own last committed
+  run, and plans only the stations those events touched.
+- **Where:** `backend/src/services/optimization/consumer.ts`
+- **Why it matters:** Per `CLAUDE.md` §2 and §7, the optimizer must stay a consumer of behavioural
+  history, never something the reservation flow calls inline and depends on. A driver cancelling a
+  reservation must never be slowed down, or fail, because a planning pass over someone else's demand
+  went wrong. No event bus or queue exists or is needed — the log is already ordered, durable and
+  append-only, so a consumer is a cursor over a collection and nothing more.
+- **The cursor is the newest `capacity_released` run**, not a new counter collection — reprocessing
+  an event cannot double-book (every assignment still has to win its capacity through the unique
+  index), so replay is the safe failure direction and a lost run just means a later, larger pass.
+- **Verified:** the consumer finds work from the event log without being told a request exists.
+
+### 15.9 The offer cap closes a loop that has no single visible failure ⭐
+- **Rule:** `MAX_OFFERS_PER_REQUEST = 3`. Past it, a request stays `OPEN`, fully live, and matched by
+  search or a manual pass — only the platform's unprompted offering stops.
+- **Where:** `recommendationPolicy.ts`, `runner.ts` → `issueRecommendation`
+- **Why it matters:** An expired offer reopens its request; reopening is a release; a release
+  triggers a pass; the pass offers again. For a customer who has stopped answering, that cycle never
+  ends — the same bay frozen five minutes out of every few, forever, and never *continuously*
+  blocked, which is exactly why the problem is easy to miss in monitoring that only looks for a bay
+  stuck occupied.
+- **Verified:** the optimizer stops after 3 unanswered offers; the request keeps holding nothing once
+  capped.
+
+### 15.10 A dead branch caught before it shipped
+- **Rule:** Waitlist classification originally tested `windowMs + duration < duration`, which
+  simplifies to `windowMs < 0` — already checked earlier in the same function, so
+  `outside_operating_hours` was structurally unreachable.
+- **Why it matters:** Every structural failure was being reported as a capacity one, which decides
+  whether a request is worth re-evaluating on a future release (§15.7) — the bug would have meant
+  permanently infeasible requests re-planned forever. Caught by the property-based `verify-scheduler`
+  checks (§4b of `AGENTS.md`), not by type checking.
+
+### 15.11 Verified end-to-end, in two harnesses ⭐
+- **Rule:** `verify-scheduler.ts` runs 18 pure property checks (no overlap, tight-windows-first,
+  priority ordering, every duration schedulable, budget respected). `verify-recommendations.ts` runs
+  26 checks against the real database (offer-vs-booking conflict enforcement in both directions,
+  acceptance rewriting rows rather than inserting, a lapsed hold free to read *and* free to write,
+  the offer cap, the capacity-release consumer). Both run as part of `npm run ops:verify` — 63/63
+  overall with the reservation-flow harness.
+- **Why it matters:** Properties rather than examples, because asserting "request A lands at 12:00"
+  pins an implementation detail and breaks on any reordering that is still correct.
+
+---
+
+# 15b. What Phase H deliberately did not build
+
+- **Incident-triggered `recovery` re-placement** of already-committed reservations — the design
+  doc's `INCIDENT` trigger and `priorityClass: recovery` displacement flow.
+- **Per-station optimizer weight tuning** — `WEIGHTS` in `scoring.ts` and the constants in
+  `recommendationPolicy.ts` are process-wide, not the per-station `optimizationpolicy` config the
+  design doc describes.
+- **A periodic (`PERIODIC`/`"scheduled"`) sweep.** `OptimizationTrigger` and `OptimizationRun` both
+  reserve a `"scheduled"` value for this, deliberately unused — see `PROJECT_STATE.md` §7 item 8.
+  Today's only trigger for a re-plan is the capacity-release consumer, which is event-driven, not
+  time-driven.
+
+None of these block the working end of the pipeline — a direct, available-slot booking still goes
+straight through `claimReservation` with no optimizer involvement (`RESERVATION_OPTIMIZATION_ENGINE.md`
+§7.3), so their absence is a smaller surface than a full scheduler being unbuilt would be.
+
+---
+
+# 16. Suggested demo running order
 
 1. **Conflict-free claim** (§1.1, §11.1) — two browsers, same charger and time. The core claim.
 1b. **Duration-aware booking** (§11.3) — on the time step, switch 15/30/45/60/90 and watch the
@@ -905,6 +1059,12 @@ contribution either way.
    sample sizes. Hover one to show what it excludes.
 9. **Behaviour** (§8.11) — `/admin/behavior`, then a driver detail: delay distribution,
    cancellation lead-time breakdown, and the raw timeline the numbers came from.
+10. **An offer holds real capacity** (§15.1, §15.2) — `/book/flexible`, tick "hold the best match
+    for me automatically", then `/offers`: the countdown is server-computed, accept it, and the
+    reservation appears with a deposit owed.
+11. **The optimizer at station scale** (§15.3, §15.5) — `/admin/optimizer`: the demand pool, run a
+    pass, show a run's `counterfactualServed` against what first-come-first-served would have done
+    on the same snapshot.
 12. **Operational safety** (§13.1) — a migration dry run refusing to run out of order.
 
 **Closing point for the presentation:** the recurring theme is *choosing where correctness lives*.

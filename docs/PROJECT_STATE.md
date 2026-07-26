@@ -1,15 +1,15 @@
 # PROJECT_STATE.md — what is built, what is not, what to do next
 
-**Last updated: 2026-07-25 (duration-aware reservations, verified end-to-end).** Read this after `CLAUDE.md` and
-`AGENTS.md`, before writing code.
+**Last updated: 2026-07-26 (Phase H — the reservation optimization engine — wired end to end).**
+Read this after `CLAUDE.md` and `AGENTS.md`, before writing code.
 
 See also **[`IMPLEMENTED_LOGIC.md`](IMPLEMENTED_LOGIC.md)** — the canonical register of every
 logic the system implements, and the file to build a presentation or slide deck from — and
 **[`RUNBOOK.md`](RUNBOOK.md)** for every operational command with its expected output.
 
 **All four migrations have now been APPLIED to the working `chargehub` database, `ops:indexes` has
-been run, and `ops:verify` passes 19/19.** The §2 warnings below are kept for anyone setting up a
-different database.
+been run, and `ops:verify` passes 63/63** (scheduler + reservation-flow + recommendations
+harnesses). The §2 warnings below are kept for anyone setting up a different database.
 
 This file exists so a teammate — or a teammate's AI assistant — can pick the project up without
 re-deriving what has already been decided, re-implementing what already exists, or "fixing"
@@ -30,17 +30,17 @@ same commit.**
 | Charging session start/end | Partial — see §4 |
 | Reservation commitment / deposit system | **Code done. Migration NOT applied** |
 | Mock payment gateway + webhook path | Done |
-| `reservationevents` append-only log | Written to; **two consumers** — reliability score and behaviour profiles |
+| `reservationevents` append-only log | Written to; **three consumers** — reliability score, behaviour profiles, and the optimizer's capacity-release consumer |
 | **Flexibility windows — pre-booking** (`reservationrequests` + candidate scoring) | **Done** — first slice of the optimization engine |
 | **Flexibility windows — post-booking** (`flexibilityType` + scheduler moves) | **Done** — the consent mechanism for RESCHEDULE |
-| Waitlists | **Not built.** Design only — extend `ReservationRequest`, do not add a new collection |
+| Waitlists | **Done** — an `OPEN`/`WAITLISTED` `ReservationRequest` re-evaluated on every capacity release. See §6e |
 | Extensions, overstay, delay propagation | **Not built.** Design only |
 | Reservation Scoring Engine | **Done** — five factors, breakdown + rationale stored per assignment |
 | Schedule Quality KPIs | **Done** — five platform metrics, computed live, nothing stored |
-| Reservation Optimization Engine (full scheduler) | **Design only** — multi-reservation plans and repair not built |
+| Reservation Optimization Engine (multi-request scheduler + commit path) | **Done** — Phase H, steps 1–5 of the roadmap. Incident `recovery` re-placement and per-station weight tuning are not built. See §6e |
 | Customer reliability score | **Done** — the first event-log consumer, derived not accumulated |
 | Customer behaviour tracking | **Done** — second consumer: delays, cancellations, no-shows, arrival accuracy |
-| Notifications from events | **Not built.** Store + UI exist; nothing produces them |
+| Notifications from events | **Not built.** Store + UI exist; nothing produces them — including an optimizer offer being issued |
 | Real payments | Not built. The seam exists — see `CLAUDE.md` §7 |
 
 ---
@@ -332,6 +332,68 @@ reads without refreshing, because it polls constantly and a write on every poll 
 
 ---
 
+## 6e. The optimizer — offers, the multi-request scheduler, and the capacity-release consumer
+
+Phase H. Turns the request pool from §6b into something that gets actively planned rather than
+matched one at a time — the design in `RESERVATION_OPTIMIZATION_ENGINE.md`, steps 1–5 of its own
+suggested integration order (§10 of that doc).
+
+| Path | Role |
+|---|---|
+| `backend/src/services/optimization/scheduler.ts` | Pure: snapshot in, plan out. Deterministic greedy placement + bounded repair, tight-windows-first ordering, the FCFS counterfactual |
+| `backend/src/services/optimization/snapshot.ts` | Reads capacity + demand into the immutable snapshot the scheduler consumes |
+| `backend/src/services/optimization/runner.ts` | The only writer: plans, then commits each assignment through `issueRecommendation` |
+| `backend/src/services/optimization/consumer.ts` | The capacity-release trigger — a cursor over `reservationevents`, not a call from the cancellation path |
+| `backend/src/services/recommendation.service.ts` | `issue` / `accept` / `reject` / `expire` / `supersede` / sweep |
+| `backend/src/models/Recommendation.ts` | An offer. Holds capacity in `reservationoccupancy` under the same unique index firm reservations use, tagged with `recommendationId` instead of `bookingId` |
+| `backend/src/models/OptimizationRun.ts` | Audit of one pass: trigger, counterfactual, what was issued/declined/waitlisted |
+| `backend/src/models/recommendationPolicy.ts` | Pure: hold window (5 min, fixed), `MAX_OFFERS_PER_REQUEST` (3), waitlist reasons |
+
+**Endpoints:** `GET|POST|PATCH /api/optimizer/offers` (driver: view / accept / decline) ·
+`GET|POST /api/admin/optimizer` (staff/admin: demand pool + live offers + run history / run a pass,
+preview by default) · `POST /api/reservations/requests { autoOffer: true }` (driver: let the
+optimizer choose and hold one instead of returning a shortlist).
+
+**Surfaces:** `/offers` (driver) · `/admin/optimizer` (operator).
+
+**The central decision, and why it makes everything else safe:** an offer is not a suggestion on a
+screen — while `PENDING_ACCEPTANCE` it owns real rows in `reservationoccupancy`, so acceptance is a
+field update on rows already held rather than a fresh claim that could lose a race. One collection,
+one unique index, one arbiter — an offer cannot be made on a bay someone is booking, and a booking
+cannot take a bay under offer. Per `CLAUDE.md` §2, the partial unique index and the occupancy index
+remain the sole arbiters; the optimizer never becomes a second one.
+
+**The hold is 5 minutes, independent of session length** — tying it to duration would make the
+offers most worth making the ones that cost the most to make (§ recommendationPolicy.ts). Answering
+late is not an error: it re-optimizes for that one request and returns either a fresh offer or a
+waitlist place, never a bare failure.
+
+**Waitlisting is not a separate mechanism.** A request the scheduler could not place is marked
+`WAITLISTED` with a reason (`no_free_capacity`, `no_compatible_charger`, `window_too_narrow`,
+`outside_operating_hours`, `displaced_by_higher_priority`); `OPEN` and `WAITLISTED` are one pool, so
+it is reconsidered on every capacity release. `no_compatible_charger` is excluded from
+re-evaluation — no amount of freed time creates a matching connector. `MAX_OFFERS_PER_REQUEST`
+stops the platform from volunteering an unanswered customer's bay forever without making the
+request unfulfillable — it stays fully live and bookable by hand or by an operator pass.
+
+**Not built:** incident-triggered `recovery` re-placement of already-committed reservations, and
+per-station weight tuning (weights are constants, not the per-station `optimizationpolicy` config
+the design doc describes). Neither blocks the working end of the pipeline — a direct, available-slot
+booking still goes straight through `claimReservation` with no optimizer involvement, per
+`RESERVATION_OPTIMIZATION_ENGINE.md` §7.3.
+
+**Verified:** `backend/scripts/verify-scheduler.ts` (18 pure property checks) and
+`backend/scripts/verify-recommendations.ts` (26 checks against the real database — an offer
+blocking a booking and vice versa, acceptance rewriting the same rows rather than inserting new
+ones, the offer cap, and the consumer finding work from the event log without being told a request
+exists). Both run as part of `npm run ops:verify`.
+
+**Production scheduling:** `npm run ops:optimizer-consumer` needs to run on a short timer alongside
+`ops:expire-commitments` — see `RUNBOOK.md` §6. Nothing about correctness depends on it running
+promptly; only responsiveness does.
+
+---
+
 ## 7. Suggested next work, in dependency order
 
 1. **Apply the two migrations** (owner) and schedule `ops:expire-commitments`.
@@ -339,21 +401,20 @@ reads without refreshing, because it polls constantly and a write on every poll 
    accurate arrival analytics.
 3. ~~First `reservationevents` consumer~~ — **done**: the reliability score. See
    `IMPLEMENTED_LOGIC.md` §7.
-4. **Waitlists** — now a much smaller job than the roadmap assumed: `ReservationRequest` already
-   *is* the waitlist entry (an `OPEN` request), the matcher already ranks candidates, and
-   `reservation.released` already fires when capacity frees up. What is missing is the offer
-   lifecycle (offer → time-limited acceptance → expiry) and the consumer that reacts to a release.
-   **Before writing that consumer, settle the delivery guarantee** — `emitReservationEvent` is
-   deliberately best-effort and never throws, which is right for analytics and wrong for an offer:
-   a dropped `reservation.released` means a waitlisted driver is never told a bay came free. That
-   needs an outbox or a reconciling sweep, and retrofitting it under a live consumer is the worst
-   time to do it.
+4. ~~**Waitlists**~~ — **done** (Phase H): the offer lifecycle (offer → time-limited acceptance →
+   expiry) and the capacity-release consumer are both built. The delivery-guarantee concern raised
+   here was resolved without an outbox: the consumer is a resumable cursor over `optimizationruns`
+   rather than a one-shot reaction, so a missed or delayed pass just means a bigger window next
+   time, not a lost release — the cost is latency, never a dropped offer. See §6e.
 5. **Extensions & overstay** — Roadmap Phase 4. `PaymentIntent.purpose` already accepts
    `extension_commitment`, and `session.ended` already records `minutesOverstayed`.
 6. **Admin deposit reporting** — small, demo-visible.
 7. **Multi-slot reservations** — would let a flexible request span consecutive intervals. Needs a
    decision first: one booking per interval breaks "one reservation", so it likely needs a
    reservation-to-interval join. Do not improvise this inside the matcher.
+8. **Incident-triggered `recovery` re-placement and per-station optimizer weight tuning** — the two
+   remaining surfaces from `RESERVATION_OPTIMIZATION_ENGINE.md` §7.4 that Phase H did not build.
+   Weights currently live as constants in `recommendationPolicy.ts` / `scoring.ts`.
 
 Design docs, in the order they were written:
 `RESERVATION_ARCHITECTURE_V2.md` → `RESERVATION_V2_IMPACT_REPORT.md` →
