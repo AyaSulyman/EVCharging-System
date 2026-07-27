@@ -85,6 +85,12 @@ export interface ScheduleQuality {
   avgOverstayDurationMinutes: KpiValue;
   maxOverstayDurationMinutes: KpiValue;
   repeatOverstayOffenderCount: KpiValue;
+  /* Early departure — capacity handed back before the booked end. */
+  earlyDepartureRate: KpiValue;
+  totalMinutesReleased: KpiValue;
+  avgMinutesReleased: KpiValue;
+  maxMinutesReleased: KpiValue;
+  capacityRecoveryRate: KpiValue;
   daily: DailyPoint[];
   /** Utilization broken out per station, worst first — where to add or move capacity. */
   utilizationByStation: { station: string; utilizationPercent: number; slots: number }[];
@@ -428,5 +434,113 @@ export function repeatOverstayOffenderCount(c: OverstayOutcomeCounts): KpiValue 
     sampleSize: c.chargingEligible,
     meetsTarget: null,
     note: "Distinct customers with more than one overstay incident in this period.",
+  };
+}
+
+/* ============================================================================
+ * Early departure — capacity handed back before the booked end
+ *
+ * THE MIRROR OF THE OVERSTAY METRICS ABOVE, and the reason they are worth having as their own
+ * group. Overstay measures time taken beyond what was booked; early departure measures time given
+ * back. Both are the same underlying gap — scheduled end against actual end — read in opposite
+ * directions, and folding them into one signed metric would hide both: a station where half the
+ * drivers overrun and half leave early would report a tidy zero.
+ *
+ * WHY THIS MATTERS FOR UTILIZATION HONESTY. `utilizationRate` is computed from *booked* minutes,
+ * because that is what the station committed and could not sell to anyone else. That is the right
+ * denominator, but it means an early departure still counts as fully utilized. These metrics are
+ * what stop that being misleading: recovered minutes say how much of the booked time was handed
+ * back and became sellable again. Read together, utilization says what was promised and recovery
+ * says how much of that promise was actually consumed.
+ *
+ * DERIVED, NEVER STORED. Minutes released are computed from `scheduledEnd - actualEnd`, both of
+ * which the booking already holds. A stored `minutesReleased` would be a second copy of a number
+ * the reservation can always recompute, and the two would eventually disagree — the same reasoning
+ * that keeps reliability a fold over events rather than a counter.
+ * ========================================================================== */
+
+export interface EarlyDepartureCounts {
+  /** Completed sessions that ended before their booked end. */
+  earlyDepartures: number;
+  /** Every completed session in the period — the denominator. */
+  completed: number;
+  /** Total minutes handed back across those early departures. */
+  minutesReleasedSum: number;
+  /** The single largest release, for spotting one outlier behind a flattering mean. */
+  maxMinutesReleased: number;
+  /** Booked minutes across every completed session, for the recovery ratio. */
+  bookedMinutesSum: number;
+}
+
+export function earlyDepartureRate(c: EarlyDepartureCounts): KpiValue {
+  const value = pct(c.earlyDepartures, c.completed);
+  return {
+    value,
+    sampleSize: c.completed,
+    meetsTarget: null,
+    note:
+      c.completed === 0
+        ? "No completed sessions to measure this against in this period"
+        : "Completed sessions that ended before their booked end, over all completed sessions.",
+  };
+}
+
+export function totalMinutesReleased(c: EarlyDepartureCounts): KpiValue {
+  return {
+    value: c.earlyDepartures > 0 ? c.minutesReleasedSum : null,
+    sampleSize: c.earlyDepartures,
+    meetsTarget: null,
+    note:
+      c.earlyDepartures === 0
+        ? "No early departures in this period"
+        : "Charger minutes handed back before the booked end, and made bookable again.",
+  };
+}
+
+export function avgMinutesReleased(c: EarlyDepartureCounts): KpiValue {
+  const value =
+    c.earlyDepartures > 0
+      ? Math.round((c.minutesReleasedSum / c.earlyDepartures) * 10) / 10
+      : null;
+  return {
+    value,
+    sampleSize: c.earlyDepartures,
+    meetsTarget: null,
+    note:
+      c.earlyDepartures === 0
+        ? "No early departures in this period"
+        : "Mean minutes handed back, over sessions that ended early.",
+  };
+}
+
+export function maxMinutesReleased(c: EarlyDepartureCounts): KpiValue {
+  return {
+    value: c.earlyDepartures > 0 ? c.maxMinutesReleased : null,
+    sampleSize: c.earlyDepartures,
+    meetsTarget: null,
+    note:
+      c.earlyDepartures === 0
+        ? "No early departures in this period"
+        : "The single largest block of time handed back in this period.",
+  };
+}
+
+/**
+ * Released minutes as a share of all booked minutes — how much of what the station sold came back.
+ *
+ * The number that makes `utilizationRate` honest. A site reporting 80% utilization with 15%
+ * recovery was really about 68% occupied; without this, the two are indistinguishable and capacity
+ * planning is done against the wrong figure.
+ */
+export function capacityRecoveryRate(c: EarlyDepartureCounts): KpiValue {
+  const value = pct(c.minutesReleasedSum, c.bookedMinutesSum);
+  return {
+    value,
+    sampleSize: c.completed,
+    meetsTarget: null,
+    note:
+      c.bookedMinutesSum === 0
+        ? "No booked time to measure this against in this period"
+        : "Booked minutes handed back early, over all booked minutes on completed sessions.",
   };
 }

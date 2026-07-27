@@ -65,6 +65,23 @@ export const DEFAULT_NO_SHOW_THRESHOLD_MINUTES = Number(
 );
 
 /** Arrival outcomes — a stamped-once classification, not a lifecycle state. See classifyArrival. */
+/**
+ * Why an interval went back into availability, as recorded on a `reservation.released` event.
+ *
+ * A closed vocabulary rather than free text, because these strings are read by consumers deciding
+ * whether to re-plan: `EARLY_DEPARTURE` means real, immediately-bookable time came back, while a
+ * cancellation before the start means the time was never taken. Spelling either one differently in
+ * two places is how a release stops triggering the pass that should follow it.
+ *
+ * Distinct from an event's `basis`, which is the policy's own justification and is already consumed
+ * by the reliability and behaviour folds. `reason` is the operational label for the release itself.
+ */
+export const RELEASE_REASONS = ["EARLY_DEPARTURE"] as const;
+export type ReleaseReason = (typeof RELEASE_REASONS)[number];
+
+/** Charging finished before the booked end, handing the remaining minutes back to the station. */
+export const RELEASE_REASON_EARLY_DEPARTURE: ReleaseReason = "EARLY_DEPARTURE";
+
 export const ARRIVAL_OUTCOMES = ["ON_TIME", "EARLY", "GRACE", "LATE", "NO_SHOW"] as const;
 export type ArrivalOutcome = (typeof ARRIVAL_OUTCOMES)[number];
 

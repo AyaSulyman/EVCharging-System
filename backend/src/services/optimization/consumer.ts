@@ -40,7 +40,7 @@ import { runOptimization, type OptimizationResult } from "./runner";
  * expire, reopen, release, offer again — is bounded by MAX_OFFERS_PER_REQUEST, without which it
  * would freeze a bay five minutes out of every few, forever, for a customer who stopped answering.
  */
-const CAPACITY_RELEASING_EVENTS: ReservationEventType[] = [
+export const CAPACITY_RELEASING_EVENTS: ReservationEventType[] = [
   "reservation.cancelled",
   "reservation.released",
   "reservation.no_show",

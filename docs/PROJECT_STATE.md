@@ -11,7 +11,7 @@ logic the system implements, and the file to build a presentation or slide deck 
 
 **A verification pass was run on 2026-07-27 against the live codebase — see
 [`SYNC_AUDIT.md`](SYNC_AUDIT.md) for what was checked and [`NEXT_STEPS.md`](NEXT_STEPS.md) for what
-remains.** It reproduced the headline claims in this file (165/165, 21 KPIs, the incident and
+remains.** It reproduced the headline claims in this file (175/175, 21 KPIs, the incident and
 delay-propagation read-only boundaries) and found three things this file did not yet record: the
 frontend did not compile because a declared dependency was not installed (**since resolved and
 re-verified — frontend `tsc` and `npm run build` both pass**), the frontend has never been linted,
@@ -19,7 +19,7 @@ and the optimizer is called inline from the extension flow in contradiction of `
 three are carried in §9 below.
 
 **All four migrations have now been APPLIED to the working `chargehub` database, `ops:indexes` has
-been run, and `ops:verify` passes 165/165** (scheduler + reservation-flow + recommendations
+been run, and `ops:verify` passes 175/175** (scheduler + reservation-flow + recommendations
 harnesses). The §2 warnings below are kept for anyone setting up a different database.
 
 This file exists so a teammate — or a teammate's AI assistant — can pick the project up without
@@ -51,7 +51,7 @@ same commit.**
 | **Technical Incident Engine** (charger/station problems: creation, tracking, resolution) | **Done** — see §6i. Identifies affected reservations/recommendations/waitlist; acts on none of them |
 | **Delay Propagation Engine** (cascading delay detection, new estimated times, recovery requests) | **Done** — see §6j. Consumes `computeIncidentImpact`; never writes to a reservation |
 | Reservation Scoring Engine | **Done** — five factors, breakdown + rationale stored per assignment |
-| Schedule Quality KPIs | **Done** — twenty-one platform metrics (five scheduling + five arrival-outcome + six extension-outcome + five overstay-outcome), computed live, nothing stored |
+| Schedule Quality KPIs | **Done** — twenty-six platform metrics (five scheduling + five arrival-outcome + six extension-outcome + five overstay-outcome + five early-departure/capacity-recovery), computed live, nothing stored |
 | Reservation Optimization Engine (multi-request scheduler + commit path) | **Done** — Phase H, steps 1–5 of the roadmap. `ReservationRequest.priority`'s `"recovery"` tier is wired into scoring and, as of the Delay Propagation Engine (§6j), is actually created — the first real user of that tier. Per-station weight tuning still not built. See §6e |
 | Customer reliability score | **Done** — the first event-log consumer, derived not accumulated |
 | Customer behaviour tracking | **Done** — second consumer: delays, cancellations, no-shows, arrival accuracy |
@@ -60,7 +60,8 @@ same commit.**
 | **Demo Support Layer** (deterministic scenarios, controlled clock, `npm run demo`) | **Done** — see §6k. Sequences real services only; zero production code is demo-aware |
 | **QR Check-In Workflow** (lookup by scanned QR or booking code, ahead of check-in) | **Done** — see §6l. Read-only lookup; hands off to the pre-existing `checkIn`, never a second transition |
 | **QR Scanner Interface** (browser-camera UI for the above) | **Done** — see §6m. UI only; camera-decoded and manually-typed input share one lookup call. `qr-scanner@1.4.2` installed and building as of 2026-07-27 |
-| **Verification status** (2026-07-27, re-run) | Backend `ops:verify` **165/165**, `tsc` clean, lint at its 15-warning baseline. Frontend `tsc` **clean** and `npm run build` **succeeds** (38 routes). Frontend lint is still unconfigured — the one open quality gap. See [`SYNC_AUDIT.md`](SYNC_AUDIT.md) |
+| **Early Departure Capacity Release** (leaving before the booked end returns the time) | **Done** — see §6o. The release, the event and the consumer trigger already existed and were verified; this phase added the `EARLY_DEPARTURE` reason and five capacity-recovery metrics. **No migration** — minutes released are derived from `scheduledEnd − actualEnd` |
+| **Verification status** (2026-07-27, re-run) | Backend `ops:verify` **175/175**, `tsc` clean, lint at its 15-warning baseline. Frontend `tsc` **clean** and `npm run build` **succeeds** (38 routes). Frontend lint is still unconfigured — the one open quality gap. See [`SYNC_AUDIT.md`](SYNC_AUDIT.md) |
 
 ---
 
@@ -153,7 +154,7 @@ npm run ops:migrate-v2 -- --apply && npm run ops:migrate-commitments -- --apply 
 
 Be precise about these. Do not describe them as finished.
 
-- **Runtime verification now exists and passes.** `npm run ops:verify` runs **165/165** assertions
+- **Runtime verification now exists and passes.** `npm run ops:verify` runs **175/175** assertions
   against live data across three harnesses — scheduler properties, the reservation-flow suite
   (range claim, atom count, duration-scaled cost, availability by duration, the deposit
   decline-then-retry path, the gateway promotion, event emission and both projections, arrival
@@ -1141,6 +1142,64 @@ long past its scheduled end (proving cross-feature integration needed zero speci
 `recomputeForUser` picked up the new completion (`totalCompleted` 24 → 25) purely by folding the
 same event log every other completion already writes to. Test data reverted afterward. `npm run
 ops:verify` — **165/165**, unchanged.
+
+---
+
+## 6o. Early Departure Capacity Release — mostly verification, two real additions
+
+**The scenario.** A driver books until 18:00 and finishes at 17:35. Those 25 minutes must go back
+on sale, and anyone waiting must get a chance at them.
+
+**Most of this was already built.** Verified before implementing, per `CLAUDE.md` §0:
+
+| Requirement | State before this phase |
+|---|---|
+| Release remaining capacity | Already done — `endCharging` calls `releaseOccupancy` |
+| Update occupancy | Same call; every atom deleted |
+| Update availability | Follows automatically — availability is computed from occupancy, never stored |
+| Trigger waitlist evaluation | Already wired — waitlisted requests share the pool with open ones |
+| Trigger optimization evaluation | Already wired — `reservation.released` and `session.ended` are both consumer triggers |
+| Track minutes released | Already computed as `minutesEarly`, plus a `releasedEarly` flag |
+| Event `reservation.released` | Already emitted, with `basis: "early_departure"` |
+
+**What was actually missing**, and what this phase added:
+
+1. **The canonical reason.** The event now carries `reason: "EARLY_DEPARTURE"` from a closed
+   vocabulary (`RELEASE_REASONS` in `reservationLifecycle.ts`). `basis` was left untouched —
+   the reliability and behaviour folds already read that field, and redefining a consumed field
+   rewrites how historical events are interpreted. Adding one is safe; changing one is not. Checked
+   by grep that nothing consumed `basis === "early_departure"` before deciding.
+2. **Platform analytics.** Five metrics — `earlyDepartureRate`, `capacityRecoveryRate`,
+   `totalMinutesReleased`, `avgMinutesReleased`, `maxMinutesReleased` — taking schedule quality to
+   twenty-six. See `IMPLEMENTED_LOGIC.md` §26.6 for why `utilizationRate` needed them: it is
+   computed from *booked* minutes, so without a recovery figure an early departure still reads as
+   fully utilized.
+
+**No migration.** Minutes released are derived from `scheduledEnd − actualEnd`, both of which every
+booking already stores. That was a deliberate choice over adding a `minutesReleased` column: a
+stored counter is a second copy of a derivable number and the two drift. It also means the metrics
+work on historical bookings, including ones completed before this phase existed.
+
+**Contradiction audit.** Three checked, all clean:
+- **Utilization is not broken by the release.** It is computed from bookings' scheduled minutes, not
+  from occupancy rows, so deleting the rows does not make completed sessions vanish from it. This
+  was the risk worth checking — had utilization read occupancy, every completed session would have
+  counted as zero.
+- **The behaviour fold cannot double-count.** It counts early departures only from `session.ended`,
+  inside a `switch` on event type, so the extra `minutesReleased` on `reservation.released` is not
+  seen twice.
+- **`penalize: false` is a no-op made explicit.** The schema already defaulted it to false; stating
+  it prevents a future reader assuming leaving early is a fault.
+
+**Ordering.** Occupancy is deleted *before* the event is emitted. The consumer plans against live
+occupancy the moment it sees the release, so the reverse order would invite a pass that tries to
+hand out atoms still held.
+
+**Verified:** `ops:verify` **175/175** (was 165/165) — eleven new assertions covering the zero-rows
+release, availability re-offering the freed start, the `EARLY_DEPARTURE` reason, the consumer
+trigger membership, and the metric arithmetic including the null-not-zero rule. Against the live
+database: 11 early departures across 121 completed sessions, 193 minutes recovered, 9.1% early
+departure rate.
 
 ---
 

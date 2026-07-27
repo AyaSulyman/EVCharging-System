@@ -25,7 +25,7 @@ Read alongside [`PROJECT_STATE.md`](PROJECT_STATE.md) (what is built) and
 | Running in production | [§6 Scheduled jobs](#6-scheduled-jobs) |
 
 **Status as of 2026-07-27 (Final Project Audit):** all four migrations have been applied to the
-working `chargehub` database, `ops:indexes` has been run, and `ops:verify` passes 165/165
+working `chargehub` database, `ops:indexes` has been run, and `ops:verify` passes 175/175
 (scheduler, reservation flow, and recommendations/optimizer harnesses). If you are working on that
 database you do **not** need §2.
 
@@ -58,7 +58,7 @@ Publishes bookable inventory. Idempotent. Without it the booking wizard is empty
 ```bash
 npm run ops:verify
 ```
-Confirms the whole stack works. Expect **165/165 checks passed** and no blocked preconditions.
+Confirms the whole stack works. Expect **175/175 checks passed** and no blocked preconditions.
 
 ---
 
@@ -117,7 +117,7 @@ guarantee at all. Expect `migration complete and coherent : YES`.
 ```bash
 npm run ops:verify
 ```
-Last. Expect **165/165 and zero blocked preconditions**. In particular:
+Last. Expect **175/175 and zero blocked preconditions**. In particular:
 
 ```
 PASS  OVERLAPPING reservation rejected by the index — CHARGER_BUSY
@@ -324,7 +324,7 @@ only when you want that one effect in isolation.
 | `ops:migrate-commitments` | Dry run | Refuses until v2 applied |
 | `ops:migrate-flexibility` | Dry run | Refuses until v2 applied |
 | `ops:migrate-occupancy` | Dry run | **Non-additive.** Rebuilds the `slotId` index |
-| `ops:verify` | Self-cleaning | Runs `ops:verify-scheduler` + `ops:verify-reservation-flow` (via `verify-reservation-flow.ts`) + `ops:verify-recommendations`; 165/165 expected |
+| `ops:verify` | Self-cleaning | Runs `ops:verify-scheduler` + `ops:verify-reservation-flow` (via `verify-reservation-flow.ts`) + `ops:verify-recommendations`; 175/175 expected |
 | `ops:demo-data` | Tagged `isDemo` | `-- --clear` removes it |
 | `demo -- run <scenario\|all>` | Yes | Deterministic presentation scenarios — see §3b |
 | `demo -- reset` | Yes | Clears scenario data; fixtures kept |

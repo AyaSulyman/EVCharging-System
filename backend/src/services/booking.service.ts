@@ -7,6 +7,7 @@ import Vehicle from "@/models/Vehicle";
 import {
   DEFAULT_GRACE_PERIOD_MINUTES,
   DEFAULT_NO_SHOW_THRESHOLD_MINUTES,
+  RELEASE_REASON_EARLY_DEPARTURE,
   classifyArrival,
 } from "@/models/reservationLifecycle";
 import { DEFAULT_FLEXIBILITY } from "@/models/flexibilityPolicy";
@@ -984,6 +985,11 @@ export async function endCharging(bookingId: string) {
   // A session that ends before its scheduled end returns real capacity to the station, which is
   // exactly what the waitlist matcher and the optimizer want to know about. Separate from the
   // completion above: a consumer reacting to freed capacity should not have to parse durations.
+  //
+  // The occupancy was already deleted above, so by the time this event is read the time is genuinely
+  // bookable — the consumer that reacts to it will plan against a station that really does have the
+  // gap. Emitting before the release would invite a pass that plans against capacity it cannot yet
+  // take.
   if (minutesEarly > 0) {
     booking.releasedEarly = true;
     await booking.save();
@@ -995,8 +1001,14 @@ export async function endCharging(bookingId: string) {
       slotId: booking.slotId,
       lifecycle: booking.lifecycle,
       fault: "customer",
+      // Never penalising: leaving early is the behaviour the platform wants, not a fault. It is
+      // recorded so the capacity can be resold, not so the driver can be marked down for it.
+      penalize: false,
       basis: "early_departure",
-      metadata: { minutesEarly },
+      // The closed release vocabulary, read by anything deciding whether to re-plan. `basis` stays
+      // as it was because the reliability and behaviour folds already consume that field.
+      reason: RELEASE_REASON_EARLY_DEPARTURE,
+      metadata: { minutesEarly, minutesReleased: minutesEarly, scheduledEnd, actualEnd: booking.actualEnd },
     });
   }
 

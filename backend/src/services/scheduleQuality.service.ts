@@ -47,6 +47,12 @@ import {
   reservationSuccessRate,
   servedCustomersPerDay,
   totalOverstayIncidents,
+  earlyDepartureRate,
+  totalMinutesReleased,
+  avgMinutesReleased,
+  maxMinutesReleased,
+  capacityRecoveryRate,
+  type EarlyDepartureCounts,
   utilizationRate,
   type ArrivalOutcomeCounts,
   type DailyPoint,
@@ -95,7 +101,10 @@ export async function getScheduleQuality(
     startTime: { $gte: from, $lte: to },
   })
     .select(
-      "userId status lifecycle scheduledStart scheduledEnd startTime endTime durationMinutes stationId arrivalOutcome extensionDecision requestedExtensionMinutes approvedExtensionMinutes overstayStatus overstayDurationMinutes"
+      // `actualEnd` and `releasedEarly` carry the early-departure metrics. Minutes released are
+      // derived from scheduledEnd - actualEnd rather than stored, so nothing here needs a migration
+      // and there is no second copy of a number the reservation can always recompute.
+      "userId status lifecycle scheduledStart scheduledEnd startTime endTime durationMinutes stationId arrivalOutcome extensionDecision requestedExtensionMinutes approvedExtensionMinutes overstayStatus overstayDurationMinutes actualEnd releasedEarly"
     )
     .lean<
       {
@@ -114,6 +123,8 @@ export async function getScheduleQuality(
         approvedExtensionMinutes?: number | null;
         overstayStatus?: string | null;
         overstayDurationMinutes?: number | null;
+        actualEnd?: Date | null;
+        releasedEarly?: boolean | null;
       }[]
     >();
 
@@ -215,6 +226,55 @@ export async function getScheduleQuality(
   }
   for (const count of overstayIncidentsByCustomer.values()) {
     if (count > 1) overstayCounts.repeatOffenders++;
+  }
+
+  /* ---------------------------------------------------------------- early departure */
+
+  /**
+   * Capacity handed back before the booked end — the mirror of the overstay block above.
+   *
+   * Minutes are DERIVED from `scheduledEnd - actualEnd`, both of which the booking already stores,
+   * rather than read from a persisted counter. That keeps this metric free of a migration and free
+   * of a second copy of a number the reservation can always recompute.
+   *
+   * `releasedEarly` is not trusted as the source of truth: it is set by `endCharging`, so a booking
+   * completed before that flag existed would have the time recorded but the flag absent. Deriving
+   * from the two timestamps counts those correctly, and the flag stays a fast query hint.
+   *
+   * Overstays are excluded by construction — a negative difference is an overstay, already measured
+   * above, and clamping it to zero here would let one long overrun quietly cancel out a real
+   * release in the sum.
+   */
+  const earlyDepartureCounts: EarlyDepartureCounts = {
+    earlyDepartures: 0,
+    completed: 0,
+    minutesReleasedSum: 0,
+    maxMinutesReleased: 0,
+    bookedMinutesSum: 0,
+  };
+  for (const b of bookings) {
+    if (b.lifecycle !== "COMPLETED") continue;
+    earlyDepartureCounts.completed++;
+
+    const bookedEnd = b.scheduledEnd ?? b.endTime;
+    const bookedStart = b.scheduledStart ?? b.startTime;
+    const bookedMinutes =
+      b.durationMinutes ??
+      Math.round((new Date(bookedEnd).getTime() - new Date(bookedStart).getTime()) / 60_000);
+    earlyDepartureCounts.bookedMinutesSum += Math.max(0, bookedMinutes);
+
+    if (!b.actualEnd || !bookedEnd) continue;
+    const released = Math.round(
+      (new Date(bookedEnd).getTime() - new Date(b.actualEnd).getTime()) / 60_000
+    );
+    if (released <= 0) continue;
+
+    earlyDepartureCounts.earlyDepartures++;
+    earlyDepartureCounts.minutesReleasedSum += released;
+    earlyDepartureCounts.maxMinutesReleased = Math.max(
+      earlyDepartureCounts.maxMinutesReleased,
+      released
+    );
   }
 
   /* ---------------------------------------------------------------- daily series */
@@ -387,6 +447,11 @@ export async function getScheduleQuality(
     avgOverstayDurationMinutes: avgOverstayDurationMinutes(overstayCounts),
     maxOverstayDurationMinutes: maxOverstayDurationMinutes(overstayCounts),
     repeatOverstayOffenderCount: repeatOverstayOffenderCount(overstayCounts),
+    earlyDepartureRate: earlyDepartureRate(earlyDepartureCounts),
+    totalMinutesReleased: totalMinutesReleased(earlyDepartureCounts),
+    avgMinutesReleased: avgMinutesReleased(earlyDepartureCounts),
+    maxMinutesReleased: maxMinutesReleased(earlyDepartureCounts),
+    capacityRecoveryRate: capacityRecoveryRate(earlyDepartureCounts),
     daily,
     utilizationByStation,
   };

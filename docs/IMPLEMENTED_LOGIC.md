@@ -8,7 +8,7 @@ to reverse-engineer the reasoning out of the code under time pressure.
 already integrated cleanly with §23–24's QR check-in, plus one UI-continuity fix in the lookup card;
 no backend file changed).**
 **Verified against the codebase on 2026-07-27** — see [`SYNC_AUDIT.md`](SYNC_AUDIT.md). Every
-headline claim in this file was reproduced (165/165 harness checks, 21 schedule-quality KPIs, the
+headline claim in this file was reproduced (175/175 harness checks, 21 schedule-quality KPIs, the
 incident and delay-propagation read-only boundaries). **One entry now carries a conflict warning:
 §17.6 contradicts `CLAUDE.md` §2 and awaits a decision.** Nothing else was found out of sync.
 
@@ -2239,7 +2239,102 @@ transition, before writing any code.
 
 ---
 
-# 26. Suggested demo running order
+# 26. Early Departure Capacity Release ⭐
+
+**A driver booked until 18:00 and leaves at 17:35. The 25 minutes go back on sale.**
+
+**Most of this already existed and was verified rather than rebuilt** — see §0 of `CLAUDE.md` for
+why that check comes first. `endCharging` already deleted the occupancy, already computed the
+minutes, and already emitted `reservation.released`; the capacity-release consumer already treated
+that event as a trigger. What this phase added was the canonical release reason and the platform
+analytics, plus assertions pinning the parts that were previously working by convention.
+
+### 26.1 Ending a session deletes the occupancy immediately ⭐
+- **Rule:** `endCharging` calls `releaseOccupancy(bookingId)`, which deletes **every** atom the
+  reservation held. Availability is computed from those rows, so the freed time is bookable the
+  instant the session ends — no sweep, no delay, no flag to interpret.
+- **Where:** `backend/src/services/booking.service.ts` → `endCharging`
+- **Why it matters:** This is what makes early departure a capacity feature rather than a
+  bookkeeping entry. Recording that time came back while the atoms stayed held would leave the bay
+  looking busy to every availability read and to the optimizer — the release would be real on paper
+  and invisible in practice.
+- **Verified:** the harness ends a session early and asserts **zero** occupancy rows remain, then
+  asserts the released start is offered again by `availabilityForStation`. Both, not just the first:
+  the row count proves the delete ran, the availability read proves it had the intended effect.
+- **Demo:** book 60 minutes, start, end after a moment, then reopen the booking wizard — the whole
+  hour is offered again.
+
+### 26.2 Minutes released are derived, never stored ⭐
+- **Rule:** Minutes handed back are computed from `scheduledEnd − actualEnd`, both already on the
+  booking. No `minutesReleased` column exists, and none was added.
+- **Where:** `backend/src/services/scheduleQuality.service.ts` (analytics),
+  `booking.service.ts` (event metadata)
+- **Why it matters:** A stored counter would be a second copy of a number the reservation can always
+  recompute, and the two drift the moment anything edits a time. Deriving also means this phase
+  needed **no migration** — the metrics work on every historical booking, including ones completed
+  before the feature existed. The same reasoning keeps reliability a fold over events rather than a
+  running total.
+- **Note:** `releasedEarly` on the booking stays, but only as a fast query hint. The analytics
+  deliberately do not trust it — a session completed before that flag existed has the timestamps but
+  not the flag, and deriving from the timestamps counts it correctly.
+
+### 26.3 `reservation.released` carries reason `EARLY_DEPARTURE` ⭐
+- **Rule:** The event now sets `reason: "EARLY_DEPARTURE"` from a closed vocabulary
+  (`RELEASE_REASONS`), alongside the pre-existing `basis: "early_departure"`.
+- **Where:** `backend/src/models/reservationLifecycle.ts` → `RELEASE_REASONS`,
+  `RELEASE_REASON_EARLY_DEPARTURE`; emitted in `booking.service.ts` → `endCharging`
+- **Why both fields:** `basis` is the policy's own justification and is already read by the
+  reliability and behaviour folds; changing it would have rewritten how historical events are
+  interpreted. `reason` is the operational label for the release itself. Adding a field is safe;
+  redefining a consumed one is not.
+- **Verified:** grep confirmed nothing consumes `basis === "early_departure"` before the change was
+  made, and the harness asserts the reason is exactly `EARLY_DEPARTURE`.
+
+### 26.4 The event is emitted after the release, never before ⭐
+- **Rule:** Occupancy is deleted first; `reservation.released` is emitted second.
+- **Where:** `backend/src/services/booking.service.ts` → `endCharging`
+- **Why it matters:** The consumer that reacts to this event immediately plans against live
+  occupancy. Emitting first would invite a pass that sees the release, tries to give the time to a
+  waitlisted request, and finds the atoms still held — a race that would surface as an unexplained
+  lost claim rather than as an ordering bug.
+
+### 26.5 Waitlist and optimizer evaluation happen through the consumer, not inline ⭐
+- **Rule:** `reservation.released` and `session.ended` are both in `CAPACITY_RELEASING_EVENTS`, so
+  `consumeCapacityReleases` picks the release up and runs a pass scoped to that station. Waitlisted
+  requests are in the same pool as open ones, so they are reconsidered by that pass automatically.
+- **Where:** `backend/src/services/optimization/consumer.ts`
+- **Why it matters:** `endCharging` does not call the optimizer. Per `CLAUDE.md` §2 and §7 the
+  optimizer stays a consumer — a driver ending their session must never be slowed, or fail, because
+  a planning pass over someone else's demand went wrong. This is the same rule the extension flow
+  currently breaks (§17.6), and the contrast is deliberate: this path shows what the rule looks like
+  when followed.
+- **Verified:** the harness asserts `reservation.released` is a member of the consumer's trigger set.
+  That is a wiring assertion, not a logic one — if the event type ever silently drops out, capacity
+  would be freed and never reconsidered, and every individual piece would still look correct.
+
+### 26.6 Five capacity-recovery metrics, and why utilization needed them ⭐
+- **Rule:** `earlyDepartureRate`, `capacityRecoveryRate`, `totalMinutesReleased`,
+  `avgMinutesReleased` and `maxMinutesReleased` join the schedule-quality set, taking it to
+  twenty-six.
+- **Where:** `backend/src/models/scheduleQualityPolicy.ts` (pure), surfaced on
+  `/admin/schedule-quality`
+- **Why it matters:** `utilizationRate` is computed from **booked** minutes, which is the right
+  denominator — that is the time the station committed and could not sell to anyone else. But it
+  means an early departure still counts as fully utilized. `capacityRecoveryRate` is what stops that
+  being misleading: a site reporting 80% utilization with 15% recovery was really about 68%
+  occupied, and without the second number the two are indistinguishable.
+- **Why a separate group from overstay:** they are the same gap read in opposite directions. Folded
+  into one signed metric, a station where half the drivers overrun and half leave early would report
+  a tidy zero and hide both. Overstays are excluded from the release sum by construction — a
+  negative difference is skipped, never clamped, so one long overrun cannot quietly cancel a real
+  release.
+- **Verified:** pure-function assertions in the harness pin the arithmetic (a 2-of-4 sample reads
+  50%, 45 of 240 booked minutes reads 18.8%, the mean divides by early departures and not by
+  completions) and that an empty period reads **null**, never a misleading zero. Against the live
+  database: 11 early departures across 121 completed sessions, 193 minutes recovered.
+- **Demo:** `/admin/schedule-quality` — the fifth KPI row, read next to Utilization in the first row.
+
+# 27. Suggested demo running order
 
 1. **Conflict-free claim** (§1.1, §11.1) — two browsers, same charger and time. The core claim.
 1b. **Duration-aware booking** (§11.3) — on the time step, switch 15/30/45/60/90 and watch the

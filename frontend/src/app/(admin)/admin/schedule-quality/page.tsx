@@ -21,6 +21,9 @@ import {
   Hourglass,
   Siren,
   Repeat,
+  LogOut,
+  Recycle,
+  Undo2,
   TrendingUp,
 } from "lucide-react";
 import { KpiWidget, type KpiValue } from "@/components/admin/KpiWidget";
@@ -70,6 +73,11 @@ interface Quality {
   avgOverstayDurationMinutes: KpiValue;
   maxOverstayDurationMinutes: KpiValue;
   repeatOverstayOffenderCount: KpiValue;
+  earlyDepartureRate: KpiValue;
+  totalMinutesReleased: KpiValue;
+  avgMinutesReleased: KpiValue;
+  maxMinutesReleased: KpiValue;
+  capacityRecoveryRate: KpiValue;
   daily: DailyPoint[];
   utilizationByStation: { station: string; utilizationPercent: number; slots: number }[];
 }
@@ -304,6 +312,46 @@ export default function ScheduleQualityPage() {
               unit=""
               icon={Repeat}
               sampleLabel="distinct customers"
+            />
+          </div>
+
+          {/* Early departure — the mirror of the overstay row above. Overstay is time taken beyond
+              what was booked; this is time handed back. Read alongside utilization: that figure is
+              computed from BOOKED minutes, so recovery is what says how much of the booked time was
+              actually consumed rather than resold. */}
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <KpiWidget
+              label="Early departures"
+              kpi={quality.earlyDepartureRate}
+              icon={LogOut}
+              sampleLabel="completed sessions"
+            />
+            <KpiWidget
+              label="Capacity recovered"
+              kpi={quality.capacityRecoveryRate}
+              icon={Recycle}
+              sampleLabel="completed sessions"
+            />
+            <KpiWidget
+              label="Minutes released"
+              kpi={quality.totalMinutesReleased}
+              unit=" min"
+              icon={Undo2}
+              sampleLabel="early departures"
+            />
+            <KpiWidget
+              label="Avg released"
+              kpi={quality.avgMinutesReleased}
+              unit=" min"
+              icon={Hourglass}
+              sampleLabel="early departures"
+            />
+            <KpiWidget
+              label="Largest release"
+              kpi={quality.maxMinutesReleased}
+              unit=" min"
+              icon={Timer}
+              sampleLabel="early departures"
             />
           </div>
 

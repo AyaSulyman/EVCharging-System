@@ -67,8 +67,19 @@ async function run() {
   const { ALLOWED_DURATIONS_MINUTES, OCCUPANCY_ATOM_MINUTES } = await import(
     "@/models/occupancyPolicy"
   );
-  const { classifyArrival, DEFAULT_GRACE_PERIOD_MINUTES, DEFAULT_NO_SHOW_THRESHOLD_MINUTES } =
-    await import("@/models/reservationLifecycle");
+  const {
+    classifyArrival,
+    DEFAULT_GRACE_PERIOD_MINUTES,
+    DEFAULT_NO_SHOW_THRESHOLD_MINUTES,
+    RELEASE_REASON_EARLY_DEPARTURE,
+  } = await import("@/models/reservationLifecycle");
+  const {
+    earlyDepartureRate,
+    capacityRecoveryRate,
+    avgMinutesReleased,
+    totalMinutesReleased,
+  } = await import("@/models/scheduleQualityPolicy");
+  const { CAPACITY_RELEASING_EVENTS } = await import("@/services/optimization/consumer");
   const { requestExtension, overrideExtension } = await import("@/services/extension.service");
   const { MAX_EXTENSIONS_PER_RESERVATION } = await import("@/models/extensionPolicy");
   const { scoreFromEvents, ADJUSTMENTS, INITIAL_SCORE } = await import("@/models/reliabilityPolicy");
@@ -468,6 +479,102 @@ async function run() {
       "session.started still carries the delay signal reliability/behaviour read",
       typeof startedEvent?.metadata?.delayMinutes === "number",
       `delayMinutes ${startedEvent?.metadata?.delayMinutes}`
+    );
+
+    /* ------------------------------------------------------ 7a. early departure releases capacity */
+
+    console.log("\n7a. Early departure hands the remaining time back");
+
+    // `first` was ended far ahead of its scheduled end, so it is an early departure by construction.
+    const releasedEvent = sessionEvents.find((e) => e.type === "reservation.released");
+    record(
+      "ending early emits reservation.released with reason EARLY_DEPARTURE",
+      releasedEvent?.reason === RELEASE_REASON_EARLY_DEPARTURE,
+      `reason ${releasedEvent?.reason ?? "—"}, basis ${releasedEvent?.basis ?? "—"}`
+    );
+    record(
+      "the released event carries the minutes handed back",
+      typeof releasedEvent?.metadata?.minutesReleased === "number" &&
+        releasedEvent.metadata.minutesReleased > 0,
+      `minutesReleased ${releasedEvent?.metadata?.minutesReleased}`
+    );
+    record(
+      "the booking is flagged releasedEarly",
+      completed.releasedEarly === true,
+      `releasedEarly ${completed.releasedEarly}`
+    );
+
+    // THE ASSERTION THAT MATTERS. Recording that time came back is worthless if the atoms are still
+    // held — the bay would look busy to every availability read and no waitlisted request could ever
+    // be given it.
+    const heldAfterEarlyExit = await Occupancy.countDocuments({ bookingId: first._id });
+    record(
+      "the occupancy atoms are actually gone, not just recorded as released",
+      heldAfterEarlyExit === 0,
+      `${heldAfterEarlyExit} atoms still held`
+    );
+
+    // And the freed range must be bookable again. Availability reading it as free is the difference
+    // between capacity recovery and a bookkeeping entry.
+    const availAfterRelease = await availabilityForStation({
+      stationId: String(charger.stationId),
+      date: baseStart,
+      durationMinutes: 60,
+      connectorType: vehicle.connectorType,
+    });
+    const freedCharger = availAfterRelease.find((c) => c.chargerId === String(charger._id));
+    const baseOfferedAgain = freedCharger?.starts.some(
+      (s) => s.getTime() === baseStart.getTime()
+    );
+    record(
+      "the released start is offered again by availability",
+      baseOfferedAgain === true
+    );
+
+    // The wiring that turns a release into a re-plan. If this event type ever drops out of the
+    // consumer's set, capacity would be freed and silently never reconsidered — invisible, because
+    // every individual piece would still look correct.
+    record(
+      "reservation.released is a trigger the capacity-release consumer acts on",
+      (CAPACITY_RELEASING_EVENTS as readonly string[]).includes("reservation.released"),
+      CAPACITY_RELEASING_EVENTS.join(", ")
+    );
+
+    // Analytics, as pure functions — no database needed, and they fail loudly if the derivation
+    // changes shape. An overstay must never subtract from released minutes.
+    const edSample = {
+      earlyDepartures: 2,
+      completed: 4,
+      minutesReleasedSum: 45,
+      maxMinutesReleased: 25,
+      bookedMinutesSum: 240,
+    };
+    record(
+      "earlyDepartureRate is a share of completed sessions",
+      earlyDepartureRate(edSample).value === 50,
+      `${earlyDepartureRate(edSample).value}%`
+    );
+    record(
+      "capacityRecoveryRate measures released against booked minutes",
+      capacityRecoveryRate(edSample).value === 18.8,
+      `${capacityRecoveryRate(edSample).value}%`
+    );
+    record(
+      "avgMinutesReleased divides by early departures, not by completions",
+      avgMinutesReleased(edSample).value === 22.5,
+      `${avgMinutesReleased(edSample).value} min`
+    );
+    const edEmpty = {
+      earlyDepartures: 0,
+      completed: 3,
+      minutesReleasedSum: 0,
+      maxMinutesReleased: 0,
+      bookedMinutesSum: 90,
+    };
+    record(
+      "with no early departures the metrics read null, never a misleading zero",
+      totalMinutesReleased(edEmpty).value === null && avgMinutesReleased(edEmpty).value === null,
+      `total ${totalMinutesReleased(edEmpty).value}, avg ${avgMinutesReleased(edEmpty).value}`
     );
 
     // 7b. Skip check-in entirely — the pre-existing, unmodified path must still work exactly as

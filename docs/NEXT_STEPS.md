@@ -20,7 +20,7 @@ entirely inside `node_modules`.
 
 | Check | Result |
 |---|---|
-| `ops:verify` (backend) | 165/165 |
+| `ops:verify` (backend) | 175/175 |
 | `tsc --noEmit` (backend) | Clean |
 | `lint` (backend) | 0 errors, 15 warnings (baseline) |
 | `tsc --noEmit` (frontend) | Clean |
@@ -125,7 +125,7 @@ Each verified present during this pass:
 
 **None outstanding.** All four migrations (`ops:migrate-v2`, `-commitments`, `-flexibility`,
 `-occupancy`) have been applied to the working `chargehub` database, and `ops:indexes` has been run.
-`ops:verify` passes 165/165 against it with zero blocked preconditions.
+`ops:verify` passes 175/175 against it with zero blocked preconditions.
 
 A **different** database needs the full sequence in `RUNBOOK.md` §2 before it will pass. Migrations
 are dry-run by default; `-- --apply` writes. Never run `--apply` against a live database without
