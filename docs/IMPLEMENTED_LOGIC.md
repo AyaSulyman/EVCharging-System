@@ -4,7 +4,8 @@
 the presentation, the demo script and any slide deck can be built from one place — and so nobody has
 to reverse-engineer the reasoning out of the code under time pressure.
 
-**Last updated: 2026-07-25 (duration-aware reservations, verified end-to-end).** Read alongside:
+**Last updated: 2026-07-26 (charging session lifecycle — check-in split from session start,
+departure recorded — verified end-to-end).** Read alongside:
 - [`../CLAUDE.md`](../CLAUDE.md) — what the project is, and the invariants that must not break
 - [`../AGENTS.md`](../AGENTS.md) — how to work here
 - [`PROJECT_STATE.md`](PROJECT_STATE.md) — what is built vs. not, and the ops commands
@@ -115,6 +116,40 @@ to reverse-engineer the reasoning out of the code under time pressure.
 - **Where:** `backend/src/models/Booking.ts`
 - **Why it matters:** Defaults run both on creation *and* when an older document missing the path is
   hydrated — so existing bookings pick up new fields transparently, even before a migration runs.
+
+### 2.4 The charging session is split from the reservation by function, not by a second field ⭐
+- **Rule:** Check-in (`checkIn`), charging start (`startCharging`) and charging end (`endCharging`)
+  are three dedicated service functions that move `lifecycle` through
+  `RESERVED → ARRIVED → CHARGING → COMPLETED`. None of them touch `status` before `COMPLETED`, and
+  none of them introduce a second state field.
+- **Where:** `backend/src/services/booking.service.ts`
+- **Why it matters:** `CLAUDE.md` already rejects a third parallel state field elsewhere in this
+  model (there is deliberately no `commitmentStatus` — `lifecycle` carries it). "The charging
+  session stays separate from the reservation" is real here, but it is a separation of
+  **responsibility** — a customer's payment/cancellation concerns never move a session forward, and
+  a session transition never re-derives the deposit or refund state — not a separation of *storage*.
+  Two enums for the same document inviting disagreement is a bigger risk than the one this avoids.
+- **`startCharging` needed zero changes to split check-in out.** It already deferred to a
+  pre-existing `actualArrival` (`if (!booking.actualArrival) booking.actualArrival = now`) and
+  already accepted `ARRIVED` as a starting state — both written for a check-in step that did not
+  exist yet. `checkIn` is the missing piece, not a rewrite of what was there.
+- **Verified:** starting a session after check-in preserves the check-in timestamp rather than
+  re-stamping it at charging-start time; a second check-in on an already-arrived reservation is
+  rejected; starting *without* a prior check-in still auto-stamps arrival exactly as before.
+- **Demo:** staff board — "Check in" moves a reservation to ARRIVED (only "Start" remains); "Start"
+  alone still works too, unchanged, for a desk that skips the extra step.
+
+### 2.5 Departure time — an honest default, not an invented signal ⭐
+- **Rule:** `departedAt` is recorded, set equal to `actualEnd` at the moment a session ends.
+- **Where:** `backend/src/models/Booking.ts`, `booking.service.ts` → `endCharging`
+- **Why it matters:** This platform has no hardware integration and senses nothing about a vehicle
+  physically leaving a bay (`CLAUDE.md` §5) — "charging stopped" is the only real signal available,
+  so it is also the honest value for "departed" *today*. The field is kept distinct from `actualEnd`
+  rather than reusing it, because a future overstay/departure-confirmation phase is expected to make
+  them genuinely diverge (a car can stop charging and still occupy the bay) — that is a decision for
+  when overstay handling is built, not a hardware sensor invented now to justify the field existing.
+- **Not built, deliberately:** a "confirm departure" action distinct from ending the session. Adding
+  one now would be a stub for a feature (overstay handling) that does not exist — `AGENTS.md` §9.
 
 ---
 
@@ -695,6 +730,54 @@ problem; a poor preference match rate is a capacity or scheduling problem.
   could have been served). Period selector 7/30/90 days, clamped server-side to 180.
 - **Demo:** open it, switch periods, hover a widget to show what the metric excludes.
 
+### 10.10 Five more: the Late Arrival Engine's platform-wide arrival-outcome rates ⭐
+- **Rule:** Early / on-time / grace-period-usage / late / no-show rate, all sharing one denominator
+  — reservations with a determined `arrivalOutcome` — rather than "resolved" (§10.4's denominator).
+- **Where:** `backend/src/models/scheduleQualityPolicy.ts` → `ArrivalOutcomeCounts`
+- **Why a different denominator than the rest of this section:** an outcome is decided at arrival
+  (or by the no-show sweep), which can be well before `scheduledEnd`. Gating on the session having
+  *ended*, like `reservationSuccessRate` correctly does, would undercount a reservation that is
+  still charging but already has a perfectly good arrival outcome. Both denominators independently
+  exclude cancellations, for the same underlying reason: neither an unresolved future reservation
+  nor a cancelled one ever gets the fact this section is measuring.
+- **Not the same computation as §8.6's per-customer no-show rate.** Both correctly exclude
+  cancellations from the denominator, but this one counts from the stored `arrivalOutcome` field
+  across the whole platform; §8.6 folds `reservationevents` per customer. Two honest denominators
+  answering two different questions ("us" vs. "this one driver"), not one duplicated.
+- **Demo:** `/admin/schedule-quality`, second row of widgets.
+
+### 10.11 Six more: the Extension Request Engine's platform-wide outcome rates
+- **Rule:** Request rate (of every reservation that reached charging), and approval / partial /
+  rejection rate plus average requested / approved minutes (of reservations that actually asked).
+- **Where:** `backend/src/models/scheduleQualityPolicy.ts` → `ExtensionOutcomeCounts`
+- **Why two different denominators, in the same section that already made this point once:** the
+  *request* rate answers "of everyone who could have asked, how many did" — denominator is every
+  reservation that reached `CHARGING`, decided or not. The *outcome* rates answer "of the ones who
+  asked, how did it go" — denominator is only the ones with a decision. Using the charging-eligible
+  count for the outcome rates would count every reservation that never asked as a silent rejection,
+  which it is not — the same reasoning §10.10 gives for its own denominator choice, applied again
+  because the shape of the question repeats.
+- **The two averages exclude different things.** Average requested minutes is over every decided
+  request, rejected included — "how much do people typically ask for." Average approved minutes is
+  over only approved-or-partial requests — averaging in rejections' zeros would describe "how
+  generous are rejections," not "how much do we typically grant when we grant anything."
+- **Demo:** `/admin/schedule-quality`, third row of widgets.
+
+### 10.12 Five more: the Overstay Engine's platform-wide figures
+- **Rule:** Total incidents and frequency rate (of every reservation that reached charging), plus
+  average duration, maximum duration and a repeat-offender count (of reservations/customers that
+  actually overstayed).
+- **Where:** `backend/src/models/scheduleQualityPolicy.ts` → `OverstayOutcomeCounts`, read
+  exclusively from `bookings.overstayStatus`/`overstayDurationMinutes` — never `reservationevents`.
+- **Same non-overlap §10.11 already established for extensions, applied again:**
+  `customerBehaviorPolicy.ts` computes its own overstay figures from the event log, per customer;
+  this section computes these five from booking fields, platform-wide. Neither reads the other's
+  source, so there is exactly one place each figure is computed.
+- **Repeat offender counts distinct customers, not incidents.** A driver who overstayed three times
+  counts once — answers "is this a few habitual latecomers or a broad pattern," which the incident
+  count alone cannot.
+- **Demo:** `/admin/schedule-quality`, fourth row of widgets.
+
 ---
 
 # 11. Duration-aware reservations ⭐
@@ -804,7 +887,7 @@ the system models charger occupancy as time ranges.
 - **Why it matters:** Everything from the v2 lifecycle onward had been checked only by typecheck and
   pure-function tests. Those prove the *logic*; they cannot prove the *wiring*. **A unique index never
   exercised, an event never emitted and a projection that never consumed anything are three ways for a
-  system to be confidently broken.** 16/16 checks now pass against live data.
+  system to be confidently broken.** 45/45 checks now pass against live data.
 - **Three real bugs it caught immediately**, none of which typecheck could see:
   1. **Mongoose pluralised the collection** to `reservationoccupancies` while the migration and
      harness addressed `reservationoccupancy` — two different collections, so the backfill would have
@@ -816,10 +899,11 @@ the system models charger occupancy as time ranges.
      first write — a collection nothing has written to genuinely does not exist.
 - **The assertion that matters most:** two **back-to-back** reservations must both succeed while two
   **overlapping** ones must not. That pair proves the half-open atom boundary at the database level.
-  It is currently reported as a *blocked precondition* rather than a pass, because the un-rebuilt
-  `slotId` index refuses the second range reservation before occupancy is reached — which is itself
-  worth knowing.
-- **Demo:** `npm run ops:verify` — a clean 16/16 with the database left exactly as it was found.
+  Both now pass — `ops:migrate-occupancy` has been applied to the working database, so the
+  `slotId` index no longer refuses the second range reservation before occupancy is reached. (On a
+  database where that migration has not run, this pair reports as a *blocked precondition* rather
+  than a pass — see `PROJECT_STATE.md` §2.)
+- **Demo:** `npm run ops:verify` — a clean 45/45 with the database left exactly as it was found.
 
 ---
 
@@ -881,14 +965,1096 @@ contribution either way.
 | **Deposits** | The state machine is real — hold window, expiry, refund cliff, waiver, forfeiture. The **gateway is a mock**: no money moves, no card data exists. Say "simulated payment". |
 | **Vehicle telemetry** | Simulated via `MockProvider`. The provider architecture is real; battery/range are generated. Tesla errors **by design** — use Mock. |
 | **Notifications** | Store and read/mark-read UI complete; **nothing generates them from events yet**. Samples are seeded. |
-| **Event consumers** | Reliability scoring is the **only** consumer. Waitlist notification and optimizer invalidation do not exist. |
-| **Optimization engine** | Candidate ranking is built. The full scheduler (plans, multi-reservation repair) is **design only**. |
+| **Event consumers** | Three: reliability scoring, behaviour profiles, and the optimizer's capacity-release consumer. Notification delivery on a released bay does not exist. |
+| **Optimization engine** | The multi-request scheduler, the offer/hold commit path, and the capacity-release consumer are built and verified (§15). Incident-triggered `recovery` re-placement and per-station weight tuning are **not built** — weights are constants. |
 | **Money figures** | All labelled **estimated** or **simulated**. |
 | **Energy metering / hardware control** | Do not exist, by design. |
 
 ---
 
-# 15. Suggested demo running order
+# 15. Multi-request optimization & offers ⭐
+
+Phase H. Section 9's scoring engine answers "which opening is best for **one** request?" This
+answers the harder question a grid of independent lookups cannot: **given many requests competing
+for the same chargers, who gets what** — and it does so without ever becoming a second arbiter of
+charger time.
+
+### 15.1 An offer holds real capacity — the design decision everything else follows from ⭐
+- **Rule:** While `PENDING_ACCEPTANCE`, a `Recommendation` owns rows in `reservationoccupancy` —
+  the same collection and the same unique index firm reservations use, tagged with a
+  `recommendationId` instead of a `bookingId`.
+- **Where:** `backend/src/models/Recommendation.ts`, `backend/src/services/occupancy.service.ts`
+  (`holdOccupancy` / `releaseHold` / `convertHoldToBooking`)
+- **Why it matters:** A plan proposed against twenty open requests and then offered one at a time
+  would conflict with itself the moment two customers said yes to overlapping options — a second,
+  unguarded arbiter of the exact resource `CLAUDE.md` §2 says the database alone arbitrates. Sharing
+  the collection instead buys three things at once: an offer cannot be made on a bay someone is
+  booking, a booking cannot take a bay under offer, and accepting is a field update on rows already
+  owned rather than a fresh claim that could lose a race.
+- **Verified:** a booking cannot take time held by a live offer (rejected by the unique index); an
+  accepted offer rewrites the same occupancy rows rather than inserting new ones — no duplicate rows.
+
+### 15.2 Five minutes, independent of session length ⭐
+- **Rule:** `RECOMMENDATION_HOLD_MINUTES = 5`, fixed. A 120-minute reservation gets the same hold as
+  a 15-minute one.
+- **Where:** `backend/src/models/recommendationPolicy.ts`
+- **Why it matters:** Held capacity is frozen inventory, so the freeze has to scale with the number
+  of *pending decisions*, never with the length of the sessions being offered — tying it to duration
+  would make the most valuable offers the most expensive ones to make. One pending offer per
+  customer for the same reason: a customer answers one question at a time, and every extra pending
+  offer freezes another bay against that same single decision.
+
+### 15.3 The scheduler is pure — a plan is a proposal, not a write ⭐
+- **Rule:** `scheduler.ts` takes a snapshot and returns a plan; no I/O, no clock of its own, `now` is
+  an input. Committing is a separate step (`runner.ts`) that tries each assignment against reality.
+- **Where:** `backend/src/services/optimization/{scheduler,snapshot,runner}.ts`
+- **Why it matters:** The same purity discipline as `commitmentPolicy.ts` and `flexibilityPolicy.ts`
+  — a plan can be previewed, diffed and demoed before anything commits, and `commit: false` runs the
+  identical code path a real commit does, so the preview is evidence of what would actually happen
+  rather than a separate, divergable code path.
+- **Verified:** identical snapshots produce identical plans (determinism); a previewed plan is the
+  plan that commits.
+
+### 15.4 Ordering is the fairness policy, not the scoring ⭐
+- **Rule:** Priority first (`recovery` > `onSite` > `standard`), then window tightness — a rigid
+  request placed after a flexible one may find its only possible slot already taken — then waiting
+  time as the starvation guard, then id for a stable tie-break.
+- **Where:** `scheduler.ts`
+- **Why it matters:** A flexible request placed before a rigid one takes the only slot the rigid one
+  could have used, and both end up worse off than the reverse order — the same tight-windows-first
+  reasoning as the design doc's §4.4, independent of any score.
+- **Verified:** a rigid and a flexible request contending for the same opening both get served only
+  when the rigid one is placed first.
+
+### 15.5 The counterfactual is computed during the pass, not after ⭐
+- **Rule:** What plain first-come-first-served would have served on the *same* snapshot is computed
+  as part of the pass and stored on the `OptimizationRun`.
+- **Where:** `scheduler.ts`, `models/OptimizationRun.ts`
+- **Why it matters:** The occupancy a later query would compare against has already changed by the
+  time anyone asks — this is the one number that supports or refutes the optimizer's entire claim to
+  be better than the naive alternative, and it cannot be reconstructed retroactively.
+- **Demo:** `/admin/optimizer`, a run's `counterfactualServed` next to what was actually served.
+
+### 15.6 Accepting late is not an error ⭐
+- **Rule:** A hold that lapsed before the customer answers does not fail the accept — it
+  re-optimizes for that one request and returns either a fresh offer (`superseded`) or a waitlist
+  place, both under a 200.
+- **Where:** `recommendation.service.ts` → `acceptRecommendation`; `optimization/runner.ts` →
+  `reoptimizeRequest`
+- **Why it matters:** The customer did nothing wrong and is still trying to buy something; a `410
+  Gone` ends the interaction with nothing to act on. Re-optimizing scopes to the one request rather
+  than the whole pool, so answering late does not re-time offers other customers are currently
+  looking at.
+
+### 15.7 Waitlisting is the request pool, not a new mechanism ⭐
+- **Rule:** A request the scheduler cannot place is marked `WAITLISTED` with one of five reasons
+  (`no_free_capacity`, `no_compatible_charger`, `window_too_narrow`, `outside_operating_hours`,
+  `displaced_by_higher_priority`). `OPEN` and `WAITLISTED` are one pool.
+- **Where:** `recommendationPolicy.ts` → `WAITLIST_REASONS`, `isWorthReevaluating`
+- **Why it matters:** This is what collapses the planned `waitlistentries` collection out of the
+  design entirely (ADR-2 in `RESERVATION_OPTIMIZATION_ENGINE.md`) — a waitlist entry is exactly a
+  request nothing has fulfilled yet. `no_compatible_charger` is excluded from re-evaluation: no
+  amount of freed time creates a matching connector, so re-planning it on every release would be
+  pure waste on a path that fires often.
+
+### 15.8 The capacity-release trigger is a consumer, never a call from cancellation ⭐
+- **Rule:** `consumer.ts` reads `reservationevents` for capacity-releasing types
+  (`reservation.cancelled`, `reservation.released`, `reservation.no_show`, `commitment.expired`,
+  `session.ended`, `recommendation.expired`, `recommendation.rejected`) since its own last committed
+  run, and plans only the stations those events touched.
+- **Where:** `backend/src/services/optimization/consumer.ts`
+- **Why it matters:** Per `CLAUDE.md` §2 and §7, the optimizer must stay a consumer of behavioural
+  history, never something the reservation flow calls inline and depends on. A driver cancelling a
+  reservation must never be slowed down, or fail, because a planning pass over someone else's demand
+  went wrong. No event bus or queue exists or is needed — the log is already ordered, durable and
+  append-only, so a consumer is a cursor over a collection and nothing more.
+- **The cursor is the newest `capacity_released` run**, not a new counter collection — reprocessing
+  an event cannot double-book (every assignment still has to win its capacity through the unique
+  index), so replay is the safe failure direction and a lost run just means a later, larger pass.
+- **Verified:** the consumer finds work from the event log without being told a request exists.
+
+### 15.9 The offer cap closes a loop that has no single visible failure ⭐
+- **Rule:** `MAX_OFFERS_PER_REQUEST = 3`. Past it, a request stays `OPEN`, fully live, and matched by
+  search or a manual pass — only the platform's unprompted offering stops.
+- **Where:** `recommendationPolicy.ts`, `runner.ts` → `issueRecommendation`
+- **Why it matters:** An expired offer reopens its request; reopening is a release; a release
+  triggers a pass; the pass offers again. For a customer who has stopped answering, that cycle never
+  ends — the same bay frozen five minutes out of every few, forever, and never *continuously*
+  blocked, which is exactly why the problem is easy to miss in monitoring that only looks for a bay
+  stuck occupied.
+- **Verified:** the optimizer stops after 3 unanswered offers; the request keeps holding nothing once
+  capped.
+
+### 15.10 A dead branch caught before it shipped
+- **Rule:** Waitlist classification originally tested `windowMs + duration < duration`, which
+  simplifies to `windowMs < 0` — already checked earlier in the same function, so
+  `outside_operating_hours` was structurally unreachable.
+- **Why it matters:** Every structural failure was being reported as a capacity one, which decides
+  whether a request is worth re-evaluating on a future release (§15.7) — the bug would have meant
+  permanently infeasible requests re-planned forever. Caught by the property-based `verify-scheduler`
+  checks (§4b of `AGENTS.md`), not by type checking.
+
+### 15.11 Verified end-to-end, in two harnesses ⭐
+- **Rule:** `verify-scheduler.ts` runs 18 pure property checks (no overlap, tight-windows-first,
+  priority ordering, every duration schedulable, budget respected). `verify-recommendations.ts` runs
+  26 checks against the real database (offer-vs-booking conflict enforcement in both directions,
+  acceptance rewriting rows rather than inserting, a lapsed hold free to read *and* free to write,
+  the offer cap, the capacity-release consumer). Both run as part of `npm run ops:verify` — 165/165
+  overall with the reservation-flow harness.
+- **Why it matters:** Properties rather than examples, because asserting "request A lands at 12:00"
+  pins an implementation detail and breaks on any reordering that is still correct.
+
+---
+
+# 15b. What Phase H deliberately did not build
+
+- **Incident-triggered `recovery` re-placement** of already-committed reservations — the design
+  doc's `INCIDENT` trigger and `priorityClass: recovery` displacement flow.
+- **Per-station optimizer weight tuning** — `WEIGHTS` in `scoring.ts` and the constants in
+  `recommendationPolicy.ts` are process-wide, not the per-station `optimizationpolicy` config the
+  design doc describes.
+- **A periodic (`PERIODIC`/`"scheduled"`) sweep.** `OptimizationTrigger` and `OptimizationRun` both
+  reserve a `"scheduled"` value for this, deliberately unused — see `PROJECT_STATE.md` §7 item 8.
+  Today's only trigger for a re-plan is the capacity-release consumer, which is event-driven, not
+  time-driven.
+
+None of these block the working end of the pipeline — a direct, available-slot booking still goes
+straight through `claimReservation` with no optimizer involvement (`RESERVATION_OPTIMIZATION_ENGINE.md`
+§7.3), so their absence is a smaller surface than a full scheduler being unbuilt would be.
+
+---
+
+# 16. The Late Arrival Engine ⭐
+
+Answers two questions §2's lifecycle states gesture at but never actually decided: *how* punctual
+was an arrival, and *did anyone arrive at all*. Extends the existing reservation lifecycle, event
+log, reliability service, behaviour tracking and schedule-quality KPIs — no new state machine, no
+new event type, no bypass of any of them.
+
+### 16.1 Arrival outcome is stamped once, not a lifecycle state ⭐
+- **Rule:** `bookings.arrivalOutcome` — `ON_TIME | EARLY | GRACE | LATE | NO_SHOW` — set at
+  check-in (or at charging-start if check-in was skipped) or by the no-show sweep. `lifecycle`
+  still only ever holds `RESERVED → ARRIVED → CHARGING → COMPLETED` (or `NO_SHOW`); this field
+  records *how* that happened, never *whether*.
+- **Where:** `backend/src/models/Booking.ts`, `reservationLifecycle.ts` → `classifyArrival`
+- **Why it matters:** `CLAUDE.md` already rejects a third parallel state field for `commitmentStatus`
+  — `lifecycle` carries it. The same reasoning applies here: `arrivalOutcome` is the same shape as
+  the pre-existing `noShow`/`releasedEarly` booleans, a permanent fact recorded alongside the state
+  machine, not a second one that could disagree with it about what state a reservation is in.
+- **One function, two callers, so they cannot disagree.** `classifyArrival` is pure — given a
+  scheduled start, an actual arrival, and the grace window in force, it returns the outcome and
+  both `minutesEarly`/`minutesLate`. Called from `checkIn` and from `startCharging`'s fallback for
+  a skipped check-in. Recomputing in the fallback is provably idempotent: the function is pure, so
+  the same `actualArrival` always classifies the same way regardless of which caller ran it.
+- **ON_TIME is exact-match, not a tolerance window.** Arrival at precisely the scheduled minute is
+  `ON_TIME`; any earlier is `EARLY`; any later is `GRACE` (within the window, inclusive of the
+  boundary) or `LATE` (past it). The spec this was built from defined ON_TIME and EARLY with
+  overlapping language ("before or at" vs. "before") — resolved here as exact-match vs.
+  strictly-earlier, stated explicitly because the ambiguity was real, not glossed over.
+- **Verified:** all four boundaries as pure-function checks (ON_TIME at delta 0, EARLY with a
+  negative delta, GRACE exactly at the grace boundary — inclusive — LATE one minute past it), plus
+  two real check-ins against the live database (one LATE, one GRACE) confirming the booking and the
+  emitted event agree.
+
+### 16.2 `delayMinutes` is unchanged — proven, not just claimed ⭐
+- **Rule:** `delayMinutes` keeps its exact pre-existing meaning and computation
+  (`Math.max(0, minutes late)`). Early arrival is carried in a new, additive field
+  (`minutesEarly`) and a new, additive `session.started` metadata key of the same name — never by
+  making `delayMinutes` negative.
+- **Where:** `booking.service.ts`, `Booking.ts`
+- **Why it matters:** `reliability.service.ts`'s `basis` check and `customerBehaviorPolicy.ts`'s
+  fold both had an established contract with `delayMinutes` never going negative before this
+  feature existed. Two additive fields cost one extra column; changing what an existing field means
+  risks every consumer that already trusted it, discoverable only by reading each one — which is
+  exactly what was done here instead of assuming.
+- **customerBehaviorPolicy.ts's early-arrival branch was already written, and was dead code** —
+  it branched on `delay < 0`, a case the only producer (`startCharging`, flooring at 0) could never
+  emit. Rather than making `delayMinutes` finally go negative to feed it, the fold now reconstructs
+  a signed value from the two additive, always-non-negative fields (`late > 0 ? late : early > 0 ?
+  -early : 0`), leaving `delayMinutes` itself untouched everywhere else. Historical events lacking
+  `minutesEarly` fold exactly as they always did — `num()` already treats a missing key as 0.
+- **Verified:** `classifyArrival`'s `minutesLate` output matches the old inline formula exactly for
+  the same inputs, for a late, an on-time, and an early delta.
+
+### 16.3 Reliability's scoring boundary is deliberately unchanged ⭐
+- **Rule:** `basis: delayMinutes > 0 ? "late_arrival" : "on_time"` — any lateness, not only
+  past-grace lateness — is exactly what it computed before this feature.
+- **Where:** `booking.service.ts` → `startCharging`; unchanged in `reliabilityPolicy.ts`
+- **Why it matters — a decision, stated instead of made silently:** before this feature, the grace
+  period had no effect on reliability scoring at all — a driver one minute late and a driver ninety
+  minutes late were scored identically. Introducing a `GRACE` outcome invites the assumption that
+  grace should now be forgiven for scoring too. It is **not**, in this change: the instruction
+  going in was to preserve reliability's existing architecture and make any scoring-boundary change
+  its own explicit, documented decision — not bundle one into an unrelated feature. `arrivalOutcome`
+  is available in the event metadata for exactly that decision, if and when the owner makes it.
+- **Verified:** a real GRACE-classified arrival and a real LATE-classified arrival both emit
+  `session.started` with `basis: "late_arrival"` — proving the boundary is untouched, not merely
+  unedited.
+
+### 16.4 No-show has exactly one implementation, two triggers ⭐
+- **Rule:** `applyNoShow` (private to `booking.service.ts`) performs the entire no-show
+  transition — refund assessment, the terminal fields, the `reservation.no_show` event, slot/occupancy
+  release. Called by the manual admin action (`updateReservation`) and by the automatic sweep
+  (`sweepNoShows`). The decision logic (`assessRefund`) is identical either way; *how* the result is
+  written differs — see §16.5 for why the automatic path additionally needs a database transaction
+  and the manual path does not.
+- **Where:** `backend/src/services/booking.service.ts`
+- **Why it matters:** No-show was manual-only before this feature. Adding a second, automatic
+  trigger and reimplementing the transition next to the existing one would let a manual and an
+  automatic no-show produce different money or capacity outcomes for the same fact — the exact
+  contradiction shape `AGENTS.md` §4b catalogues repeatedly. One function, two callers, makes that
+  structurally impossible rather than a matter of remembering to keep two copies in sync.
+- **Verified:** a reservation aged past its threshold and swept automatically, and an equivalent one
+  marked no-show manually by an admin, produce identical `lifecycle`/`status`/`arrivalOutcome`/
+  `paymentStatus` and identical occupancy release.
+
+### 16.5 The no-show sweep is one database transaction, not an atomic claim plus best effort ⭐
+- **Rule:** `sweepNoShows` finds `RESERVED`/`LATE`/`AT_RISK` reservations whose
+  `scheduledStart + gracePeriodMinutes + noShowThresholdMinutes` has passed. For each, it opens a
+  MongoDB session and calls `applyNoShow` with it; inside that session, the conditional claim, the
+  terminal fields (`status`/`lifecycle`/`noShow`/`arrivalOutcome`/`paymentStatus`), the slot update
+  and the occupancy release are one `withTransaction` — all of it commits together, or none of it
+  does.
+- **Where:** `backend/src/services/booking.service.ts`; run from `scripts/expire-commitments.ts`
+- **This replaced an earlier, weaker design, found during review, not shipped and left.** The first
+  version atomically flipped only `lifecycle` to `NO_SHOW`, then ran the refund assessment, the
+  event, and the capacity release afterward as separate, unguarded writes. If any of them threw, the
+  reservation was left `NO_SHOW` in the database with none of the rest done — and, because both the
+  sweep's own candidate query and the staff board filter on lifecycle, that reservation would never
+  be looked at again by anything. Not self-healing, not operator-visible. The fix moves the entire
+  transition inside one transaction rather than trying to make the individual steps more careful.
+- **Event creation is deliberately the one thing NOT inside the transaction.** `reservation.no_show`
+  is emitted by `sweepNoShows` itself, strictly after `withTransaction` returns successfully — never
+  inside the callback. Two reasons, both structural: `emitReservationEvent` is documented elsewhere
+  as deliberately best-effort and never-throwing, specifically so a committed reservation is never
+  reported as failed because its audit write was — folding it into the transaction would reverse
+  that. And the MongoDB driver can retry a `withTransaction` callback on a transient error; an event
+  emitted inside it could fire once per retry, or fire for a write that was ultimately rolled back.
+- **A gateway refund must never run inside a database transaction** — it cannot be rolled back with
+  the rest of the write, and holding a transaction open across a network call is its own hazard.
+  `applyNoShow`'s session branch asserts this rather than assuming it: it throws if `assessRefund`
+  ever returns `"refundable"` while a session is active. Unreachable in practice for the automatic
+  sweep, whose fixed system reason is never an operator-fault one, so its assessments are always
+  `"non_refundable"` or `"none"`.
+- **Requires a replica set.** Atlas always is one, including the free tier; a bare standalone
+  `mongod` (one of README's supported "local" setups) is not, unless explicitly initialised as a
+  single-node replica set. Stated plainly rather than discovered the hard way.
+- **Scope is deliberately narrow.** Only `RESERVED`/`LATE`/`AT_RISK` — a reservation that reached
+  `ARRIVED` did show up. Whatever happens after (checked in, never started charging) is a different,
+  not-built case, not a no-show.
+- **Swept in the same job as commitment-hold and stale-request expiry**, for the same reason those
+  two already share one job: all three are "a window closed, stop holding it open."
+- **`sweepNoShows` accepts an optional booking-id scope**, mirroring `runOptimization`'s
+  `requestIds` scoping — added specifically so `ops:verify` could exercise it against the real
+  database without the risk every other assertion in that harness explicitly avoids: touching a
+  reservation it did not create. An earlier version of this check called the sweep unscoped and
+  found 9 real candidates instead of the 1 it created; none were actually past due so nothing broke,
+  but the harness's own stated safety promise — "never modifies pre-existing data" — was briefly
+  false. Caught and fixed before verification was reported complete, not after.
+- **Verified:** the transactional path produces identical resulting state to the manual path (§16.4);
+  `ops:verify` exercises a real no-show through a real transaction against the live database, not a
+  mock.
+
+### 16.6 Release matches the pre-existing asymmetry — not "fixed" into consistency ⭐
+- **Rule:** On no-show, the legacy slot is marked `"completed"` (spent, not recycled); a range
+  reservation's remaining `reservationoccupancy` rows ARE released.
+- **Why it matters:** This is exactly what the manual no-show path already did before this feature.
+  Reproducing it precisely — rather than making both paths release the slot for "consistency" — is
+  what an occupancy-invariant change would look like if introduced by accident. `reservation.no_show`
+  was already in the optimizer's `CAPACITY_RELEASING_EVENTS` before this feature existed, so
+  waitlist and optimizer re-evaluation on a no-show needed zero new integration code.
+- **Verified:** occupancy row count is 0 immediately after both the automatic and the manual
+  no-show path.
+
+### 16.7 Configuration — env-overridable, snapshotted per booking ⭐
+- **Rule:** `GRACE_PERIOD_MINUTES` (default 15, unchanged) and `NO_SHOW_THRESHOLD_MINUTES`
+  (default 30, additional minutes past the *end of grace*) both follow the `Number(process.env.X ??
+  default)` pattern already established by `COMMITMENT_WINDOW_MINUTES` and
+  `RECOMMENDATION_HOLD_MINUTES`. Both are snapshotted onto the booking at claim time, the same
+  discipline as `gracePeriodMinutes` and `refundCutoffHours`.
+- **Why it matters:** `DEFAULT_GRACE_PERIOD_MINUTES` was the one hardcoded outlier before this
+  change — every other business-tunable window in the codebase already followed the env pattern.
+  Snapshotting means a later policy change never rewrites the terms an existing reservation was
+  held under.
+- **The no-show threshold's default is a starting point, not a settled figure** — unlike grace
+  (documented, prior business reasoning) and the commitment window (documented, prior business
+  reasoning), 30 minutes past grace has no such history behind it. Stated plainly rather than
+  presented as equally considered.
+
+### 16.8 Recommendation Engine coupling: none, confirmed rather than assumed ⭐
+- **Rule:** `optimization/scoring.ts` and `recommendationPolicy.ts` have zero references to
+  `arrivalOutcome`, `minutesEarly`, `delayMinutes`, or any other arrival-timing field.
+- **Why it matters:** Confirmed by diff after implementation, not merely by design intent —
+  neither file appears in this feature's changeset at all. Reliability's `showProbability` remains
+  the only channel through which a driver's punctuality can ever shade a recommendation, exactly as
+  before.
+
+### 16.9 Analytics — five more honest-denominator rates
+- Covered alongside the rest of Schedule Quality KPIs — see §10.10.
+
+### 16.10 Verified end-to-end
+- **Rule:** `verify-reservation-flow.ts` §8 — 16 checks: four pure classification boundaries, the
+  `delayMinutes`-unchanged proof, two real classified check-ins against the database (LATE, GRACE)
+  with their events, the preserved reliability boundary for both, a real automatic no-show sweep, a
+  real manual no-show, their equivalence, occupancy release, and a clean behaviour/reliability
+  recompute against the new event shape.
+
+---
+
+# 17. The Extension Request Engine ⭐
+
+Answers "can this driver keep charging a little longer?" — a decision evaluated against the same
+occupancy timeline every other feature in this platform already reads, and reported through the
+same event log, optimizer and analytics. No new reservation state machine, no second scheduler, no
+duplicated occupancy logic.
+
+### 17.1 Extension outcome is stamped once, not a lifecycle state ⭐
+- **Rule:** `bookings.extensionDecision` — `APPROVED | PARTIAL_APPROVAL | REJECTED` — plus
+  `requestedExtensionMinutes`/`approvedExtensionMinutes`/`extensionReason`, set by
+  `extension.service.ts`. `lifecycle` never moves to the declared-but-unused `EXTENSION_REQUESTED`
+  value in `reservationLifecycle.ts` — it stays exactly `CHARGING` throughout, approved or not.
+- **Where:** `backend/src/models/Booking.ts`, `extensionPolicy.ts`, `extension.service.ts`
+- **Why it matters:** Same reasoning §16.1 gives for `arrivalOutcome` and CLAUDE.md gives for
+  `commitmentStatus`: a second field that can disagree with `lifecycle` about what state a
+  reservation is in is a contradiction waiting to happen. This is a recorded fact alongside the
+  state machine, never a competing one.
+- **`rejectedExtensionMinutes` is deliberately not a field.** Always
+  `requestedExtensionMinutes - approvedExtensionMinutes`, computed where needed — storing a
+  third number that is arithmetically implied by the other two is exactly the duplication
+  `commitmentStatus` was rejected for.
+
+### 17.2 One pure decision rule, two callers ⭐
+- **Rule:** `decideExtension(requestedMinutes, availableMinutes)` in `extensionPolicy.ts` — no
+  room at all is REJECTED, full room is APPROVED, partial room is PARTIAL_APPROVAL for exactly what
+  fits. Called identically by the automatic path (`requestExtension`, fed a real
+  `maxContiguousFreeMinutes` reading) and by staff override (`overrideExtension`, fed the number
+  staff typed, treated as "what's available" for relabeling).
+- **Where:** `backend/src/models/extensionPolicy.ts`
+- **Why it matters:** Two independent labeling rules for APPROVED/PARTIAL/REJECTED — one automatic,
+  one for staff — is exactly the "two modules, each internally correct, collectively wrong" shape
+  `AGENTS.md` §4b warns about. One function, fed different inputs, closes that off structurally.
+- **Verified:** an automatic PARTIAL_APPROVAL (engineered by constraining a fixture's room to
+  exactly one atom) and a staff override relabeling the same request down to REJECTED, both through
+  this one function.
+
+### 17.3 Occupancy is reused verbatim — `moveOccupancy`, unmodified ⭐
+- **Rule:** Every extension or shrink is a call to the pre-existing `moveOccupancy({ ..., start:
+  originalStart, durationMinutes: targetDurationMinutes })` — claims the new range before releasing
+  the old one, touching only the diff.
+- **Where:** `backend/src/services/occupancy.service.ts` (unchanged) → called from
+  `extension.service.ts`
+- **Why it matters:** "Extend" and "shrink" are the same operation from `moveOccupancy`'s point of
+  view — a move to a longer or shorter range at an unchanged start — so this feature needed zero new
+  occupancy-claiming code. The one genuinely new read is `maxContiguousFreeMinutes` in
+  `occupancyPolicy.ts` — "how much runway exists from a fixed start," the one question
+  `isRangeFree` (fixed duration, yes/no) and `availableStarts` (which starts fit) didn't already
+  answer.
+- **Verified:** an APPROVED extension grows occupancy from 4 to 4 further atoms claimed; a staff
+  override shrinking a PARTIAL_APPROVAL back down to REJECTED releases the atom it never fully
+  used; both checked by counting `reservationoccupancy` rows directly.
+
+### 17.4 The automatic path and the override path fail differently, on purpose ⭐
+- **Rule:** A stale read racing the unique index (`CHARGER_BUSY`) is caught and downgraded to a
+  plain REJECTED decision on the automatic path. The identical race during a staff override is
+  re-thrown as `OVERRIDE_NOT_AVAILABLE` instead.
+- **Where:** `backend/src/services/extension.service.ts` → `requestExtension` vs.
+  `overrideExtension`
+- **Why it matters:** These are different situations wearing the same error. A system-computed
+  guess about available capacity racing reality is not something to surface as a hard error to a
+  driver who did nothing wrong — REJECTED is a perfectly good answer to "could you fit this in."
+  A human member of staff stating a specific number that turns out to be infeasible is a different
+  case: silently downgrading their decision would hide that it didn't actually happen. Same
+  underlying race (`moveOccupancy`'s unique-index conflict), two deliberately different responses.
+- **Verified:** an override attempt against a booking with zero adjacent room throws
+  `OVERRIDE_NOT_AVAILABLE` rather than being silently re-labeled REJECTED.
+
+### 17.5 Capped, and idempotent ⭐
+- **Rule:** `MAX_EXTENSIONS_PER_RESERVATION` (env-configurable, default 2) counts any decision, not
+  only approved ones — a third request is refused with `EXTENSION_LIMIT_REACHED` before any
+  capacity check runs. Staff overrides do **not** consume this count: they revise an existing
+  decision rather than take a new one, so a reservation already at the cap can still be corrected.
+  Re-running `finalizeExtension` with the same decision against a booking already at that state is
+  a no-op at every layer — `moveOccupancy` computes an empty diff when the target range already
+  matches what is held.
+- **Where:** `backend/src/models/extensionPolicy.ts`, `extension.service.ts`
+- **Verified:** a second extension reaches the cap, a third is refused structurally; repeating an
+  identical staff override changes neither `durationMinutes` nor the occupancy row count.
+
+### 17.6 A rejected or shortened extension re-runs the existing optimizer ⭐
+- **Rule:** Whenever the decision is not APPROVED, `runOptimization({ trigger:
+  "extension_resolved", stationIds: [...] })` fires — the same function every other trigger already
+  calls, under its own trigger label.
+- **Where:** `backend/src/services/optimization/runner.ts` (`OptimizationTrigger` union),
+  `models/OptimizationRun.ts` (mirrored enum)
+- **Why it matters:** Nothing was actually released — the time was never taken out of availability
+  in the first place — but the charger frees up sooner than the driver had hoped, which is worth a
+  look for anyone waiting on it. One new trigger label costs zero new scheduling logic; a second
+  scheduler would have been exactly the duplication the brief for this feature explicitly forbade.
+- **Verified:** a REJECTED decision against a live database produces a new `optimizationruns`
+  document with `trigger: "extension_resolved"` for that station.
+
+### 17.7 Reliability: untouched, confirmed rather than assumed ⭐
+- **Rule:** `reliabilityPolicy.ts` has zero `extension.*` cases.
+- **Where:** confirmed by grep; proven by feeding `scoreFromEvents` (pure) an identical event
+  history with and without a real `extension.requested`/`.approved`/`.denied` event and checking the
+  result is byte-identical.
+- **Why it matters:** Same discipline §16.8 applied to the Late Arrival Engine's relationship with
+  the recommendation engine — confirmed by evidence, not by declaring an intention. A driver's
+  reliability score cannot move because they asked for more time, whatever the outcome.
+
+### 17.8 The event log already had a consumer waiting for this ⭐
+- **Rule:** `extension.requested` / `extension.approved` / `extension.denied` are the only three new
+  `RESERVATION_EVENT_TYPES`. `extension.approved` covers both APPROVED and PARTIAL_APPROVAL —
+  `metadata.decision` distinguishes them, `metadata.minutes` carries how much was actually granted
+  either way. No fourth event type for partial approval.
+- **Where:** `backend/src/models/ReservationEvent.ts`; consumed by
+  `customerBehaviorPolicy.ts`
+- **customerBehaviorPolicy.ts's `extensions` metrics were written during the Late Arrival Engine,
+  before this feature existed** — `extensionsRequested`/`extensionsApproved`/`extensionsDenied`
+  counters and a `notImplemented` flag, reading these exact three event names and
+  `metadata.minutes`, with nothing ever emitting them. This feature is the first thing that makes
+  `notImplemented` false.
+- **Verified:** all three event types actually emitted against the live database; a real
+  `recomputeForUser` call afterward shows non-zero `requested`/`approved`/`denied` counts and
+  `notImplemented: false`.
+
+### 17.9 Money is recomputed off the booking's own snapshot, never a second charge ⭐
+- **Rule:** When a grant changes duration, `totalAmount` is recomputed from the booking's own
+  `appliedPowerKW`/`appliedUnitPrice` — never the charger's current price. No new `PaymentIntent`
+  opens for the extra time; the deposit/commitment subsystem is untouched by this feature.
+- **Where:** `backend/src/services/extension.service.ts` → `finalizeExtension`
+- **Why it matters:** Same cost-basis reproducibility rule `CLAUDE.md` states for every other
+  revenue figure in this platform — a later price change must never retroactively change what an
+  existing reservation is shown to cost.
+
+### 17.10 Verified end-to-end
+- **Rule:** `verify-reservation-flow.ts` §9 — 20 checks: a malformed request rejected before any
+  state change, a full APPROVED extension with occupancy actually growing, a second APPROVED
+  extension reaching the cap and a third refused structurally, an engineered PARTIAL_APPROVAL and
+  REJECTED (constrained via a neighbouring fixture booking, the same technique §1's OVERLAPPING
+  check uses), the `extension_resolved` optimizer re-run, a staff override changing the outcome and
+  shrinking occupancy back down, idempotency of a repeated override, `OVERRIDE_NOT_AVAILABLE`
+  surfacing rather than silently downgrading, a structural `EXTENSION_REQUIRES_RANGE_RESERVATION`
+  check, the three new event types actually emitted, and `customerBehaviorPolicy.ts`'s
+  previously-dormant metrics populating for real.
+
+---
+
+# 18. The Overstay Engine ⭐
+
+Answers "is a vehicle still occupying a charger after its reservation's own end has passed?" — the
+same question `sweepNoShows` (§16) asks about a reservation's *start*, applied to its *end*. Extends
+the existing reservation lifecycle, event log, reliability service, behaviour tracking and
+schedule-quality KPIs — no new state machine, no new occupancy logic, no bypass of any of them.
+
+### 18.1 Overstay status is stamped once, not a lifecycle state ⭐
+- **Rule:** `bookings.overstayStatus` — `NONE | WARNING | ESCALATED | ALERTED` — advanced by the
+  periodic sweep or by session completion. `lifecycle` never becomes `OVERSTAY`; it stays exactly
+  `CHARGING` for as long as the vehicle is still there, and only reaches `COMPLETED` when someone
+  actually ends the session.
+- **Where:** `backend/src/models/Booking.ts`, `overstayPolicy.ts`, `overstay.service.ts`
+- **Why it matters:** The same reasoning §16.1 and §17.1 both already give for `arrivalOutcome` and
+  `extensionDecision` — a permanent, stamped fact alongside the state machine is not a competing one.
+  A session overstaying is still exactly as `CHARGING` as it was; only how long is in question.
+
+### 18.2 Detection is time-only, and extension-aware by construction ⭐
+- **Rule:** An overstay is a `CHARGING` session whose `scheduledEnd ?? endTime` has already passed —
+  read directly, with no separate logic for whether that end time reflects an approved extension.
+- **Where:** `backend/src/services/overstay.service.ts` → `sweepOverstays`
+- **Why it matters:** There is no hardware signal for "the vehicle is still connected" (CLAUDE.md
+  §5) — the only honest signal is the clock, exactly the same constraint that makes no-show
+  detection a sweep rather than an event. Because `extension.service.ts` already keeps
+  `scheduledEnd` current on every approved or partial grant, this feature needed zero integration
+  code to stay correct against an extended session — a longer end time is simply a later thing to
+  be measured against.
+- **Verified:** occupancy atom count is identical before and after a sweep pass — the sweep claims,
+  extends or releases nothing.
+
+### 18.3 One classification function, two callers, and skipped tiers are back-filled ⭐
+- **Rule:** `classifyOverstay(minutes)` in `overstayPolicy.ts` is the only place WARNING/ESCALATED/
+  ALERTED is decided, called identically by `sweepOverstays` (an in-progress estimate against "now")
+  and by `finalizeOverstayOnCompletion` (the exact figure, against `actualEnd`). `advanceOverstay`
+  walks every tier strictly between the current one and the target in order, so a check that finds
+  a session already well past ALERTED — a coarse sweep interval, or a session that completed without
+  ever being swept — still records every skipped tier's timestamp and event, not just the final one.
+- **Where:** `backend/src/services/overstay.service.ts`
+- **Why it matters:** Same "one rule, two ways of arriving at its inputs" discipline §17.2 already
+  established for `decideExtension`. Without the back-fill, a session that jumped straight from
+  unswept to 40 minutes over would show `overstayAlertedAt` set but `overstayWarningAt` null —
+  correct about the current state, wrong about the history, and the wrong shape for anything reading
+  the event log expecting to see WARNING before ALERTED.
+- **Verified:** a session backdated 40 minutes over, swept exactly once with no prior sweep, ends up
+  with `overstayWarningAt`, `overstayEscalatedAt` and `overstayAlertedAt` all set, and exactly one of
+  each of the three new event types in the log — not zero, not duplicated.
+
+### 18.4 A session that completes without ever being swept still gets a correct record ⭐
+- **Rule:** `endCharging` calls `finalizeOverstayOnCompletion` — the exact same
+  classify-and-back-fill machinery the sweep uses, fed `actualEnd` instead of "now" — before its own
+  `booking.save()`.
+- **Where:** `backend/src/services/booking.service.ts` → `endCharging`
+- **Why it matters:** A brief overstay resolved between two sweep passes would otherwise leave
+  `overstayStatus: "NONE"` on a booking whose `session.ended` event correctly shows
+  `minutesOverstayed > 0` — two disagreeing signals for the same fact, the exact contradiction shape
+  `AGENTS.md` §4b warns about. `overstayDurationMinutes` is overwritten with this exact final value,
+  replacing whatever coarser figure the last sweep pass left.
+- **Verified:** a session backdated into ESCALATED territory, ended directly with no sweep ever
+  having run against it, finalizes to `overstayStatus: "ESCALATED"` with the correct duration.
+
+### 18.5 A real, pre-existing bug fixed while wiring reliability ⭐
+- **Rule:** `endCharging`'s `basis` for `session.ended` is now three-way:
+  `early_departure` / `overstay` / `ran_to_schedule`.
+- **Where:** `backend/src/services/booking.service.ts` → `endCharging`
+- **Why it matters:** Before this feature, the ternary was two-way, so every overstay — despite
+  `metadata.minutesOverstayed` being computed correctly right next to it — was reported as
+  `"ran_to_schedule"`. `reliabilityPolicy.ts` reads this `basis` to decide the overstay penalty, so
+  the bug meant that penalty could never have fired even before this feature added one. Caught while
+  wiring the new integration, not before — the same way §16's transaction fix was caught in review
+  rather than shipped and found later.
+- **Verified:** `ops:verify` confirms `session.ended`'s basis is `"overstay"` for a real, engineered
+  overstay completion.
+
+### 18.6 Reliability penalty: flat, and gated on fault, not `penalize` ⭐
+- **Rule:** `ADJUSTMENTS.overstay = -5` (equal to `lateArrival`), applied once per overstaying
+  session regardless of which severity tier it reached, gated on `event.fault` only.
+- **Where:** `backend/src/models/reliabilityPolicy.ts` → `scoreFromEvents`'s `session.ended` case
+- **Why gated on fault, not `penalize`:** `session.ended` sets `penalize: false` unconditionally —
+  the same delegation `session.started` already uses for late arrivals ("the scorer decides, not
+  the emitter"). Routing the overstay penalty through the generic `isChargeable` gate (which treats
+  `penalize: false` as an outright waiver) would have silently zeroed it out — the *exact* bug
+  §16.3's history describes being found and fixed once already for late arrivals. Not repeating it.
+- **Severity is deliberately not a scoring input yet.** WARNING/ESCALATED/ALERTED is an operational
+  signal (who to call, how urgently); weighting the penalty by it would be a real, visible
+  scoring-boundary change, left as a documented future decision — the same precedent `arrivalOutcome`'s
+  GRACE/LATE split already set in §16.3.
+- **Verified:** a pure `scoreFromEvents` check on a synthetic `session.ended`/`basis: "overstay"`
+  event confirms `totalOverstays` increments and the score reflects both the attendance credit and
+  the overstay penalty; a second check confirms an operator-attributed overstay is waived instead.
+
+### 18.7 Customer behaviour: additive detail, existing count untouched ⭐
+- **Rule:** `customerBehaviorPolicy.ts`'s pre-existing `overstays` count (from `session.ended`'s
+  `minutesOverstayed`) is unchanged. A new, additive `overstayDetail` object — `escalated`/`alerted`
+  counts from the two new event types, `avgDurationMinutes`/`maxDurationMinutes` from the same
+  `minutesOverstayed` values `overstays` already reads — sits alongside it.
+- **Where:** `backend/src/models/customerBehaviorPolicy.ts`
+- **`overstays` was already live before this feature, silently.** `session.ended` has emitted
+  `minutesOverstayed` unconditionally since the Late Arrival Engine, and this fold already counted
+  it — the Overstay Engine's contribution here is entirely the *escalated/alerted* detail, not the
+  base count, which needed no changes at all.
+- **Verified:** a real `recomputeForUser` call after the sweep/finalization tests shows non-zero
+  `overstays`, `overstayDetail.escalated` and `overstayDetail.alerted`.
+
+### 18.8 Analytics: one source per question — no duplicate calculation ⭐
+- **Rule:** The five platform-wide KPIs read exclusively `bookings.overstayStatus`/
+  `overstayDurationMinutes`; `customerBehaviorPolicy.ts` reads exclusively the event log. See §10.12.
+- **Why it matters:** The same non-overlap §17 already established between platform and per-customer
+  extension metrics, applied again because the shape of the question repeats. Neither consumer
+  recomputes what the other already computed from a different source.
+
+### 18.9 "Notify customer" does not create a delivered notification ⭐
+- **Rule:** The Warning Phase emits `overstay.warning` and relies on the driver's own bookings page
+  reading `overstayStatus` directly — no `Notification` document is created.
+- **Where:** `backend/src/services/overstay.service.ts` (module note), `frontend/.../bookings/page.tsx`
+- **Why it matters:** `CLAUDE.md` and `reservationEvents.service.ts` both state, as a live invariant,
+  that nothing yet turns an event into a delivered notification, and that such delivery belongs in a
+  *consumer* built for that purpose — never inline in a domain service. This feature does not build
+  that consumer or work around the boundary; it follows the same non-delivery precedent every other
+  customer-facing decision in this codebase already does (an approved extension is not pushed to a
+  driver either — see §17.1).
+
+### 18.10 Charger occupancy ownership: unmodified, verified rather than assumed ⭐
+- **Rule:** The sweep and the finalizer claim, extend or release zero `reservationoccupancy` rows.
+- **Where:** confirmed by diff — `overstay.service.ts` imports neither `moveOccupancy`,
+  `claimOccupancy` nor `releaseOccupancy`.
+- **Why it matters:** Per the brief for this feature, charger occupancy ownership rules must not be
+  modified. An overstay is a monitoring/alerting layer on top of a session that is still legitimately
+  `CHARGING` — the booked (or extended) interval already reflects what was actually granted, and
+  nothing here changes who holds the charger or for how long.
+- **Verified:** atom count for an overstaying booking is identical immediately before and after a
+  sweep pass against the live database.
+
+### 18.11 Known limitation: no occupancy enforcement — a reserved future phase, not a gap in §18.10 ⭐
+- **Rule:** Because occupancy is deliberately untouched (§18.10), an overstaying reservation's atom
+  reads as free to a brand-new claim the instant its interval ends, whether or not the vehicle has
+  actually left.
+- **Where:** `backend/src/models/Booking.ts` (`reservationoccupancy` unique index, unaffected by
+  `overstayStatus`); documented at `PROJECT_STATE.md` §4 and §6h, and as work item 9 in §7.
+- **Why this is accepted rather than fixed here:** This platform has no way to tell "the
+  reservation's time is up" apart from "the bay is physically empty" — that distinction needs a
+  real check-out signal (QR or telemetry) that does not exist (§14). Approved decision on closing
+  Phase L: **carry this forward as a known architectural limitation for a dedicated future
+  occupancy-enforcement phase. Do not modify it inside the Overstay Engine unless that dedicated
+  phase is introduced.** A fix — e.g. holding the atom past its nominal end while `overstayStatus`
+  is active, with its own priority/conflict rules for whoever claims that time next — is an
+  occupancy-policy decision in its own right, not an alerting feature's side effect, and bolting it
+  on here would be exactly the kind of scope creep this codebase's conventions warn against.
+
+### 18.12 Verified end-to-end
+- **Rule:** `verify-reservation-flow.ts` §10 — 16 checks: four pure classification boundaries, a real
+  sweep jumping a 40-minute-overdue session straight to ALERTED with every skipped tier back-filled,
+  occupancy proven untouched, idempotency of a repeated sweep, a session finalized correctly at
+  `endCharging` despite never being swept, the `session.ended` basis bug fix, a pure reliability
+  penalty check plus its fault-waiver counterpart, and `customerBehaviorPolicy.ts`'s new detail
+  actually populating from real events.
+
+---
+
+# 19. The Technical Incident Engine ⭐
+
+Answers "is there a known technical problem affecting this charger or station right now, and what
+does it affect?" — creation, tracking, resolution and visibility only. Extends the existing
+charger-status field, staff authorisation, and the append-only-event-log pattern; introduces
+exactly one new domain (incidents) and no new reservation logic.
+
+### 19.1 Its own lifecycle, its own domain — not a reservation state ⭐
+- **Rule:** `Incident.status` — `CREATED → INVESTIGATING → ACTIVE → RESOLVED → CLOSED`, RESOLVED
+  may return to ACTIVE to reopen. Validated by `ALLOWED_INCIDENT_TRANSITIONS`.
+- **Where:** `backend/src/models/incidentPolicy.ts`, `Incident.ts`
+- **Why it matters:** The exact same `Record<string, readonly string[]>` shape
+  `booking.service.ts`'s `ALLOWED_TRANSITIONS` already uses for reservation status, applied to a
+  genuinely different entity. `Booking.lifecycle`/`status` are never read or written by this
+  feature — confirmed by diff, the same discipline §16.8/§17.7/§18.10 already established for
+  their own neighbouring features.
+- **CREATED may skip straight to ACTIVE or RESOLVED.** The brief's example diagram is the happy
+  path, not the only legal one: an obviously-confirmed failure needs no investigation phase, and a
+  reported-and-instantly-fixed problem needs no investigation either.
+- **Verified:** the pure transition map's boundaries (an allowed forward step, a forbidden
+  out-of-order step, CLOSED's terminal state), and a real out-of-order transition (`ACTIVE ->
+  CLOSED`) refused by the service, not just hidden by a disabled button.
+
+### 19.2 Its own event log, in its own collection ⭐
+- **Rule:** `incidentevents`, structurally identical to `reservationevents` — append-only, one
+  writer (`emitIncidentEvent`), best-effort and never-throwing.
+- **Where:** `backend/src/models/IncidentEvent.ts`, `services/incidentEvents.service.ts`
+- **Why a SEPARATE collection, not new types on `reservationevents`:** that log is
+  reservation-shaped — every existing type carries a `bookingId` or `requestId` and is read by
+  consumers reasoning about a *driver's* history (reliability, behaviour, the optimizer's
+  capacity-release cursor). An incident is a *station/charger's* history. Folding it in would blur
+  exactly the domain boundary the brief for this feature explicitly asks to keep separate. A future
+  notification consumer or delay-propagation phase reads `incidentevents` for incident facts, the
+  same relationship reservation consumers already have to `reservationevents`.
+
+### 19.3 The one side effect: reusing the charger's own, pre-existing `status` ⭐
+- **Rule:** Reporting an incident marks every named charger unavailable **immediately at CREATED**
+  — `MAINTENANCE` sets `"maintenance"`, the other three (unplanned breakage) set `"offline"` — but
+  only when the charger currently reads `"available"`.
+- **Where:** `backend/src/services/incident.service.ts` → `markChargersAffected`
+- **Why immediately, not deferred to ACTIVE:** a reported problem left bookable during
+  "investigating" is judged the worse failure mode — the report itself IS the operator's
+  serviceability declaration (`Charger.status`'s own documented purpose, CLAUDE.md §2). No new field
+  is added to the charger model; nothing here is a new occupancy signal.
+- **Two incidents naming the same charger do not fight over its status.** Marking only writes when
+  the charger reads `"available"`, so a charger already down for one reason is not relabelled for a
+  second, less urgent one. **Resolving checks whether any OTHER open incident still names the
+  charger** before restoring `"available"` — resolving the first of two never silently reopens a
+  charger the second still considers broken.
+- **Verified:** a second incident on an already-offline charger leaves its status untouched;
+  resolving one of two incidents on the same charger leaves it unavailable; resolving the second
+  restores it; reopening (`RESOLVED -> ACTIVE`) takes it unavailable again and keeps the earlier
+  resolution notes as history rather than clearing them.
+
+### 19.4 Affected resources: identified live, never snapshotted onto the incident, never acted on ⭐
+- **Rule:** `computeIncidentImpact` is a pure, live read against `bookings` (active =
+  `ARRIVED`/`CHARGING`; upcoming = `PENDING_PAYMENT`/`RESERVED`/`LATE`/`AT_RISK` with a future
+  start) and `reservationrequests` (`PENDING_ACCEPTANCE` on an affected charger = an affected
+  recommendation; `OPEN`/`WAITLISTED` at an affected station = the affected waitlist).
+- **Where:** `backend/src/services/incident.service.ts`
+- **IDENTIFICATION ONLY — the entire "future integration" surface this phase is asked to prepare
+  for and not build.** It cancels, reschedules, re-prioritises and re-offers nothing.
+- **Deliberately NOT stored on the Incident document.** Request/booking state changes constantly (a
+  request lapses, a booking completes); a stale mutable field on the incident would silently
+  disagree with reality the moment either changed. A **point-in-time snapshot** of the same counts
+  IS embedded in each transition's own `IncidentEvent` metadata — "what was true then" is a
+  legitimately storable, different question from "what is true right now."
+- **Verified:** a real upcoming reservation, claimed on the affected charger before the incident
+  existed, is actually found by `computeIncidentImpact` — and its `lifecycle` and occupancy atom
+  count are unchanged before and after the incident's entire lifecycle, proving identification
+  really is read-only.
+
+### 19.5 The unbuilt seam this phase deliberately stops at ⭐
+- **Rule:** `ReservationRequest.priority` already has a `"recovery"` tier, and the scheduler already
+  scores it above `"standard"` — see that field's own comment: *"a customer displaced by an incident
+  or a maintenance closure is owed the next best slot."*
+- **Where:** `backend/src/models/ReservationRequest.ts`, `services/optimization/scoring.ts`
+- **Why it matters:** This tier has existed since Phase H with nothing ever creating a `"recovery"`
+  request, because nothing until now identified which reservations an incident actually displaced.
+  This phase supplies exactly that identification and stops — zero `"recovery"` requests created,
+  zero reservations cancelled, zero optimizer calls. Delay propagation (future work, `PROJECT_STATE.md`
+  §7 item 10) is what turns this identification into action along this exact, already-wired seam —
+  not a new mechanism to invent later, a seam that already exists and has simply never been fed.
+
+### 19.6 Incident types requiring — or not requiring — explicit chargers ⭐
+- **Rule:** `CHARGER_FAILURE`, `MAINTENANCE` and `PARTIAL_STATION_OUTAGE` all require naming
+  specific chargers; only `POWER_OUTAGE` may default to "every charger at the station," snapshotted
+  once at creation.
+- **Where:** `backend/src/models/incidentPolicy.ts` → `requiresExplicitChargers`
+- **Why:** A charger failure or planned maintenance is inherently about specific units. "Partial"
+  station outage is a subset *by definition* — its own name requires naming which chargers, or the
+  distinction from a full outage is meaningless. A power outage is the one type that plausibly takes
+  an entire station down at once.
+- **Verified:** `CHARGER_FAILURE` and `PARTIAL_STATION_OUTAGE` both refused without explicit
+  chargers; `POWER_OUTAGE` with nothing named correctly resolves to every charger the station
+  actually has.
+
+### 19.7 Analytics: incidents and incidentevents only — never bookings, never reservationevents ⭐
+- **Rule:** `getIncidentAnalytics` computes total incidents, incidents by type, average resolution
+  time, charger-failure frequency, station-outage frequency, and affected-reservation count — read
+  exclusively from `Incident`/`IncidentEvent`.
+- **Where:** `backend/src/services/incident.service.ts`
+- **`affectedReservationCount` reads the `incident.created` snapshot, not a live recount** — for the
+  same reason §19.4 keeps live impact off the incident document: a live query against an old,
+  closed incident's chargers would understate it, since the sessions it once affected have since
+  completed and moved on to other lifecycle states.
+- **Why a THIRD analytics source, not folded into Schedule Quality or Customer Behaviour:** three
+  different questions. Schedule Quality (`bookings`) asks how well the platform is scheduling.
+  Customer Behaviour (`reservationevents`) asks how a driver behaves. This asks how reliable *our
+  own infrastructure* has been — a question about neither driver behaviour nor scheduling quality,
+  and conflating it with either would blur what a poor number actually means to fix.
+- **Verified:** analytics computed against this run's own real, created-and-resolved incidents
+  correctly counts by type, computes a non-null average resolution time once at least one has
+  resolved, and reflects a real affected-reservation snapshot.
+
+### 19.8 Verified end-to-end
+- **Rule:** `verify-reservation-flow.ts` §11 — 22 checks: the pure transition-map boundaries, a
+  malformed report refused before anything is created, a real incident marking its charger offline
+  immediately, an out-of-order transition refused, two incidents on one charger neither fighting
+  over status nor prematurely restoring it, a reopened incident re-claiming its charger with history
+  kept, a real upcoming reservation found with its lifecycle/occupancy proven untouched,
+  `POWER_OUTAGE`'s station-wide default, `PARTIAL_STATION_OUTAGE` requiring explicit chargers, and
+  the analytics reading real incidents/events for all six figures. `npm run ops:verify` —
+  **165/165** overall.
+
+---
+
+# 20. The Delay Propagation Engine ⭐
+
+Answers "which reservations does this incident's delay actually reach, by how much, and what
+should happen for the customers it displaces?" — the exact seam §19.5 identified and deliberately
+left unfed. Closes it as its own consuming service: a separate domain, a separate event log, zero
+writes to a reservation, zero scheduling logic duplicated.
+
+### 20.1 A separate service consuming Technical Incident data, never called inline from it ⭐
+- **Rule:** `delayPropagation.service.ts` is invoked only by its own sweep and its own staff routes
+  — never from `incident.service.ts`, which has no import of, or knowledge that, this file exists.
+- **Where:** `backend/src/services/delayPropagation.service.ts` (module docstring), `incident.service.ts`
+  (unmodified)
+- **Why it matters:** the exact discipline CLAUDE.md §7 already states for reliability, behaviour
+  and the optimizer's capacity-release consumer — a side effect of one domain's events belongs in a
+  *consumer*, never wired inline into the domain service that raised them. `computeIncidentImpact`
+  is called (not reimplemented) for the station-wide impact counts this run's events carry; nothing
+  else about `Incident`/`IncidentEvent` is read or written by this file.
+- **Verified:** grep confirms zero references to `delayPropagation` anywhere in
+  `incident.service.ts`, `booking.service.ts`, `scoring.ts`, or `recommendationPolicy.ts`.
+
+### 20.2 Its own event log, in its own collection ⭐
+- **Rule:** `delaypropagationevents`, structurally identical to `incidentevents` and
+  `reservationevents` — append-only, one writer (`emitDelayPropagationEvent`), best-effort and
+  never-throwing. Five types: `delay.detected`, `delay.cascade_updated`, `delay.recovery_created`,
+  `delay.notification_generated`, `delay.resolved`.
+- **Where:** `backend/src/models/DelayPropagationEvent.ts`, `services/delayPropagationEvents.service.ts`
+- **Why a separate collection, not new types on `incidentevents`:** the same reasoning §19.2 already
+  gives for keeping `incidentevents` off `reservationevents` — this is a *cascade's* history, a
+  different shape and a different set of consumers again from either an incident's own history or a
+  reservation's.
+
+### 20.3 One root per affected charger — the design correction that makes the cascade math right ⭐
+- **Rule:** `buildChain` finds exactly the earliest live-lifecycle booking per charger named on the
+  incident (`RESERVED`/`LATE`/`AT_RISK`/`ARRIVED`/`CHARGING`/`PENDING_PAYMENT`, sorted by
+  `scheduledStart`) as the cascade's sole root, then walks the same-charger queue forward from
+  there.
+- **Where:** `backend/src/services/delayPropagation.service.ts` → `buildChain`
+- **Why NOT one root per booking `computeIncidentImpact` returns:** that function's "upcoming" set
+  is every live reservation on the charger from now into the future — the right answer to "what
+  does this incident affect," the wrong granularity for "where does a cascade start." Treating each
+  of those bookings as an independent root double-counts anything already reachable from an earlier
+  one's own downstream walk — a real bug caught during this phase's own verification (chain length
+  8 instead of 3, delay minutes off by three orders of magnitude) before the root-per-charger design
+  replaced it.
+- **The half-open boundary this platform already books on decides who is "next."** The downstream
+  query is `scheduledStart: { $gte: root.scheduledEnd }`, not `$gt` — a back-to-back reservation has
+  a start **equal** to the upstream's end, and `RUNBOOK.md`'s own `BACK-TO-BACK reservation
+  accepted` check exists to protect exactly this half-open convention on the claim path; the cascade
+  math has to honour the same rule or contradict it.
+- **Verified:** a real three-reservation cascade (A→B→C) on one charger, back-to-back, reaches
+  exactly those three with the full delay passed through unchanged at each hop (zero gap, zero
+  decay); a fourth reservation D, separated from C by a real gap large enough to absorb A's delay
+  before D was ever due, is correctly excluded from the chain.
+
+### 20.4 Delay is arithmetic over already-scheduled times — never a second availability system ⭐
+- **Rule:** the root's delay is `minutesBetween(scheduledStart, effectiveNow)`, capped at zero.
+  Each downstream entry's delay is `cascadedDelayMinutes({ upstreamEstimatedEnd,
+  downstreamOriginalStart })` — zero once the upstream recovers before the downstream was due (the
+  chain ends there), otherwise exactly how far the overrun reaches into it.
+- **Where:** `backend/src/models/delayPropagationPolicy.ts` → `cascadedDelayMinutes`,
+  `classifyDelay`
+- **`estimatedNewStart`/`estimatedNewEnd` never touch the booking they describe.** They are the
+  booking's own original times shifted by the computed delay, stored only on the
+  `DelayPropagation` record; `Booking.scheduledStart`/`scheduledEnd`/`lifecycle` are read-only
+  throughout this entire file — confirmed by diff, no write path to `Booking` exists in
+  `delayPropagation.service.ts`.
+- **Existing extensions are respected for free.** `scheduledEnd` already reflects any
+  extension approved by the Extension Request Engine (§17), so the cascade inherits extended
+  timing automatically without a second lookup or a second timing calculation that could disagree
+  with the first.
+- **`effectiveNow` has two modes, one line apart.** A still-open incident measures delay against
+  the caller's `now` — a live, moving estimate. A resolved incident measures against the incident's
+  own `resolvedAt` instead, ignoring `now` entirely — one exact, final pass.
+- **Verified:** delay-classification boundaries (`classifyDelay` at exactly the moderate threshold);
+  `cascadedDelayMinutes` returns zero when the upstream recovers in time and the exact overrun
+  otherwise; the final pass on a resolved incident uses the incident's own backdated `resolvedAt`,
+  not the caller's real-time `now`, producing the exact expected minute count.
+
+### 20.5 Recovery reuses the existing waitlist path — no second demand system ⭐
+- **Rule:** every chain entry at `MODERATE` severity or worse is filed through
+  `reservationRequest.service.ts`'s existing `createRequest`, with `priority: "recovery"` and a new
+  `origin: "system"` value (alongside the pre-existing `"self"`/`"staff_onsite"`).
+- **Where:** `backend/src/services/delayPropagation.service.ts` → `propagateOne`;
+  `models/ReservationRequest.ts` → `REQUEST_ORIGINS`
+- **Why it matters:** `priority: "recovery"` has existed on `ReservationRequest` since before this
+  phase, already scored above `"standard"` by the optimizer (§19.5), and nothing had ever created
+  one until now. The filed request waits in the exact same demand pool as a driver's own flexible
+  booking, picked up by the same, unmodified optimizer pass on its own schedule — zero scheduling
+  logic added by this file. `origin` is unscored audit metadata only, never read by scoring.
+- **Verified:** every entry classified MODERATE-or-worse in a real cascade carries a filed request
+  with `priority: "recovery"` and `origin: "system"`; grep confirms `scoring.ts` and
+  `recommendationPolicy.ts` have no `origin`-based branch.
+
+### 20.6 Idempotent recomputation — a re-run forgets nothing and never double-files ⭐
+- **Rule:** re-running propagation for an unchanged incident carries forward each entry's
+  `recoveryRequestId`/`notifiedAt` from the previous chain, keyed by `bookingId`, so an entry that
+  already has a recovery request is never re-filed.
+- **Where:** `backend/src/services/delayPropagation.service.ts` → `propagateOne`
+  (`previousByBooking`)
+- **Why it matters:** `sweepDelayPropagation` re-runs every still-open incident on every pass — the
+  same periodic-consumer shape as `sweepOverstays`/`sweepNoShows` (§18.2). Without carrying state
+  forward, every sweep would re-file a fresh recovery request for the same displaced driver.
+- **Verified:** running propagation twice against the same unchanged incident leaves the same three
+  recovery requests filed, not six.
+
+### 20.7 Notifications stay on the same non-delivery boundary as every prior phase ⭐
+- **Rule:** "generate automatic notifications" is satisfied by a `delay.notification_generated`
+  event carrying the actual message text — never a `Notification` document.
+- **Where:** `backend/src/services/delayPropagation.service.ts` → `propagateOne`
+- **Why it matters:** nothing in this codebase yet turns an event into a delivered notification
+  (CLAUDE.md §5) — the same boundary §16 (Late Arrival), §17 (Extensions), §18 (Overstay) and §19
+  (Incidents) all already hold. This event IS the "track notification events/results" requirement:
+  an honest record that the driver was due to be told, and exactly what the message said, without
+  claiming a delivery that does not exist. Visibility today is the staff cascade panel on
+  `/staff/incidents`.
+
+### 20.8 Analytics: a fourth, separate source ⭐
+- **Rule:** `getDelayPropagationAnalytics` reads exclusively from `DelayPropagation`/
+  `DelayPropagationEvent` — never `Incident`/`IncidentEvent`, `bookings`, or `reservationevents`.
+  Reports total propagated delays, average delay duration, reservations affected per incident,
+  maximum cascade depth, and recovery success rate.
+- **Where:** `backend/src/services/delayPropagation.service.ts` → `getDelayPropagationAnalytics`
+- **Recovery success rate reads real terminal outcomes**, not a guess: it looks up the actual
+  `status` (`FULFILLED`/`EXPIRED`/`CANCELLED`) of every `ReservationRequest` this run's chains filed,
+  excluding still-open ones from the rate rather than counting them against it.
+- **Why a FOURTH analytics source:** Incident analytics (§19.7) asks how reliable the infrastructure
+  has been. Schedule Quality asks how well the platform is scheduling. Customer Behaviour asks how a
+  driver behaves. This asks how far an incident's disruption actually spread and how well the
+  platform recovered from it — a fourth, genuinely different question, none of the four recomputing
+  what another already answers.
+- **Verified:** analytics computed against this run's own real propagated delays correctly counts
+  total delays and max cascade depth, and `recoveryFiled` matches exactly the entries this run
+  actually filed a request for.
+
+### 20.9 Verified end-to-end
+- **Rule:** `verify-reservation-flow.ts` §12 — 18 checks: the pure severity-classification and
+  cascade-math boundaries, a real A→B→C cascade reaching exactly those three with zero decay across
+  a back-to-back queue, D correctly excluded by a real gap, every MODERATE-or-worse entry carrying a
+  filed `recovery`/`system` request, delay propagation proven to never write to the reservations it
+  describes, a re-run against an unchanged incident filing no duplicate requests, resolving an
+  incident finalizing its propagation record and emitting its own event type, the final pass using
+  the incident's own `resolvedAt` rather than the caller's `now`, and delay analytics reading real
+  propagated delays. `npm run ops:verify` — **165/165** overall.
+
+---
+
+# 21. The Demo Support Layer ⭐
+
+Answers "how do we show this platform working, the same way twice, without either faking the
+system's own behaviour or hand-editing the database into a shape it would never reach on its
+own?" — infrastructure only. Nothing here is a business rule: it sequences the same service calls
+a driver, a staff member, or the optimizer already make, with deterministic, clock-relative inputs.
+
+### 21.1 A consumer of every engine, never a branch inside one ⭐
+- **Rule:** `backend/src/demo/scenarios.ts`'s eight scenario functions call
+  `claimRangeReservation`, `checkIn`, `startCharging`, `endCharging`, `requestExtension`,
+  `createIncident`, `transitionIncident`, `propagateForIncident`, `createRequest`,
+  `runOptimization`, `acceptRecommendation`, `updateReservation` and `recomputeForUser` —
+  every one unmodified. Zero production service or model contains a demo-aware branch.
+- **Where:** `backend/src/demo/` (new directory: `ids.ts`, `clock.ts`, `fixtures.ts`, `scenarios.ts`,
+  `reset.ts`); `backend/scripts/demo.ts` (CLI)
+- **Verified:** `grep -rl "@/demo/" backend/src/services backend/src/models` finds nothing — no
+  production file imports from this layer in either direction beyond the demo layer's own imports
+  of production services.
+
+### 21.2 Deterministic ids where practical — fixtures only, never a service's own creation ⭐
+- **Rule:** the station, its eight dedicated chargers, the staff actor, and the twelve demo
+  drivers/vehicles all carry fixed, hand-assigned `ObjectId`s under one reserved namespace prefix
+  (`ids.ts`). Bookings, incidents, requests and delay propagation records do **not** — they are
+  created by the real services, which assign their own ids.
+- **Where:** `backend/src/demo/ids.ts`
+- **Why the split, not "ids everywhere":** the brief's own "where practical" already concedes this.
+  Forcing a fixed id onto a document a service constructs internally means either bypassing that
+  service's own `Model.create()` call or adding a demo-only parameter to accept one — both are
+  exactly the "demo-specific branch inside a production service" §21.1 forbids. Determinism for
+  those documents comes from their *content* (fixed relative timestamps, fixed decisions, fixed
+  severities) and from being reachable through their foreign key back to a fixed fixture id
+  (`chargerId`, `stationId`, `userId`) — which is also what makes `reset.ts` exact without a schema
+  change (see §21.6).
+
+### 21.3 The demo clock — offsets are deterministic, the calendar position never is ⭐
+- **Rule:** `createDemoClock()` captures real wall-clock `demoStart` once per run and exposes two
+  derived readings: `at(offsetMinutes)` (demoStart + offset, for backdating an already-claimed
+  booking's `scheduledStart`/`scheduledEnd`) and `atGrid(offsetMinutes)` (the next 15-minute- and
+  operating-hours-aligned moment at or after demoStart, plus offset — the only form ever handed to
+  a real claim's `startTime`).
+- **Where:** `backend/src/demo/clock.ts`
+- **Why offsets, not a frozen clock:** `occupancyPolicy.ts`'s `validateRange` correctly refuses a
+  start already in the past, and this layer does not get to relax that. So `demoStart` cannot be a
+  fixed historical constant — it is real "now" at run time — and "the same timestamps relative to
+  demo start" means every *offset* is a fixed constant (reservation B always 30 minutes after A),
+  while only their absolute calendar position moves with the real clock.
+- **A real bug this caught during development:** three scenarios originally computed a claim's
+  `startTime` from `at()` instead of `atGrid()` — `at()` inherits `demoStart`'s real seconds and
+  milliseconds, so the claim almost never landed on the 15-minute grid and `validateRange` correctly
+  refused it (`INVALID_RANGE`). Fixed by routing every claim's `startTime` through `atGrid()` and
+  reserving `at()` for backdating an already-accepted booking's schedule — exactly the kind of
+  wiring defect this session's own established practice (live execution, not just `tsc`) exists to
+  catch.
+
+### 21.4 Backdating is the same technique this codebase's own tests already use, applied once more ⭐
+- **Rule:** late arrival, technical incident, and delay propagation all need a reservation that
+  reads as already overdue. Each claims for real on an `atGrid`-aligned near-future start — so
+  `validateRange` genuinely runs and genuinely passes — then moves `scheduledStart`/`scheduledEnd`
+  backward with a direct, targeted update, exactly as `verify-reservation-flow.ts`'s own "backdate
+  via direct update" sections and `ops:demo-data` already do (see `RUNBOOK.md` §3's own rationale).
+- **Where:** `backend/src/demo/scenarios.ts`
+- **Never touches `reservationoccupancy`.** Arrival classification and delay math both read
+  `scheduledStart`/`scheduledEnd` directly off the booking, never the occupancy atoms — so backdating
+  the schedule and leaving occupancy exactly where the claim actually took it creates no
+  contradiction between the two, the same non-relationship §20.4 (the Delay Propagation Engine)
+  already established.
+- **The delay-propagation scenario shifts all three chained bookings by the same delta**, preserving
+  their back-to-back adjacency (root ends exactly when the next begins) rather than shifting only
+  the root — shifting only the root would open a 40-minute gap the real half-open boundary check
+  would then correctly refuse to bridge, breaking the cascade the scenario exists to demonstrate.
+
+### 21.5 Eight scenarios, one function each, one shared set of fixtures ⭐
+- **Rule:** `normal_flow`, `late_arrival`, `waitlist_promotion`, `extension_approval`,
+  `partial_extension`, `technical_incident`, `delay_propagation`, `reliability_scoring` — each its
+  own dedicated charger (never sharing capacity with another scenario) and its own driver(s), all
+  under one shared demo station.
+- **Where:** `backend/src/demo/scenarios.ts`, `backend/src/demo/fixtures.ts`
+- **`waitlist_promotion` is the one scenario that touches four engines in sequence**: an incumbent
+  takes the whole window (Scheduler has nothing to offer), a flexible request is created and run
+  through `runOptimization` (WAITLISTED — no capacity), the incumbent genuinely cancels
+  (`updateReservation`, releasing real occupancy and emitting `reservation.released`), a second
+  optimizer pass finds the freed capacity and issues an offer (Recommendation Engine), and
+  `acceptRecommendation` converts it into a real, `PENDING_PAYMENT` reservation — the same deposit-
+  owed state a real accepted offer produces, not shortcut to `RESERVED`.
+- **`partial_extension` books a neighbour exactly 15 minutes clear of the primary's end**, so
+  `requestExtension`'s own `maxContiguousFreeMinutes` read finds only 15 minutes of room for a
+  30-minute request — `PARTIAL_APPROVAL` for exactly the 15 that fits, decided by the real engine,
+  not asserted.
+- **Verified live**, not only by script: every scenario's output was cross-checked against
+  `/staff` (the station board lists every demo booking with its real lifecycle and reliability
+  badge), `/admin/delay-propagation` (the delay-propagation scenario's run counted correctly in the
+  analytics tiles), and `/admin/reliability` (the reliability scenario's driver shows score 76,
+  "Good", 1 no-show) — all three surfaces required no code change to display demo data, because it
+  is created through the same services and lives in the same collections as anything else.
+
+### 21.6 Reset without a schema change ⭐
+- **Rule:** `resetDemo()` deletes every scenario-generated document by following a foreign key back
+  to a fixed fixture id — bookings by `chargerId`, occupancy by `chargerId`, requests by `userId`,
+  incidents (and, through them, their events and delay propagation records) by `stationId` — then
+  restores any charger an incident left unavailable and recomputes reliability for every demo
+  driver back to its default. The fixtures themselves (station, chargers, drivers, vehicles) are
+  left in place; they are inert identity records with nothing that can go stale.
+- **Where:** `backend/src/demo/reset.ts`
+- **Why not the pre-existing `isDemo` flag** (`Booking.isDemo`, `User.isDemo`, from the earlier
+  behavioural-history generator, `ops:demo-data`): that flag marks *history* rows a different
+  script inserts directly, for a different purpose (giving analytics screens something to show).
+  Reusing it here would conflate two unrelated notions of "demo data" and gain nothing — fixture-id
+  scoping is exact on its own and needs no schema field at all.
+
+### 21.7 Presentation support — one script, four subcommands ⭐
+- **Rule:** `npm run demo -- list` (every scenario and what it demonstrates), `npm run demo --
+  reset`, `npm run demo -- run <scenario|all>`, `npm run demo -- inspect <scenario>` (the scenario's
+  own description — actual facts come from `run`'s own output).
+- **Where:** `backend/scripts/demo.ts`
+- **A known, documented limitation:** running a scenario a second time without resetting can
+  collide with capacity a previous run still holds (a fulfilled reservation legitimately keeps its
+  slot) — `CHARGER_BUSY` from the real occupancy index, exactly as it would for two real drivers.
+  `demo:reset` between runs is the expected operational step, not a workaround for a bug.
+
+### 21.8 Verified end-to-end and deterministic across resets
+- **Rule:** every scenario run individually and as `run all`, twice in succession after two
+  independent `reset`s. Every content-level fact — arrival outcomes, extension decisions and
+  approved minutes, cascade length/depth/severities, waitlist promotion outcome, reliability score
+  — was identical between the two runs; only the service-assigned document ids differed, exactly as
+  §21.2 describes. `npm run ops:verify` — **165/165**, unchanged, confirming nothing in this layer
+  touches production behaviour.
+
+---
+
+# 22. Final Project Audit — three bugs fixed
+
+A full cross-subsystem review (reservation lifecycle, occupancy, deposits, recommendation/
+optimization/waitlists, reliability, behaviour, charging sessions, extensions, overstay, technical
+incidents, delay propagation, analytics, the demo layer) for architecture, source-of-truth,
+duplication, and lifecycle/event/analytics/documentation consistency. See `PROJECT_STATE.md` §8
+for the full disposition, including a methodology note on why two of three research agents used
+during this audit produced findings against stale, pre-session git state (`isolation: "worktree"`
+only sees committed history) and had to be discarded after independent re-verification against the
+live tree. Only the three findings below were both real and within this phase's remit to fix
+(Critical/Functional Bugs only — Architectural Risks and Technical Debt are recorded in
+`PROJECT_STATE.md` §8 as future work, not fixed here).
+
+### 22.1 A CHARGING session could be discarded instead of ended ⭐
+- **Rule:** `updateReservation` now refuses `{status: "cancelled"}` on a booking whose
+  `lifecycle === "CHARGING"` with a new sentinel, `SESSION_IN_PROGRESS` (`409`).
+- **Where:** `backend/src/services/booking.service.ts` (`updateReservation`),
+  `backend/src/app/api/bookings/route.ts` (`UPDATE_ERRORS`)
+- **Why this was reachable:** `ALLOWED_TRANSITIONS` gates on the legacy `status`, which collapses
+  `RESERVED`/`ARRIVED`/`CHARGING`/`LATE`/`AT_RISK`/`EXTENSION_REQUESTED` into one `"confirmed"`
+  bucket (§2.1) — it structurally cannot see that a session is actually in progress. A driver's own
+  `PATCH /api/bookings` could cancel their currently-charging session, releasing occupancy and
+  settling the deposit through a path with no equivalent for `endCharging`'s session-specific work
+  (`actualEnd`, overstay finalization, the early-departure/`session.ended` event).
+- **Verified:** a standalone script claimed a booking, checked in, started charging, then confirmed
+  `updateReservation` throws exactly `SESSION_IN_PROGRESS` for that booking's owner.
+
+### 22.2 `waivedEvents` was computed and then thrown away ⭐
+- **Rule:** `User.ts` gained an additive `waivedEvents` field; `recomputeForUser` persists it, and
+  every reliability read path returns the real value instead of a hardcoded `0`.
+- **Where:** `backend/src/models/User.ts`, `backend/src/services/reliability.service.ts`
+- **Why this was a real gap, not just dead code:** `reliabilityPolicy.ts::scoreFromEvents` (the
+  pure fold, §7) genuinely counts operator-fault/non-penalising events on every recompute — the
+  number was correctly computed four separate times inside the fold and discarded every single time
+  by the one function that was supposed to store it.
+- **Verified:** a standalone script emitted one non-penalising event for a test driver, recomputed,
+  and confirmed both the returned `ReliabilityResult` and the stored `User` document show the
+  correct non-zero count.
+
+### 22.3 A staff reschedule's freed capacity was invisible to the optimizer ⭐
+- **Rule:** `"reservation.rescheduled"` added to `CAPACITY_RELEASING_EVENTS` in
+  `services/optimization/consumer.ts`.
+- **Where:** `backend/src/services/optimization/consumer.ts`
+- **Why this was a real gap:** `reservationMove.service.ts` emits `reservation.rescheduled` and
+  genuinely frees the vacated slot (§6.5/§6.9's post-booking flexibility consent mechanism), but the
+  capacity-release consumer's watch list never included it — a waitlisted request that could use
+  the freed time was only re-planned incidentally, by some unrelated later release elsewhere at the
+  same station, never reliably by the move itself.
+
+**All three verified independently, then `npm run ops:verify` — 165/165, unchanged** — confirming
+neither fix altered any already-verified behaviour.
+
+---
+
+# 23. Suggested demo running order
 
 1. **Conflict-free claim** (§1.1, §11.1) — two browsers, same charger and time. The core claim.
 1b. **Duration-aware booking** (§11.3) — on the time step, switch 15/30/45/60/90 and watch the
@@ -897,7 +2063,8 @@ contribution either way.
 3. **Refund honesty** (§3.4) — open the cancel modal >24h out, then <24h out. Different, truthful.
 4. **Flexible booking** (§6.1, §9) — a window, the ranked options *with their reasons*, then
    expand **"Why this score?"** to show the five-factor breakdown.
-5. **Staff board** (§4.1, §7.5) — reliability badges, take a deposit at the desk, start a session.
+5. **Staff board** (§4.1, §7.5, §2.4) — reliability badges, take a deposit at the desk, check a
+   driver in, then start and end the session.
 6. **Move within consent** (§6.5, §6.9) — move a flexible reservation; then try a `STRICT` one and
    show the **explained refusal**.
 7. **Reliability** (§7.5) — `/admin/reliability`, sorted worst-first, with explanations.
@@ -905,7 +2072,30 @@ contribution either way.
    sample sizes. Hover one to show what it excludes.
 9. **Behaviour** (§8.11) — `/admin/behavior`, then a driver detail: delay distribution,
    cancellation lead-time breakdown, and the raw timeline the numbers came from.
+10. **An offer holds real capacity** (§15.1, §15.2) — `/book/flexible`, tick "hold the best match
+    for me automatically", then `/offers`: the countdown is server-computed, accept it, and the
+    reservation appears with a deposit owed.
+11. **The optimizer at station scale** (§15.3, §15.5) — `/admin/optimizer`: the demand pool, run a
+    pass, show a run's `counterfactualServed` against what first-come-first-served would have done
+    on the same snapshot.
 12. **Operational safety** (§13.1) — a migration dry run refusing to run out of order.
+13. **Extension requests** (§17.1–§17.6) — check in and start a session, request more time and show
+    the immediate APPROVED/PARTIAL_APPROVAL/REJECTED decision, then flip to the staff board and
+    override it — the same reservation, decision revised without touching its lifecycle.
+14. **Overstay Engine** (§18.1–§18.4) — run `sweepOverstays` against a session backdated past its
+    end and show it jump straight to ALERTED on the staff board with every tier back-filled, then
+    end the session and show the banner disappear and `session.ended`'s basis read `"overstay"`.
+15. **Technical Incident Engine** (§19.1–§19.3) — report a charger failure on `/staff/incidents`,
+    show the charger flip to offline immediately on the station board, walk it through
+    INVESTIGATING → ACTIVE → RESOLVED, and show `/admin/incidents` counting it in the analytics.
+16. **Delay Propagation Engine** (§20.3–§20.5) — with an incident still open on a busy charger,
+    open the "Delay cascade" panel on `/staff/incidents` and show the affected reservations in
+    order, each with its severity, its original time next to its new estimated time, and a filed
+    recovery request; then show `/admin/delay-propagation` counting the same run in the analytics.
+17. **The whole run order above, on demand** (§21) — `npm run demo -- run all` produces every one
+    of these fifteen scenes from a clean reset in one command, immediately visible on `/staff` and
+    every `/admin/*` analytics screen with no code path of its own; `npm run demo -- reset` clears
+    it before the next rehearsal or the next real presentation.
 
 **Closing point for the presentation:** the recurring theme is *choosing where correctness lives*.
 The database arbitrates conflicts; a pure policy module decides money and movement; an append-only

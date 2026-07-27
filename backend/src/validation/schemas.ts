@@ -4,6 +4,7 @@ import { RESERVATION_LIFECYCLE } from "@/models/reservationLifecycle";
 import { FLEXIBILITY_TYPES } from "@/models/flexibilityPolicy";
 import { OPERATOR_FAULT_REASONS } from "@/models/commitmentPolicy";
 import { ALLOWED_DURATIONS_MINUTES } from "@/models/occupancyPolicy";
+import { INCIDENT_TYPES, INCIDENT_SEVERITIES, INCIDENT_LIFECYCLE } from "@/models/incidentPolicy";
 
 /** Rejects anything that is not a Mongo ObjectId, before it reaches a query. */
 export const objectId = z.string().regex(/^[a-f\d]{24}$/i, "Must be a valid id");
@@ -389,6 +390,53 @@ export const onSiteReservationSchema = z.object({
 /** Staff starts or ends a charging session by reservation id. */
 export const sessionActionSchema = z.object({
   bookingId: objectId,
+});
+
+/**
+ * A driver's own extension request. `requestedMinutes` is the only decision input a driver
+ * supplies — `approvedExtensionMinutes`/`extensionDecision` are server-derived and deliberately
+ * absent here, so the schema-as-allowlist makes them unwritable by construction, the same
+ * discipline every other decision field in this codebase already follows.
+ */
+export const requestExtensionSchema = z.object({
+  bookingId: objectId,
+  requestedMinutes: z.number().int().positive().max(120),
+  reason: z.string().max(500).optional(),
+});
+
+/** Staff overriding the automatic decision on a request that already exists. */
+export const overrideExtensionSchema = z.object({
+  bookingId: objectId,
+  approvedMinutes: z.number().int().min(0).max(120),
+  reason: z.string().max(500).optional(),
+});
+
+/* ------------------------------------------------------------------ technical incidents */
+
+/**
+ * Reporting a new incident. `chargerIds` is optional only because `POWER_OUTAGE` may default to
+ * "every charger at the station" — every other type requires it explicitly (enforced in
+ * `incident.service.ts`, not here, since it depends on `type`'s value, not just its shape).
+ */
+export const createIncidentSchema = z.object({
+  type: z.enum(INCIDENT_TYPES),
+  severity: z.enum(INCIDENT_SEVERITIES),
+  stationId: objectId,
+  chargerIds: z.array(objectId).max(50).optional(),
+  title: z.string().min(1).max(200),
+  description: z.string().max(2000).optional(),
+});
+
+export const transitionIncidentSchema = z.object({
+  incidentId: objectId,
+  nextStatus: z.enum(INCIDENT_LIFECYCLE),
+  resolutionNotes: z.string().max(2000).optional(),
+});
+
+/* ------------------------------------------------------------------ delay propagation */
+
+export const runDelayPropagationSchema = z.object({
+  incidentId: objectId,
 });
 
 /* ------------------------------------------------------------------ stations */

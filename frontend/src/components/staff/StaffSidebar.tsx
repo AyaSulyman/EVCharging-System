@@ -4,13 +4,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { useState } from "react";
-import { LayoutDashboard, CalendarPlus, LogOut, Menu, X } from "lucide-react";
+import { LayoutDashboard, CalendarPlus, AlertOctagon, LogOut, Menu, X } from "lucide-react";
 import { Logo } from "@/components/ui/Primitives";
 import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/staff", label: "Station board", icon: LayoutDashboard },
   { href: "/staff/book", label: "On-site booking", icon: CalendarPlus },
+  { href: "/staff/incidents", label: "Incidents", icon: AlertOctagon },
 ];
 
 export function StaffSidebar() {

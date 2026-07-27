@@ -11,6 +11,7 @@
  * nothing, which is invisible to every query and permanently unbookable. Choosing which way a system
  * breaks is a design decision, and this is the same choice the slot path already made.
  */
+import type { ClientSession } from "mongoose";
 import { connectDB } from "@/config/database";
 import Booking from "@/models/Booking";
 import Charger from "@/models/Charger";
@@ -148,10 +149,17 @@ export async function claimOccupancy({
 /**
  * Releases everything a reservation holds. Idempotent — releasing twice is a no-op, which matters
  * because cancellation, expiry and the move path can all reach it.
+ *
+ * `session` is optional and additive — every existing caller omits it and behaves exactly as
+ * before. Passed by the no-show sweep so this delete participates in the same transaction as the
+ * booking update and the slot release, rather than being a separate, unguarded write outside it.
  */
-export async function releaseOccupancy(bookingId: unknown): Promise<number> {
+export async function releaseOccupancy(
+  bookingId: unknown,
+  options?: { session?: ClientSession }
+): Promise<number> {
   await connectDB();
-  const res = await ReservationOccupancy.deleteMany({ bookingId });
+  const res = await ReservationOccupancy.deleteMany({ bookingId }, { session: options?.session });
   return res.deletedCount ?? 0;
 }
 

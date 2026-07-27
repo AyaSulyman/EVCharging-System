@@ -16,9 +16,11 @@ import Station from "@/models/Station";
 import User from "@/models/User";
 import Vehicle from "@/models/Vehicle";
 import { assertStationInScope, type StaffAuth } from "@/middleware/auth";
-import { claimReservation, startCharging, endCharging } from "@/services/booking.service";
+import { claimReservation, checkIn, startCharging, endCharging } from "@/services/booking.service";
 import { openCommitment, confirmCommitment } from "@/services/commitment.service";
 import { reliabilityForUsers } from "@/services/reliability.service";
+import { overrideExtension } from "@/services/extension.service";
+import { overstayActionRequired, type OverstayStatusValue } from "@/models/overstayPolicy";
 
 /**
  * Lifecycle states that appear on the operational board (holding or actively charging).
@@ -96,6 +98,7 @@ export async function getStaffBoard(auth: StaffAuth) {
       chargerLabel: charger?.label ?? "—",
       scheduledStart: b.scheduledStart ?? b.startTime,
       scheduledEnd: b.scheduledEnd ?? b.endTime,
+      actualArrival: b.actualArrival ?? null,
       actualStart: b.actualStart ?? null,
       createdVia: b.createdVia ?? "self",
       // Deposit state, so the desk can see at a glance who still owes one and how long they
@@ -107,6 +110,22 @@ export async function getStaffBoard(auth: StaffAuth) {
       // both to decide whether moving it again is reasonable.
       flexibilityType: b.flexibilityType ?? "STRICT",
       moveCount: b.moveCount ?? 0,
+      // So the desk can see the automatic decision and override it without opening the reservation
+      // elsewhere.
+      extensionDecision: b.extensionDecision ?? null,
+      requestedExtensionMinutes: b.requestedExtensionMinutes ?? null,
+      approvedExtensionMinutes: b.approvedExtensionMinutes ?? null,
+      // Overstay tracking. Duration is computed live against "now" rather than read verbatim from
+      // `overstayDurationMinutes` — the board polls far more often than the sweep runs, and a stale,
+      // sweep-interval-old figure would visibly stall between passes on a screen an operator is
+      // actively watching. The persisted field remains the input to classification and the
+      // frozen, exact value once the session actually ends; this is a read-only display refinement.
+      overstayStatus: b.overstayStatus ?? "NONE",
+      overstayStartTime: b.overstayStartTime ?? null,
+      overstayDurationMinutes: b.overstayStartTime
+        ? Math.max(0, Math.round((Date.now() - new Date(b.overstayStartTime).getTime()) / 60_000))
+        : b.overstayDurationMinutes ?? null,
+      overstayActionRequired: overstayActionRequired((b.overstayStatus ?? "NONE") as OverstayStatusValue),
       customerName: user?.name ?? "—",
       customerEmail: user?.email ?? "—",
       // Surfaced on the board because it changes an operational decision: whether to hold a bay for
@@ -121,6 +140,7 @@ export async function getStaffBoard(auth: StaffAuth) {
     upcoming: reservations.filter((r) => r.lifecycle === "RESERVED").length,
     atRisk: reservations.filter((r) => r.lifecycle === "AT_RISK" || r.lifecycle === "LATE").length,
     awaitingDeposit: reservations.filter((r) => r.lifecycle === "PENDING_PAYMENT").length,
+    overstaying: reservations.filter((r) => r.overstayStatus !== "NONE").length,
   };
 
   return {
@@ -255,6 +275,13 @@ async function assertBookingInScope(auth: StaffAuth, bookingId: string) {
   assertStationInScope(auth, String(booking.stationId));
 }
 
+/** Checks a driver in at the bay, after checking the booking is at a station in scope. */
+export async function checkInSession(auth: StaffAuth, bookingId: string) {
+  await connectDB();
+  await assertBookingInScope(auth, bookingId);
+  return checkIn(bookingId);
+}
+
 /** Starts a charging session, after checking the booking is at a station in scope. */
 export async function startSession(auth: StaffAuth, bookingId: string) {
   await connectDB();
@@ -267,4 +294,25 @@ export async function endSession(auth: StaffAuth, bookingId: string) {
   await connectDB();
   await assertBookingInScope(auth, bookingId);
   return endCharging(bookingId);
+}
+
+/**
+ * Staff overriding the automatic extension decision, after checking the booking is at a station
+ * in scope — the same authorisation shape as every other staff action here. The decision mechanics
+ * themselves live in `extension.service.ts`; this function's only job is the scope check.
+ */
+export async function overrideExtensionRequest(
+  auth: StaffAuth,
+  bookingId: string,
+  input: { approvedMinutes: number; reason?: string }
+) {
+  await connectDB();
+  await assertBookingInScope(auth, bookingId);
+  return overrideExtension({
+    bookingId,
+    approvedMinutes: input.approvedMinutes,
+    reason: input.reason,
+    actorId: auth.id,
+    actorRole: auth.isAdmin ? "admin" : "staff",
+  });
 }

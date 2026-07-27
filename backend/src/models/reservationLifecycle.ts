@@ -42,8 +42,69 @@ export type LegacyStatus = "pending" | "confirmed" | "cancelled" | "completed" |
  * accidental no-shows and needless customer frustration. 15 trades a little charger
  * utilization for far fewer support incidents and a more realistic arrival window. Do not
  * lower it without a concrete operational reason.
+ *
+ * Env-overridable, matching the pattern already used for `COMMITMENT_WINDOW_MINUTES` and
+ * `RECOMMENDATION_HOLD_MINUTES` — this constant was the one outlier still hardcoded.
  */
-export const DEFAULT_GRACE_PERIOD_MINUTES = 15;
+export const DEFAULT_GRACE_PERIOD_MINUTES = Number(process.env.GRACE_PERIOD_MINUTES ?? 15);
+
+/**
+ * Additional minutes past the grace boundary before a reservation nobody arrived for is
+ * declared a no-show. Measured from the END of grace, not from `scheduledStart` directly —
+ * grace and the no-show threshold answer different questions ("how late is still forgivable"
+ * vs "how long do we keep a bay held for someone who may never come") and stacking them keeps
+ * both adjustable independently.
+ *
+ * 30 minutes is a starting default, not a settled policy figure — unlike the grace period and
+ * the commitment window, no prior business decision fixed this number. Snapshotted per booking
+ * exactly like grace, so a later policy change never rewrites the terms an existing reservation
+ * was held under.
+ */
+export const DEFAULT_NO_SHOW_THRESHOLD_MINUTES = Number(
+  process.env.NO_SHOW_THRESHOLD_MINUTES ?? 30
+);
+
+/** Arrival outcomes — a stamped-once classification, not a lifecycle state. See classifyArrival. */
+export const ARRIVAL_OUTCOMES = ["ON_TIME", "EARLY", "GRACE", "LATE", "NO_SHOW"] as const;
+export type ArrivalOutcome = (typeof ARRIVAL_OUTCOMES)[number];
+
+export interface ArrivalClassification {
+  outcome: Exclude<ArrivalOutcome, "NO_SHOW">;
+  /** Minutes early, floored at 0. Zero unless outcome is EARLY. */
+  minutesEarly: number;
+  /** Minutes late, floored at 0 — the existing `delayMinutes` field's exact meaning, unchanged. */
+  minutesLate: number;
+}
+
+/**
+ * Classifies an actual arrival against the promised start and the grace window in force for
+ * that reservation. Pure — the single place this comparison is made, called from both `checkIn`
+ * and `startCharging`'s auto-arrival fallback, so the two paths cannot compute it differently.
+ *
+ * ON_TIME is arrival at exactly the scheduled minute; any earlier is EARLY, any later is GRACE
+ * (within the window) or LATE (past it). NO_SHOW is never returned here — it applies only when
+ * no arrival timestamp exists at all, which this function cannot be called for.
+ */
+export function classifyArrival(
+  scheduledStart: Date,
+  actualArrival: Date,
+  gracePeriodMinutes: number
+): ArrivalClassification {
+  const deltaMinutes = Math.round(
+    (actualArrival.getTime() - new Date(scheduledStart).getTime()) / 60_000
+  );
+
+  if (deltaMinutes < 0) {
+    return { outcome: "EARLY", minutesEarly: Math.abs(deltaMinutes), minutesLate: 0 };
+  }
+  if (deltaMinutes === 0) {
+    return { outcome: "ON_TIME", minutesEarly: 0, minutesLate: 0 };
+  }
+  if (deltaMinutes <= gracePeriodMinutes) {
+    return { outcome: "GRACE", minutesEarly: 0, minutesLate: deltaMinutes };
+  }
+  return { outcome: "LATE", minutesEarly: 0, minutesLate: deltaMinutes };
+}
 
 /**
  * Lifecycle states in which the reservation still holds its interval — the v2 mirror of the

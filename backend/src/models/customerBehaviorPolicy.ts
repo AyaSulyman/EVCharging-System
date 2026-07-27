@@ -82,6 +82,24 @@ export interface ExtensionMetrics {
   notImplemented: boolean;
 }
 
+/**
+ * Richer overstay detail, alongside the pre-existing `BehaviorMetrics.overstays` count (unchanged
+ * — still a plain boolean-per-session tally from `session.ended`'s `minutesOverstayed`, exactly as
+ * before the Overstay Engine existed). This object is additive, not a replacement: the one existing
+ * consumer (`/admin/behavior/[userId]`) keeps reading `overstays` as a number with no change.
+ *
+ * `escalated`/`alerted` come exclusively from the new `overstay.escalated`/`overstay.alert_created`
+ * events — no other source computes them, so there is nothing here duplicating `overstays` itself.
+ * `avgDurationMinutes`/`maxDurationMinutes` reuse the SAME `minutesOverstayed` values `overstays`
+ * already reads from `session.ended`, just aggregated further — one source, two views of it.
+ */
+export interface OverstayDetailMetrics {
+  escalated: number;
+  alerted: number;
+  avgDurationMinutes: number;
+  maxDurationMinutes: number;
+}
+
 export interface ArrivalAccuracyMetrics {
   /** Share of arrivals within the reservation's grace period, 0–100. The headline number. */
   accuracyPercent: number;
@@ -123,6 +141,7 @@ export interface BehaviorMetrics {
   /** Sessions ended before their scheduled end — capacity handed back voluntarily. */
   earlyDepartures: number;
   overstays: number;
+  overstayDetail: OverstayDetailMetrics;
   firstSeen: Date | null;
   lastActivity: Date | null;
 }
@@ -193,6 +212,7 @@ export function metricsFromEvents(
   const absoluteDeviations: number[] = [];
   const noticeHours: number[] = [];
   const extensionMinutes: number[] = [];
+  const overstayMinutesList: number[] = [];
 
   const delayDistribution: Record<string, number> = {};
   for (const b of DELAY_BUCKETS) delayDistribution[b.key] = 0;
@@ -215,6 +235,8 @@ export function metricsFromEvents(
   let totalCompleted = 0;
   let earlyDepartures = 0;
   let overstays = 0;
+  let overstaysEscalated = 0;
+  let overstaysAlerted = 0;
 
   let firstSeen: Date | null = null;
   let lastActivity: Date | null = null;
@@ -255,7 +277,16 @@ export function metricsFromEvents(
         break;
 
       case "session.started": {
-        const delay = num(e.metadata?.delayMinutes);
+        // Reconstructed from two additive, always-non-negative fields rather than trusting a
+        // signed one: `delayMinutes` never goes negative (booking.service.ts floors it, and other
+        // consumers — reliability.service.ts's `basis` check, this fold's own history before the
+        // Late Arrival Engine — already depend on that), so early arrival is carried separately in
+        // `minutesEarly` (added by that engine; distinct from session.ended's field of the same
+        // name, which means early *departure*). Events emitted before that change simply lack
+        // `minutesEarly` — `num()` defaults it to 0, so they fold exactly as they always did.
+        const late = num(e.metadata?.delayMinutes);
+        const early = num(e.metadata?.minutesEarly);
+        const delay = late > 0 ? late : early > 0 ? -early : 0;
         // Deviation is absolute: arriving 20 minutes early is also inaccurate, and a driver who
         // consistently turns up early occupies the bay before their window in practice.
         absoluteDeviations.push(Math.abs(delay));
@@ -278,7 +309,11 @@ export function metricsFromEvents(
       case "session.ended": {
         totalCompleted++;
         if (num(e.metadata?.minutesEarly) > 0) earlyDepartures++;
-        if (num(e.metadata?.minutesOverstayed) > 0) overstays++;
+        const overstayMinutes = num(e.metadata?.minutesOverstayed);
+        if (overstayMinutes > 0) {
+          overstays++;
+          overstayMinutesList.push(overstayMinutes);
+        }
         break;
       }
 
@@ -315,6 +350,15 @@ export function metricsFromEvents(
         break;
       case "extension.denied":
         extensionsDenied++;
+        break;
+
+      // Severity detail only — the base overstay count/duration above already comes from
+      // session.ended's minutesOverstayed, so these two add color without recomputing that.
+      case "overstay.escalated":
+        overstaysEscalated++;
+        break;
+      case "overstay.alert_created":
+        overstaysAlerted++;
         break;
 
       default:
@@ -375,6 +419,12 @@ export function metricsFromEvents(
     totalCompleted,
     earlyDepartures,
     overstays,
+    overstayDetail: {
+      escalated: overstaysEscalated,
+      alerted: overstaysAlerted,
+      avgDurationMinutes: mean(overstayMinutesList),
+      maxDurationMinutes: overstayMinutesList.length ? Math.max(...overstayMinutesList) : 0,
+    },
     firstSeen,
     lastActivity,
   };

@@ -2,10 +2,14 @@ import { Schema, models, model } from "mongoose";
 import {
   RESERVATION_LIFECYCLE,
   DEFAULT_GRACE_PERIOD_MINUTES,
+  DEFAULT_NO_SHOW_THRESHOLD_MINUTES,
+  ARRIVAL_OUTCOMES,
   legacyStatusToLifecycle,
 } from "./reservationLifecycle";
 import { REFUND_CUTOFF_HOURS } from "./commitmentPolicy";
 import { FLEXIBILITY_TYPES, DEFAULT_FLEXIBILITY } from "./flexibilityPolicy";
+import { EXTENSION_DECISIONS } from "./extensionPolicy";
+import { OVERSTAY_STATUSES } from "./overstayPolicy";
 
 const BookingSchema = new Schema(
   {
@@ -100,6 +104,13 @@ const BookingSchema = new Schema(
     actualArrival: { type: Date, default: null },
     actualStart: { type: Date, default: null },
     actualEnd: { type: Date, default: null },
+    // When the bay was actually vacated. Set equal to `actualEnd` at session end today, because
+    // nothing in this platform senses a car physically leaving (CLAUDE.md — no hardware
+    // integration) — "charging stopped" is the only real signal available, so it is also the
+    // honest default for "departed". Kept as its own field rather than reusing `actualEnd`
+    // because a future overstay/departure-confirmation phase (PROJECT_STATE.md §7) is expected
+    // to make the two diverge — a car can stop charging and still occupy the bay.
+    departedAt: { type: Date, default: null },
     /* ----------------------------------------------------------------------------
      * Scheduling flexibility — the driver's standing permission for the scheduler to
      * re-time this reservation. ADDITIVE.
@@ -132,9 +143,57 @@ const BookingSchema = new Schema(
 
     // Grace snapshotted at claim time, so a later policy change never rewrites history.
     gracePeriodMinutes: { type: Number, default: DEFAULT_GRACE_PERIOD_MINUTES },
+    // Same reasoning, same snapshot discipline, for the no-show sweep — see reservationLifecycle.ts.
+    noShowThresholdMinutes: { type: Number, default: DEFAULT_NO_SHOW_THRESHOLD_MINUTES },
+    // How many extension decisions have been made against this reservation, any outcome. Existed
+    // before the Extension Request Engine did; this is the first code that actually enforces a
+    // cap against it — see extensionPolicy.ts → MAX_EXTENSIONS_PER_RESERVATION.
     extensionCount: { type: Number, default: 0 },
-    // Minutes late = actualArrival − scheduledStart, once arrival is recorded.
+    /* ----------------------------------------------------------------------------
+     * Extension requests — ADDITIVE. Stamped once per decision, the same shape as
+     * `arrivalOutcome`/`noShow` above: a recorded fact, never a lifecycle state. `lifecycle` and
+     * `status` are untouched by an extension decision, approved or not — the reservation is still
+     * exactly as CHARGING as it was, just for longer if granted. Only `scheduledEnd`/`endTime` move.
+     *
+     * `rejectedExtensionMinutes` is deliberately NOT a field here: it is always
+     * `requestedExtensionMinutes - approvedExtensionMinutes`, and storing it would be the kind of
+     * duplicate CLAUDE.md already rejects for `commitmentStatus`. Computed where needed instead.
+     * -------------------------------------------------------------------------- */
+    requestedExtensionMinutes: { type: Number, default: null },
+    approvedExtensionMinutes: { type: Number, default: null },
+    extensionDecision: { type: String, enum: EXTENSION_DECISIONS, default: null },
+    extensionReason: { type: String, default: null },
+    /* ----------------------------------------------------------------------------
+     * Overstay tracking — ADDITIVE. Same shape as `arrivalOutcome`/`extensionDecision` above: a
+     * recorded fact, never a lifecycle state. `lifecycle` stays exactly `CHARGING` for as long as
+     * the vehicle is still occupying the charger past its booked end, and only moves to
+     * `COMPLETED` when someone actually ends the session — this field records *how late that
+     * ending was*, not a competing notion of what state the reservation is in. See
+     * `overstayPolicy.ts` for the three severity tiers and why detection is time-only.
+     *
+     * `overstayStartTime` is the booking's own end time (`scheduledEnd`/`endTime`) at the moment
+     * an overstay is first detected — not "now" at detection — so the duration stays accurate
+     * regardless of how coarse the sweep interval is. `overstayDurationMinutes` is updated on every
+     * sweep pass while active and given its final, exact value when the session actually ends.
+     * -------------------------------------------------------------------------- */
+    overstayStatus: { type: String, enum: OVERSTAY_STATUSES, default: "NONE" },
+    overstayStartTime: { type: Date, default: null },
+    overstayDurationMinutes: { type: Number, default: null },
+    overstayWarningAt: { type: Date, default: null },
+    overstayEscalatedAt: { type: Date, default: null },
+    overstayAlertedAt: { type: Date, default: null },
+    // Minutes late = actualArrival − scheduledStart, once arrival is recorded. Unchanged by the
+    // Late Arrival Engine — still floored at 0, still exactly what "minutesLate" means.
     delayMinutes: { type: Number, default: 0 },
+    // Minutes early = scheduledStart − actualArrival, floored at 0. Zero unless arrivalOutcome is
+    // EARLY. Additive: delayMinutes above is left alone rather than made signed, because
+    // customerBehaviorPolicy.ts and reliability.service.ts already have an established contract
+    // with its floored-at-0 meaning.
+    minutesEarly: { type: Number, default: 0 },
+    // Stamped once, at check-in (or at charging-start if check-in was skipped) or by the no-show
+    // sweep. Not a lifecycle state — a permanent classification of what happened, the same shape
+    // as `noShow`/`releasedEarly` below. See reservationLifecycle.ts → classifyArrival.
+    arrivalOutcome: { type: String, enum: ARRIVAL_OUTCOMES, default: null },
     noShow: { type: Boolean, default: false },
     releasedEarly: { type: Boolean, default: false },
     // How the reservation was created. "self" is a driver booking through the app;
@@ -235,6 +294,13 @@ BookingSchema.index(
  * now so the index exists before the sweep that relies on it. Non-unique; purely for reads.
  */
 BookingSchema.index({ lifecycle: 1, scheduledStart: 1 });
+
+/**
+ * Supports the overstay sweep's core question: "which CHARGING sessions have already passed
+ * their (extension-aware) end time?" Same reasoning as the index above, mirrored onto the other
+ * boundary a v2 sweep needs to watch.
+ */
+BookingSchema.index({ lifecycle: 1, scheduledEnd: 1 });
 
 /**
  * Supports the commitment expiry sweep: "find every PENDING_PAYMENT reservation whose hold

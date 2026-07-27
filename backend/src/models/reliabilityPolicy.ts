@@ -48,6 +48,16 @@ export const ADJUSTMENTS = {
   cancellation: -10,
   noShow: -25,
   successfulAttendance: +1,
+  /**
+   * Flat, deliberately — not scaled by minutes or by how far the overstay escalated. The Overstay
+   * Engine's WARNING/ESCALATED/ALERTED severity is an operational signal (who to call, how
+   * urgently), not (yet) a scoring input; weighting the penalty by severity is a real, visible
+   * scoring-boundary change and, per the precedent `arrivalOutcome`'s GRACE/LATE split already set,
+   * is left as a deliberate future decision rather than bundled into this feature. Set equal to
+   * `lateArrival` because it is the same category of infraction on the opposite end of a session —
+   * a timing failure, not a capacity denial in the way a no-show is.
+   */
+  overstay: -5,
 } as const;
 
 /** The counters kept alongside the score, so a dashboard can explain it without re-reading events. */
@@ -56,6 +66,7 @@ export interface ReliabilityCounters {
   totalCancellations: number;
   totalNoShows: number;
   totalLateArrivals: number;
+  totalOverstays: number;
 }
 
 export interface ReliabilityResult extends ReliabilityCounters {
@@ -80,6 +91,7 @@ export const EMPTY_RELIABILITY: ReliabilityResult = {
   totalCancellations: 0,
   totalNoShows: 0,
   totalLateArrivals: 0,
+  totalOverstays: 0,
   totalCompleted: 0,
   waivedEvents: 0,
 };
@@ -170,9 +182,30 @@ export function scoreFromEvents(events: ScorableEvent[]): ReliabilityResult {
 
       case "session.ended":
         // Successful attendance: the driver arrived and charged. Credited unconditionally — they
-        // did the thing the platform wanted, whatever else happened around it.
+        // did the thing the platform wanted, whatever else happened around it. An overstay does
+        // not withhold this credit; it adds its own separate penalty below, the same relationship
+        // a late arrival has to session.started's on-time credit at the other end of a session.
         result.totalCompleted++;
         score += ADJUSTMENTS.successfulAttendance;
+
+        // Overstay penalty. `basis` is set once, at end-of-session, by the SAME classification
+        // the Overstay Engine's sweep uses (see booking.service.ts → endCharging →
+        // finalizeOverstayOnCompletion) — this reads its outcome rather than recomputing it.
+        //
+        // Gated on FAULT ONLY, deliberately — not on `penalize`, and not through `isChargeable`.
+        // `session.ended` is emitted with `penalize: false` unconditionally, the same delegation
+        // session.started already uses for late arrivals ("the scorer decides, not the emitter").
+        // Routing this through `isChargeable` would waive every overstay outright — exactly the
+        // bug that had silently zeroed out the late-arrival penalty before the Late Arrival Engine
+        // fixed it (see the comment on the late-arrival branch above). Not repeating it here.
+        if (event.basis === "overstay") {
+          if (event.fault && event.fault !== "customer") {
+            result.waivedEvents++;
+          } else {
+            result.totalOverstays++;
+            score += ADJUSTMENTS.overstay;
+          }
+        }
         break;
 
       default:
@@ -225,6 +258,8 @@ export function explainReliability(r: ReliabilityCounters & { totalCompleted?: n
     parts.push(`${r.totalCancellations} late cancellation${r.totalCancellations > 1 ? "s" : ""}`);
   if (r.totalLateArrivals)
     parts.push(`${r.totalLateArrivals} late arrival${r.totalLateArrivals > 1 ? "s" : ""}`);
+  if (r.totalOverstays)
+    parts.push(`${r.totalOverstays} overstay${r.totalOverstays > 1 ? "s" : ""}`);
   if (parts.length === 0) {
     return r.totalCompleted ? `${r.totalCompleted} sessions, no issues` : "No history yet";
   }

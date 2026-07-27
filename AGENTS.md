@@ -185,7 +185,10 @@ The team presents this project. Claiming a capability it does not have is worse 
   no card data is collected.** Say "simulated payment", never "payment".
 - **Notifications**: the store and the read/mark-read UI are complete, but nothing generates
   them from events yet. The samples are seeded.
-- **`reservationevents` has one consumer**: the reliability score. Waitlist notification and optimizer invalidation still do not exist.
+- **`reservationevents` has three consumers**: the reliability score, behaviour profiles, and the
+  optimizer's capacity-release consumer (waitlist re-evaluation + offer commit). Notification
+  *delivery* on a released bay still does not exist — an issued offer is only visible by opening
+  `/offers`.
 - **No energy metering, no charging-hardware control.** By design.
 - All money figures are labelled **estimated** or **simulated**.
 

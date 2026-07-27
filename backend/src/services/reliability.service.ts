@@ -78,7 +78,9 @@ export async function recomputeForUser(userId: string): Promise<ReliabilityResul
         totalCancellations: result.totalCancellations,
         totalNoShows: result.totalNoShows,
         totalLateArrivals: result.totalLateArrivals,
+        totalOverstays: result.totalOverstays,
         totalCompleted: result.totalCompleted,
+        waivedEvents: result.waivedEvents,
         reliabilityComputedAt: new Date(),
       },
     },
@@ -108,7 +110,9 @@ interface UserRow {
   totalCancellations?: number;
   totalNoShows?: number;
   totalLateArrivals?: number;
+  totalOverstays?: number;
   totalCompleted?: number;
+  waivedEvents?: number;
   reliabilityComputedAt?: Date | null;
 }
 
@@ -119,8 +123,9 @@ function toView(u: UserRow): ReliabilityView {
     totalCancellations: u.totalCancellations ?? 0,
     totalNoShows: u.totalNoShows ?? 0,
     totalLateArrivals: u.totalLateArrivals ?? 0,
+    totalOverstays: u.totalOverstays ?? 0,
     totalCompleted: u.totalCompleted ?? 0,
-    waivedEvents: 0,
+    waivedEvents: u.waivedEvents ?? 0,
   };
   return {
     ...counters,
@@ -134,7 +139,7 @@ function toView(u: UserRow): ReliabilityView {
 }
 
 const RELIABILITY_FIELDS =
-  "name email reliabilityScore totalReservations totalCancellations totalNoShows totalLateArrivals totalCompleted reliabilityComputedAt";
+  "name email reliabilityScore totalReservations totalCancellations totalNoShows totalLateArrivals totalOverstays totalCompleted waivedEvents reliabilityComputedAt";
 
 /**
  * One driver's reliability, rebuilt first if the cached projection has gone stale.

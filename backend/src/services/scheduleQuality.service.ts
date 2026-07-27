@@ -26,13 +26,32 @@ import ReservationRequest from "@/models/ReservationRequest";
 import Station from "@/models/Station";
 import { OPERATING_FROM_HOUR, OPERATING_TO_HOUR } from "@/models/occupancyPolicy";
 import {
+  avgApprovedExtensionMinutes,
+  avgOverstayDurationMinutes,
+  avgRequestedExtensionMinutes,
   avgWaitingTime,
+  earlyArrivalRate,
+  extensionApprovalRate,
+  extensionPartialApprovalRate,
+  extensionRejectionRate,
+  extensionRequestRate,
+  gracePeriodUsageRate,
   isPreferenceMatch,
+  lateArrivalRate,
+  maxOverstayDurationMinutes,
+  noShowRate,
+  onTimeRate,
+  overstayFrequencyRate,
   preferenceMatchRate,
+  repeatOverstayOffenderCount,
   reservationSuccessRate,
   servedCustomersPerDay,
+  totalOverstayIncidents,
   utilizationRate,
+  type ArrivalOutcomeCounts,
   type DailyPoint,
+  type ExtensionOutcomeCounts,
+  type OverstayOutcomeCounts,
   type ScheduleQuality,
 } from "@/models/scheduleQualityPolicy";
 
@@ -75,7 +94,9 @@ export async function getScheduleQuality(
   const bookings = await Booking.find({
     startTime: { $gte: from, $lte: to },
   })
-    .select("userId status lifecycle scheduledStart scheduledEnd startTime endTime durationMinutes stationId")
+    .select(
+      "userId status lifecycle scheduledStart scheduledEnd startTime endTime durationMinutes stationId arrivalOutcome extensionDecision requestedExtensionMinutes approvedExtensionMinutes overstayStatus overstayDurationMinutes"
+    )
     .lean<
       {
         userId: unknown;
@@ -87,6 +108,12 @@ export async function getScheduleQuality(
         endTime: Date;
         durationMinutes?: number | null;
         stationId: unknown;
+        arrivalOutcome?: string | null;
+        extensionDecision?: string | null;
+        requestedExtensionMinutes?: number | null;
+        approvedExtensionMinutes?: number | null;
+        overstayStatus?: string | null;
+        overstayDurationMinutes?: number | null;
       }[]
     >();
 
@@ -97,6 +124,98 @@ export async function getScheduleQuality(
     return new Date(end) <= now;
   });
   const completed = resolved.filter((b) => b.status === "completed");
+
+  // Arrival-outcome counts — over the FULL period's bookings, not `resolved`. An outcome is
+  // decided at arrival (or by the no-show sweep), which can be well before `scheduledEnd`, so
+  // gating on the session having ended would undercount reservations still charging.
+  const arrivalCounts: ArrivalOutcomeCounts = { onTime: 0, early: 0, grace: 0, late: 0, noShow: 0, known: 0 };
+  for (const b of bookings) {
+    switch (b.arrivalOutcome) {
+      case "ON_TIME":
+        arrivalCounts.onTime++;
+        break;
+      case "EARLY":
+        arrivalCounts.early++;
+        break;
+      case "GRACE":
+        arrivalCounts.grace++;
+        break;
+      case "LATE":
+        arrivalCounts.late++;
+        break;
+      case "NO_SHOW":
+        arrivalCounts.noShow++;
+        break;
+      default:
+        continue;
+    }
+    arrivalCounts.known++;
+  }
+
+  // Extension counts — same "over the full period, not `resolved`" reasoning as arrival outcomes:
+  // a decision is made mid-session, which can be well before `scheduledEnd`. `chargingEligible`
+  // uses lifecycle CHARGING or COMPLETED as a reasonable stand-in for "reached charging at some
+  // point" without consulting the event log, matching this file's own reasoning for reading
+  // `bookings` rather than `reservationevents` throughout — a booking directly marked completed
+  // without ever charging (a rare admin action, not the normal path) is the one case this slightly
+  // overcounts, stated rather than hidden.
+  const extensionCounts: ExtensionOutcomeCounts = {
+    approved: 0,
+    partial: 0,
+    rejected: 0,
+    requestedMinutesTotal: 0,
+    approvedMinutesTotal: 0,
+    requested: 0,
+    chargingEligible: 0,
+  };
+  for (const b of bookings) {
+    if (b.lifecycle === "CHARGING" || b.lifecycle === "COMPLETED") extensionCounts.chargingEligible++;
+
+    if (!b.extensionDecision) continue;
+    extensionCounts.requested++;
+    extensionCounts.requestedMinutesTotal += b.requestedExtensionMinutes ?? 0;
+    extensionCounts.approvedMinutesTotal += b.approvedExtensionMinutes ?? 0;
+    switch (b.extensionDecision) {
+      case "APPROVED":
+        extensionCounts.approved++;
+        break;
+      case "PARTIAL_APPROVAL":
+        extensionCounts.partial++;
+        break;
+      case "REJECTED":
+        extensionCounts.rejected++;
+        break;
+    }
+  }
+
+  // Overstay counts — read exclusively from the booking's own `overstayStatus`/
+  // `overstayDurationMinutes`, never from `reservationevents`: this is the ONE place these five
+  // platform-wide figures are computed, deliberately not duplicating what
+  // `customerBehaviorPolicy.ts` computes (from events, per customer) — same non-overlap as the
+  // Extension Request Engine KPIs above. `chargingEligible` uses the same CHARGING/COMPLETED
+  // stand-in as `extensionCounts`, for the same reason.
+  const overstayCounts: OverstayOutcomeCounts = {
+    incidents: 0,
+    chargingEligible: 0,
+    durationMinutesSum: 0,
+    maxDurationMinutes: 0,
+    repeatOffenders: 0,
+  };
+  const overstayIncidentsByCustomer = new Map<string, number>();
+  for (const b of bookings) {
+    if (b.lifecycle === "CHARGING" || b.lifecycle === "COMPLETED") overstayCounts.chargingEligible++;
+
+    if (!b.overstayStatus || b.overstayStatus === "NONE") continue;
+    overstayCounts.incidents++;
+    const minutes = b.overstayDurationMinutes ?? 0;
+    overstayCounts.durationMinutesSum += minutes;
+    overstayCounts.maxDurationMinutes = Math.max(overstayCounts.maxDurationMinutes, minutes);
+    const customerKey = String(b.userId);
+    overstayIncidentsByCustomer.set(customerKey, (overstayIncidentsByCustomer.get(customerKey) ?? 0) + 1);
+  }
+  for (const count of overstayIncidentsByCustomer.values()) {
+    if (count > 1) overstayCounts.repeatOffenders++;
+  }
 
   /* ---------------------------------------------------------------- daily series */
 
@@ -252,6 +371,22 @@ export async function getScheduleQuality(
     avgWaitingTime: avgWaitingTime(waitingMinutesTotal, fulfilled.length),
     servedCustomersPerDay: servedCustomersPerDay(daily),
     reservationSuccessRate: reservationSuccessRate(completed.length, resolved.length),
+    earlyArrivalRate: earlyArrivalRate(arrivalCounts),
+    onTimeRate: onTimeRate(arrivalCounts),
+    gracePeriodUsageRate: gracePeriodUsageRate(arrivalCounts),
+    lateArrivalRate: lateArrivalRate(arrivalCounts),
+    noShowRate: noShowRate(arrivalCounts),
+    extensionRequestRate: extensionRequestRate(extensionCounts),
+    extensionApprovalRate: extensionApprovalRate(extensionCounts),
+    extensionPartialApprovalRate: extensionPartialApprovalRate(extensionCounts),
+    extensionRejectionRate: extensionRejectionRate(extensionCounts),
+    avgRequestedExtensionMinutes: avgRequestedExtensionMinutes(extensionCounts),
+    avgApprovedExtensionMinutes: avgApprovedExtensionMinutes(extensionCounts),
+    totalOverstayIncidents: totalOverstayIncidents(overstayCounts),
+    overstayFrequencyRate: overstayFrequencyRate(overstayCounts),
+    avgOverstayDurationMinutes: avgOverstayDurationMinutes(overstayCounts),
+    maxOverstayDurationMinutes: maxOverstayDurationMinutes(overstayCounts),
+    repeatOverstayOffenderCount: repeatOverstayOffenderCount(overstayCounts),
     daily,
     utilizationByStation,
   };

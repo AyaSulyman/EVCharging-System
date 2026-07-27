@@ -48,6 +48,8 @@ const BEHAVIOR_EVENT_TYPES = [
   "extension.requested",
   "extension.approved",
   "extension.denied",
+  "overstay.escalated",
+  "overstay.alert_created",
 ];
 
 export interface BehaviorProfileView extends BehaviorMetrics {

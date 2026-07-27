@@ -289,3 +289,38 @@ export function occupiedMinutes(ranges: OccupiedRange[]): number {
     0
   );
 }
+
+/**
+ * How many contiguous minutes are free starting exactly at `from`, before the next occupied atom
+ * or `windowEnd` — floored to the atom grid, which is the only unit occupancy can actually claim.
+ *
+ * THE EXTENSION REQUEST ENGINE'S ONE NEW READ. Everything else it needs already exists —
+ * `isRangeFree` answers yes/no for a *fixed* duration, `availableStarts` answers "which starts
+ * fit", and neither answers "how much runway exists from a *fixed* start", which is exactly the
+ * question "how much of this extension can be granted" is. Walking atom by atom rather than
+ * searching `occupied` for the nearest range keeps this correct regardless of whether `occupied`
+ * is sorted or merged — it works from raw or from `mergeRanges`' output identically.
+ *
+ * `occupied` should be read starting at `from` (or later) — the reservation's own existing time is
+ * always before `from` when `from` is that reservation's current end, so there is nothing here to
+ * exclude the caller's own booking from.
+ */
+export function maxContiguousFreeMinutes(
+  from: Date,
+  occupied: OccupiedRange[],
+  windowEnd: Date
+): number {
+  const step = OCCUPANCY_ATOM_MINUTES * 60_000;
+  let cursor = from;
+  let minutes = 0;
+
+  while (cursor.getTime() < windowEnd.getTime()) {
+    const atomEnd = new Date(cursor.getTime() + step);
+    if (atomEnd.getTime() > windowEnd.getTime()) break;
+    if (occupied.some((o) => rangesOverlap(cursor, atomEnd, o.start, o.end))) break;
+    minutes += OCCUPANCY_ATOM_MINUTES;
+    cursor = atomEnd;
+  }
+
+  return minutes;
+}

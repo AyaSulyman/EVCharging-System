@@ -53,7 +53,7 @@ export interface CreateRequestInput {
   flexibilityType?: string;
   /** Explicit scoring priority. Set by staff for on-site, or by recovery flows. */
   priority?: "standard" | "onSite" | "recovery";
-  origin?: "self" | "staff_onsite";
+  origin?: "self" | "staff_onsite" | "system";
   createdByStaffId?: string | null;
 }
 

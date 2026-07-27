@@ -101,6 +101,9 @@ export default function FlexibleBookingPage() {
   const [duration, setDuration] = useState(30);
   // Independent of the window above: whether we may re-time the slot after it is booked.
   const [flexibility, setFlexibility] = useState<FlexibilityType>("STRICT");
+  // Independent of both: self-service (pick from a live shortlist) vs letting the optimizer choose
+  // and hold one automatically, which hands off to /offers for the accept/decline countdown.
+  const [autoHold, setAutoHold] = useState(false);
 
   const [searching, setSearching] = useState(false);
   const [requestId, setRequestId] = useState<string | null>(null);
@@ -159,6 +162,7 @@ export default function FlexibleBookingPage() {
         durationMinutes: duration,
         stationFlex: stationIds.length > 1,
         flexibilityType: flexibility,
+        autoOffer: autoHold,
       }),
     });
     const data = await res.json();
@@ -168,6 +172,26 @@ export default function FlexibleBookingPage() {
       setError(data.error ?? "Could not search for options");
       return;
     }
+
+    // Auto-hold took a different path server-side: the optimizer already chose and held one
+    // option (or found nothing), rather than returning a shortlist to pick from. /offers already
+    // has the accept/decline countdown UI for a held offer, so that is where this hands off to
+    // rather than duplicating it here.
+    if (autoHold) {
+      if (data.offer) {
+        toast("Found one and held it for you — you have a few minutes to confirm", "success");
+        router.push("/offers");
+      } else {
+        toast(
+          data.waitlisted
+            ? `Nothing free right now — ${data.waitlisted.toLowerCase()}`
+            : "Nothing free right now — you're on the waitlist",
+          "info"
+        );
+      }
+      return;
+    }
+
     setRequestId(data.request._id);
     setCandidates(data.candidates ?? []);
     setRationale(data.rationale ?? "");
@@ -349,6 +373,27 @@ export default function FlexibleBookingPage() {
         <p className="mt-1.5 text-xs text-ink-soft">
           Tap in preference order — your first choice is favoured.
         </p>
+
+        {/*
+          A third, independent question, alongside the window and the post-booking flexibility
+          above. Left off: a live shortlist to choose from yourself. On: the optimizer picks the
+          best option and holds it for a few minutes while you decide, via /offers.
+        */}
+        <label className="mt-4 flex cursor-pointer items-start gap-2.5 rounded-xl2 bg-canvas p-3.5">
+          <input
+            type="checkbox"
+            checked={autoHold}
+            onChange={(e) => setAutoHold(e.target.checked)}
+            className="mt-0.5 h-4 w-4 accent-primary"
+          />
+          <span className="text-sm">
+            <span className="font-medium text-ink">Hold the best match for me automatically</span>
+            <span className="mt-0.5 block text-xs text-ink-soft">
+              Instead of picking from a list yourself, we&apos;ll choose one and hold it for a few
+              minutes while you decide.
+            </span>
+          </span>
+        </label>
 
         <button
           onClick={search}

@@ -43,9 +43,16 @@ const UserSchema = new Schema(
     totalCancellations: { type: Number, default: 0 },
     totalNoShows: { type: Number, default: 0 },
     totalLateArrivals: { type: Number, default: 0 },
+    // Sessions ended past their (extension-aware) scheduled end — the Overstay Engine's
+    // reliability input. Same derived-not-accumulated discipline as every counter here.
+    totalOverstays: { type: Number, default: 0 },
     // Completed sessions — the positive side of the ledger, kept so a dashboard can explain a
     // score without re-reading the event log.
     totalCompleted: { type: Number, default: 0 },
+    // Events the fold counted but did not penalise (operator-fault or explicitly non-penalising) —
+    // computed by scoreFromEvents on every recompute, stored here so a caller doesn't have to
+    // re-fold the log to see it.
+    waivedEvents: { type: Number, default: 0 },
     // When the projection was last rebuilt. Drives the staleness check that lets a dashboard
     // refresh a score on read instead of serving a stale one.
     reliabilityComputedAt: { type: Date, default: null },
