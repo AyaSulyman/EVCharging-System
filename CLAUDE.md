@@ -415,6 +415,14 @@ around them.
   swap rather than a redesign. Only after a real gateway is live may "estimated"/"simulated"
   labels be replaced with settled figures; existing reservations must then be migrated off the
   nominal payment state.
+- **Reconciling reliability's and behaviour tracking's fault-gating** → found by the Final Project
+  Audit (`PROJECT_STATE.md` §8/§9): `reliabilityPolicy.ts::isChargeable` waives an event when
+  `fault !== "customer"` **or** `penalize === false`; `customerBehaviorPolicy.ts::isCustomerBehaviour`
+  waives only on `fault !== "customer"`. This may be intentional — behaviour tracking is
+  descriptive, reliability scoring is punitive, so a waived-for-scoring event may still be
+  legitimate behavioural evidence — but neither file says so today. Resolve with an explicit
+  decision recorded in both files' comments (or a shared gate, if they truly should agree), never
+  a silent change to one without the other.
 
 Do not duplicate the provider abstraction for non-vehicle APIs (Stripe, email, maps have
 their own SDKs) — keep the Strategy/Factory pattern scoped to vehicle providers.

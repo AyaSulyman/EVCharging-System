@@ -1137,3 +1137,57 @@ found anywhere in the live codebase. The three fixed bugs were all **gaps in a s
 none were reachable double-booking or double-payment paths. See the final Phase P report for the
 full nine-section breakdown (completed/partial/missing features, contradictions, technical debt,
 demo/presentation/production risk, roadmap).
+
+---
+
+## 9. Next work queue — start here
+
+**Handoff state.** Everything described in this file, `IMPLEMENTED_LOGIC.md`, `README.md` and
+`CLAUDE.md` — the full reservation core through the Final Project Audit (§8) — is implemented,
+`ops:verify`-passing (**165/165**), committed, and merged to `main`. There is nothing partially
+applied and nothing uncommitted. **Trust `git log` over any specific date or hash mentioned in
+prose here** — these documents are updated in the same commit as the work they describe, but a doc
+is a snapshot and git is the ledger. If you are picking this project up cold: read `CLAUDE.md`
+first (non-negotiable invariants), then this file end to end, then `IMPLEMENTED_LOGIC.md` for the
+reasoning behind any specific feature you're about to touch. Do not re-derive, redesign, or
+"fix" anything marked intentional below — if a request seems to conflict with something stated as
+deliberate, that is a signal to flag the conflict, not to route around it silently.
+
+Every open item this project currently knows about, consolidated from §7's history and §8's audit,
+roughly in the order a team would sensibly tackle them:
+
+1. **Resolve the reliability/behaviour fault-gating divergence (§8).** `reliabilityPolicy.ts`
+   waives an event when `fault !== "customer"` **or** `penalize === false`; `customerBehaviorPolicy.ts`
+   waives only on `fault !== "customer"`. Needs an explicit decision — document the split as
+   intentional (behaviour is descriptive, reliability is punitive) or unify the gate — not a silent
+   code change either way.
+2. **Admin deposit reporting** — the data exists; no column has been added to any admin screen yet.
+   Small, demo-visible.
+3. **Per-station optimizer weight tuning** — weights are process-wide constants in
+   `recommendationPolicy.ts`/`scoring.ts` today; `RESERVATION_OPTIMIZATION_ENGINE.md` §7.4 describes
+   the per-station override this would need.
+4. **Occupancy enforcement for overstay — its own dedicated phase, not a follow-on patch to the
+   Overstay Engine.** See §4, §6h, and CLAUDE.md §7 for the occupancy-policy decisions this needs
+   (whether/how long to hold an atom past its nominal end, what happens to the next customer) and
+   why a real check-out signal (QR or telemetry) would help but isn't required to start.
+5. **Acting on a filed delay-propagation recovery request** — surfacing it on the original
+   reservation, or auto-cancelling the original once the recovery request is `FULFILLED`. Build as
+   a new consumer of `delaypropagationevents`; never add cancellation logic to
+   `delayPropagation.service.ts` itself (deliberately read-only w.r.t. `Booking`). See CLAUDE.md §7.
+6. **Multi-slot reservations** — a flexible request spanning consecutive intervals. Needs a
+   reservation-to-interval join decided first; do not improvise it inside the matcher.
+7. **Real payments** — the seam exists (`PaymentGateway` interface, `getGateway()`, the intent/refund
+   ledger, the idempotency key). Implementing one real gateway is a swap, not a redesign. Only after
+   one is live may "estimated"/"simulated" labels be replaced with settled figures.
+8. **Event-driven notification delivery** — the one originally-planned `reservationevents` consumer
+   that still doesn't exist. Must remain a consumer; never called inline from the reservation flow.
+9. **Technical debt cleanup, low priority, all independently addressable** (§8): unify or remove the
+   duplicated `FULFILLED`-setting logic between `fulfillRequest` and `acceptRecommendation`; remove
+   or wire up the dead `HOLDING_STATUSES` export; give the legacy booking-status enum one shared,
+   iterable source instead of three hand-typed copies; reconcile `Incident.type` with
+   `commitmentPolicy.ts`'s `OPERATOR_FAULT_REASONS` into one vocabulary.
+
+**Anything not listed above and not in `CLAUDE.md` §7 is not a known gap** — if you find something
+that looks unfinished and it isn't named in either place, verify against the live code and current
+`git log` before assuming it's stale or forgotten; it may be new, or it may be intentional and
+undocumented, which is itself worth flagging rather than silently fixing.

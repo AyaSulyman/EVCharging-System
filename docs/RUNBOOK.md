@@ -24,10 +24,10 @@ Read alongside [`PROJECT_STATE.md`](PROJECT_STATE.md) (what is built) and
 | Something looks wrong in the data | [§5 Repair](#5-repair) |
 | Running in production | [§6 Scheduled jobs](#6-scheduled-jobs) |
 
-**Status as of 2026-07-26:** all four migrations have been applied to the working `chargehub`
-database, `ops:indexes` has been run, and `ops:verify` passes 165/165 (scheduler, reservation flow,
-and recommendations/optimizer harnesses). If you are working on that database you do **not** need
-§2.
+**Status as of 2026-07-27 (Final Project Audit):** all four migrations have been applied to the
+working `chargehub` database, `ops:indexes` has been run, and `ops:verify` passes 165/165
+(scheduler, reservation flow, and recommendations/optimizer harnesses). If you are working on that
+database you do **not** need §2.
 
 ---
 

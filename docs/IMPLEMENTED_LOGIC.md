@@ -4,8 +4,9 @@
 the presentation, the demo script and any slide deck can be built from one place — and so nobody has
 to reverse-engineer the reasoning out of the code under time pressure.
 
-**Last updated: 2026-07-26 (charging session lifecycle — check-in split from session start,
-departure recorded — verified end-to-end).** Read alongside:
+**Last updated: 2026-07-27 (Final Project Audit, §22 — three functional bugs found and fixed across
+the reservation-update, reliability and optimizer-consumer paths; every subsystem's money- and
+capacity-shaped guarantees re-verified against the live code).** Read alongside:
 - [`../CLAUDE.md`](../CLAUDE.md) — what the project is, and the invariants that must not break
 - [`../AGENTS.md`](../AGENTS.md) — how to work here
 - [`PROJECT_STATE.md`](PROJECT_STATE.md) — what is built vs. not, and the ops commands
