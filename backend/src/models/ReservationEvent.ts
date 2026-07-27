@@ -20,10 +20,13 @@ import { Schema, models, model } from "mongoose";
  * APPEND-ONLY. Nothing updates or deletes an event. `emitReservationEvent` is the only writer.
  * A correction is a new event, never an edit — the same discipline as an accounting ledger.
  *
- * NO CONSUMERS YET, BY DESIGN. Nothing reads this collection today. Waitlist notification,
- * optimizer invalidation and reliability scoring subscribe to it in their own phases; per
- * CLAUDE.md §7 they must remain *consumers* and never be called inline from the reservation
- * flow. That is what keeps the commitment path from growing responsibility for delivery.
+ * THREE CONSUMERS TODAY, ALL READ-ONLY, NONE CALLED INLINE. `reliability.service.ts` (the
+ * reliability score), `customerBehavior.service.ts` (behaviour profiles), and
+ * `services/optimization/consumer.ts` (the optimizer's capacity-release cursor) each fold this
+ * log independently. Per CLAUDE.md §7 they remain *consumers* — nothing in `booking.service.ts`
+ * or `commitment.service.ts` calls any of them; that is what keeps the reservation flow from
+ * growing responsibility for a consumer's own timing. Event-driven *notification delivery* is
+ * the one originally-planned consumer that still does not exist — see CLAUDE.md §5.
  */
 
 /**
@@ -72,6 +75,30 @@ export const RESERVATION_EVENT_TYPES = [
   "reservation.cancelled",
   "reservation.no_show",
   "reservation.released", // the interval returned to availability, for whatever reason
+  /**
+   * Extension requests. Anticipated before this feature existed — `customerBehaviorPolicy.ts`
+   * has read these three exact names since the Late Arrival Engine, with an honest
+   * `notImplemented` flag while nothing emitted them. `extension.approved` covers both APPROVED
+   * and PARTIAL_APPROVAL; `metadata.minutes` carries how much was actually granted either way, and
+   * `metadata.decision` distinguishes them for anything that needs to. There is no fourth type for
+   * partial approval — an outcome that grants some of the request is "approved," just not all of
+   * it, and a fourth event type would be exactly the duplication "reuse existing events" warns
+   * against.
+   */
+  "extension.requested",
+  "extension.approved",
+  "extension.denied",
+  /**
+   * Overstay tracking — the vehicle is still occupying the charger past the reservation's booked
+   * (or extended) end. Three tiers, each emitted once, the first time that severity is reached —
+   * never once per sweep pass. `overstay.warning` always precedes `overstay.escalated`/
+   * `overstay.alert_created` for a given booking: both the sweep and session completion retroactively
+   * back-fill any tier skipped between two checks, in order, so the timeline is never observed out
+   * of sequence even when detection itself is coarse.
+   */
+  "overstay.warning",
+  "overstay.escalated",
+  "overstay.alert_created",
 ] as const;
 
 export type ReservationEventType = (typeof RESERVATION_EVENT_TYPES)[number];

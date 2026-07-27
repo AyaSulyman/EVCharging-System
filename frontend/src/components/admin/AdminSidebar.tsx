@@ -16,6 +16,8 @@ import {
   Activity,
   Target,
   Cpu,
+  AlertOctagon,
+  GitBranch,
   LogOut,
   Menu,
   X,
@@ -34,6 +36,8 @@ const NAV = [
   { href: "/admin/behavior", label: "Behaviour", icon: Activity },
   { href: "/admin/schedule-quality", label: "Schedule quality", icon: Target },
   { href: "/admin/optimizer", label: "Optimizer", icon: Cpu },
+  { href: "/admin/incidents", label: "Incidents", icon: AlertOctagon },
+  { href: "/admin/delay-propagation", label: "Delay propagation", icon: GitBranch },
   { href: "/admin/reports", label: "Reports", icon: BarChart3 },
 ];
 

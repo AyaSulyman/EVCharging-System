@@ -91,6 +91,10 @@ const UPDATE_ERRORS: Record<string, { status: number; error: string }> = {
     status: 409,
     error: "Confirm this reservation by completing its deposit, not by changing its status",
   },
+  SESSION_IN_PROGRESS: {
+    status: 409,
+    error: "This session is charging — end it at the desk instead of cancelling it",
+  },
   FORBIDDEN_FAULT_CLAIM: {
     status: 403,
     error: "Only an operator can record a cancellation as caused by a station fault",

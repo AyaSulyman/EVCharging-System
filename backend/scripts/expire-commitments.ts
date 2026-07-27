@@ -19,7 +19,14 @@
  * Idempotent and safe to run repeatedly; a second run finds nothing new. Intended for a scheduler
  * (cron, Task Scheduler, a platform job) at a few minutes' interval. No-show detection is swept in
  * the same job as the other two for the same reason they are swept together: all three are "a
- * window closed, stop holding it open."
+ * window closed, stop holding it open." The overstay sweep is a fourth: "a window closed, say so
+ * while it's still open" — a CHARGING session whose own end time has passed, escalated through
+ * three severity tiers rather than resolved outright, because nothing here can end a session that
+ * is still legitimately charging. The delay-propagation sweep is a fifth, and the only one that
+ * reacts to a DIFFERENT domain's events rather than reservation state directly: it consumes open
+ * Technical Incidents (never called inline from `incident.service.ts` — see that engine's own
+ * module note), computes the reservation cascade each one causes, and files a `"recovery"`
+ * request for whichever reservations it actually displaces.
  *
  * Unlike the migrations, this script WRITES BY DEFAULT — it is routine operations, not a one-off
  * schema change. Pass --dry-run to report without releasing.
@@ -44,6 +51,8 @@ async function run() {
   const { expirePendingCommitments } = await import("@/services/commitment.service");
   const { expireRequests } = await import("@/services/reservationRequest.service");
   const { sweepNoShows } = await import("@/services/booking.service");
+  const { sweepOverstays } = await import("@/services/overstay.service");
+  const { sweepDelayPropagation } = await import("@/services/delayPropagation.service");
 
   await mongoose.connect(uri);
   const db = mongoose.connection;
@@ -74,10 +83,19 @@ async function run() {
       lifecycle: { $in: ["RESERVED", "LATE", "AT_RISK"] },
       scheduledStart: { $lt: approxDeadline },
     });
+    const overstayCandidates = await db.collection("bookings").countDocuments({
+      lifecycle: "CHARGING",
+      scheduledEnd: { $lt: now },
+    });
+    const openIncidents = await db.collection("incidents").countDocuments({
+      status: { $in: ["CREATED", "INVESTIGATING", "ACTIVE"] },
+    });
     console.log(`\nMODE: dry run`);
     console.log(`  holds past their window     : ${due}`);
     console.log(`  requests past their window  : ${staleRequests}`);
     console.log(`  no-shows past threshold (approx) : ${noShowCandidates}`);
+    console.log(`  overstaying sessions             : ${overstayCandidates}`);
+    console.log(`  open incidents (delay propagation candidates) : ${openIncidents}`);
     console.log("\nNothing changed. Re-run without --dry-run to process them.");
     await mongoose.disconnect();
     return;
@@ -113,6 +131,23 @@ async function run() {
       `  not yet due / resolved elsewhere : ${noShows.found - noShows.processed}`
     );
   }
+
+  // Same job, same reasoning as the no-show sweep above — this one just watches the opposite end
+  // of a session. "processed" here means "advanced to a new severity tier", not "resolved" — an
+  // overstay stays CHARGING until someone actually ends the session at the desk.
+  const overstays = await sweepOverstays(now);
+
+  console.log("\nOverstays");
+  console.log(`  candidates checked      : ${overstays.found}`);
+  console.log(`  advanced a severity tier: ${overstays.processed}`);
+
+  // A different domain's consumer, not a reservation-state sweep — it reacts to open Technical
+  // Incidents, never called inline from incident.service.ts (see that engine's own module note).
+  const delays = await sweepDelayPropagation(now);
+
+  console.log("\nDelay propagation");
+  console.log(`  incidents scanned       : ${delays.incidentsScanned}`);
+  console.log(`  propagations updated    : ${delays.propagationsUpdated}`);
 
   await mongoose.disconnect();
 }

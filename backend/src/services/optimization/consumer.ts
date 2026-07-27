@@ -44,6 +44,7 @@ const CAPACITY_RELEASING_EVENTS: ReservationEventType[] = [
   "reservation.cancelled",
   "reservation.released",
   "reservation.no_show",
+  "reservation.rescheduled",
   "commitment.expired",
   "session.ended",
   "recommendation.expired",

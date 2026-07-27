@@ -25,7 +25,7 @@ Read alongside [`PROJECT_STATE.md`](PROJECT_STATE.md) (what is built) and
 | Running in production | [§6 Scheduled jobs](#6-scheduled-jobs) |
 
 **Status as of 2026-07-26:** all four migrations have been applied to the working `chargehub`
-database, `ops:indexes` has been run, and `ops:verify` passes 89/89 (scheduler, reservation flow,
+database, `ops:indexes` has been run, and `ops:verify` passes 165/165 (scheduler, reservation flow,
 and recommendations/optimizer harnesses). If you are working on that database you do **not** need
 §2.
 
@@ -58,7 +58,7 @@ Publishes bookable inventory. Idempotent. Without it the booking wizard is empty
 ```bash
 npm run ops:verify
 ```
-Confirms the whole stack works. Expect **89/89 checks passed** and no blocked preconditions.
+Confirms the whole stack works. Expect **165/165 checks passed** and no blocked preconditions.
 
 ---
 
@@ -117,7 +117,7 @@ guarantee at all. Expect `migration complete and coherent : YES`.
 ```bash
 npm run ops:verify
 ```
-Last. Expect **89/89 and zero blocked preconditions**. In particular:
+Last. Expect **165/165 and zero blocked preconditions**. In particular:
 
 ```
 PASS  OVERLAPPING reservation rejected by the index — CHARGER_BUSY
@@ -166,6 +166,43 @@ Longer history.
 **Historical rows are inserted directly, not through the services**, because the claim path correctly
 rejects a start time in the past. So this script is *not* a test of the write paths — `ops:verify` is.
 Future reservations do go through `claimRangeReservation`, so their occupancy is real.
+
+---
+
+## 3b. Presentation demo scenarios
+
+A different tool from `ops:demo-data` above, for a different purpose: eight deterministic, named
+scenarios for a live presentation, each built by calling the real services — not a bulk history
+generator. See `docs/PROJECT_STATE.md` §6k.
+
+```bash
+npm run demo -- list
+```
+Prints all eight scenario keys and what each demonstrates.
+
+```bash
+npm run demo -- run <scenario|all>
+```
+Executes one scenario (`normal_flow`, `late_arrival`, `waitlist_promotion`, `extension_approval`,
+`partial_extension`, `technical_incident`, `delay_propagation`, `reliability_scoring`), or all
+eight in order with `all`. Prints the actual facts produced — arrival outcome, extension decision,
+cascade depth, and so on.
+
+```bash
+npm run demo -- reset
+```
+Deletes everything a scenario run generated (bookings, occupancy, events, requests, incidents,
+delay propagation records) and restores every demo charger to `available`. The shared fixtures
+(the demo station, its chargers, and the demo drivers) are left in place. **Run this between
+scenario runs** — a fulfilled reservation from a previous run genuinely still holds its capacity,
+so re-running without resetting can fail with `CHARGER_BUSY`, exactly as it would for two real
+drivers contending for the same bay.
+
+```bash
+npm run demo -- inspect <scenario>
+```
+Prints a scenario's own description. The actual facts come from `run`'s own output, not this
+command — there is no separate stored "expected outcome" to drift out of sync with the code.
 
 ---
 
@@ -229,9 +266,15 @@ Two commands need to run on a schedule in production:
 ```bash
 npm run ops:expire-commitments
 ```
-Releases reservations whose deposit hold window closed, **and** declares a no-show for every
-reservation nobody arrived for within its no-show threshold (Late Arrival Engine). **Writes by
-default**; `-- --dry-run` to report only. Every few minutes is right.
+Releases reservations whose deposit hold window closed, declares a no-show for every reservation
+nobody arrived for within its no-show threshold (Late Arrival Engine), **and** advances overstay
+tracking for every session still `CHARGING` past its (extension-aware) end time (Overstay Engine).
+**Writes by default**; `-- --dry-run` to report only. Every few minutes is right.
+
+**The overstay sweep never resolves anything on its own** — it only advances
+`WARNING → ESCALATED → ALERTED` and records events; the session stays `CHARGING` until a staff
+member actually ends it at the desk (`POST /api/staff/sessions/end`, unchanged). "Overstays" in the
+dry-run output counts sessions currently past their end time, not incidents advanced.
 
 For commitment-hold release, this job is *not* what makes it timely — the claim path releases an
 expired hold on the slot being claimed, and the availability read reports expired holds as free, so
@@ -239,6 +282,11 @@ a bay is bookable the instant anyone looks at it; this job only materialises tha
 the events for reservations nobody happens to be looking at. **No-show detection has no such
 fallback** — nothing else notices the absence of an arrival, so unlike commitment-hold release, a
 no-show genuinely waits for this job to run.
+
+**No-show detection uses a MongoDB transaction and requires a replica set.** Atlas is always one,
+including the free tier, so this needs no action there. Running against a bare standalone `mongod`
+(one of the "local" setups this README supports) will throw when a no-show is actually found —
+initialise it as a single-node replica set first if you hit this locally.
 
 ```bash
 npm run ops:optimizer-consumer
@@ -276,8 +324,10 @@ only when you want that one effect in isolation.
 | `ops:migrate-commitments` | Dry run | Refuses until v2 applied |
 | `ops:migrate-flexibility` | Dry run | Refuses until v2 applied |
 | `ops:migrate-occupancy` | Dry run | **Non-additive.** Rebuilds the `slotId` index |
-| `ops:verify` | Self-cleaning | Runs `ops:verify-scheduler` + `ops:verify-reservation-flow` (via `verify-reservation-flow.ts`) + `ops:verify-recommendations`; 89/89 expected |
+| `ops:verify` | Self-cleaning | Runs `ops:verify-scheduler` + `ops:verify-reservation-flow` (via `verify-reservation-flow.ts`) + `ops:verify-recommendations`; 165/165 expected |
 | `ops:demo-data` | Tagged `isDemo` | `-- --clear` removes it |
+| `demo -- run <scenario\|all>` | Yes | Deterministic presentation scenarios — see §3b |
+| `demo -- reset` | Yes | Clears scenario data; fixtures kept |
 | `ops:reliability` | Yes | Rebuilds a cache |
 | `ops:behavior` | Yes | Rebuilds a cache |
 | `ops:expire-commitments` | Yes | For a scheduler |

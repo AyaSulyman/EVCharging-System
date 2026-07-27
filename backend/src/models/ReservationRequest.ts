@@ -52,9 +52,12 @@ export type ReservationRequestStatus = (typeof RESERVATION_REQUEST_STATUSES)[num
 
 /**
  * How the request was created. `self` is a driver in the app; `staff_onsite` is the desk, which
- * matters because on-site presence outranks a remote request when capacity is contested.
+ * matters because on-site presence outranks a remote request when capacity is contested. `system`
+ * is the platform acting on a driver's behalf — today, exclusively the Delay Propagation Engine
+ * re-filing a reservation an incident displaced (`priority: "recovery"`, never chosen for `system`
+ * by anything else). Not scored: `origin` is audit metadata, read by no scoring or matching logic.
  */
-export const REQUEST_ORIGINS = ["self", "staff_onsite"] as const;
+export const REQUEST_ORIGINS = ["self", "staff_onsite", "system"] as const;
 
 const ReservationRequestSchema = new Schema(
   {

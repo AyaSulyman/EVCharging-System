@@ -36,7 +36,11 @@ export type OptimizationTrigger =
   | "request_created"
   | "capacity_released"
   | "recommendation_declined"
-  | "scheduled";
+  | "scheduled"
+  // A rejected or shortened extension request means the reservation vacates sooner than the
+  // driver hoped — worth a look for anyone waiting on that charger, even though nothing was
+  // actually released yet (the time was never taken from availability in the first place).
+  | "extension_resolved";
 
 export interface RunOptimizationInput {
   trigger: OptimizationTrigger;

@@ -71,6 +71,18 @@ const ExtensionSchema = new Schema(
   { _id: false }
 );
 
+const OverstayDetailSchema = new Schema(
+  {
+    // Severity detail only — the base `overstays` count below already comes from
+    // session.ended's minutesOverstayed, so these two add color without duplicating that.
+    escalated: { type: Number, default: 0 },
+    alerted: { type: Number, default: 0 },
+    avgDurationMinutes: { type: Number, default: 0 },
+    maxDurationMinutes: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
+
 const ArrivalAccuracySchema = new Schema(
   {
     // Share of arrivals within the grace period. The headline behavioural number.
@@ -120,6 +132,7 @@ const CustomerBehaviorProfileSchema = new Schema(
     totalCompleted: { type: Number, default: 0 },
     earlyDepartures: { type: Number, default: 0 },
     overstays: { type: Number, default: 0 },
+    overstayDetail: { type: OverstayDetailSchema, default: () => ({}) },
 
     /** One-line operational read, generated with the metrics so list views need no extra work. */
     summary: { type: String, default: "" },

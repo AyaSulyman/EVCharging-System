@@ -18,7 +18,7 @@ import { DepositPanel } from "@/components/booking/DepositPanel";
 import { FlexibilitySelector, flexibilityLabel } from "@/components/booking/FlexibilitySelector";
 import { useToast } from "@/components/Toast";
 import { useApi } from "@/lib/useApi";
-import { formatDate, formatTime, formatCurrency } from "@/lib/utils";
+import { formatDate, formatTime, formatCurrency, cn } from "@/lib/utils";
 import type { BookingStatus, PaymentStatus, RefundQuote, FlexibilityType } from "@/types";
 
 interface BookingRow {
@@ -40,7 +40,31 @@ interface BookingRow {
   moveCount?: number;
   stationId?: { name: string; address: string };
   chargerId?: { label: string; powerKW: number };
+  extensionCount?: number;
+  extensionDecision?: "APPROVED" | "PARTIAL_APPROVAL" | "REJECTED" | null;
+  requestedExtensionMinutes?: number | null;
+  approvedExtensionMinutes?: number | null;
+  overstayStatus?: "NONE" | "WARNING" | "ESCALATED" | "ALERTED";
 }
+
+/** Driver-facing label for the last extension decision, if any. */
+const EXTENSION_DECISION_LABEL: Record<string, string> = {
+  APPROVED: "Approved in full",
+  PARTIAL_APPROVAL: "Partially approved",
+  REJECTED: "Not available",
+};
+
+/**
+ * Driver-facing overstay copy. Deliberately never says "penalty" or "fee" — no money moves for
+ * overstaying (CLAUDE.md §2), and this banner is the entire "notify customer" mechanism for the
+ * Overstay Engine's Warning Phase: visible on next page load, not a delivered notification. See
+ * overstay.service.ts's module note for why nothing pushes this to the driver instead.
+ */
+const OVERSTAY_LABEL: Record<string, string> = {
+  WARNING: "Your reserved time has ended. Please wrap up and free the charger for the next driver.",
+  ESCALATED: "Your session is well past its reserved end time. Staff may be in touch shortly.",
+  ALERTED: "This session is significantly overdue. Please end it now or contact the station.",
+};
 
 /** Driver-facing label for the nominal deposit state. */
 const DEPOSIT_LABEL: Record<string, string> = {
@@ -65,6 +89,10 @@ export default function BookingsPage() {
   // Which reservation's flexibility editor is open.
   const [flexId, setFlexId] = useState<string | null>(null);
   const [savingFlex, setSavingFlex] = useState(false);
+  // Which reservation's "request more time" panel is open, and what it's currently asking for.
+  const [extendId, setExtendId] = useState<string | null>(null);
+  const [extendMinutes, setExtendMinutes] = useState(30);
+  const [extending, setExtending] = useState(false);
 
   async function saveFlexibility(bookingId: string, flexibilityType: FlexibilityType) {
     setSavingFlex(true);
@@ -80,6 +108,30 @@ export default function BookingsPage() {
       return;
     }
     toast("Flexibility updated", "success");
+    load();
+  }
+
+  async function submitExtension(bookingId: string) {
+    setExtending(true);
+    const res = await call("/api/bookings/extend", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bookingId, requestedMinutes: extendMinutes }),
+    });
+    const data = await res.json();
+    setExtending(false);
+    if (!res.ok) {
+      toast(data.error ?? "Could not process the extension request", "error");
+      return;
+    }
+    setExtendId(null);
+    if (data.decision === "APPROVED") {
+      toast(`Approved — you now have ${data.approvedMinutes} more minutes`, "success");
+    } else if (data.decision === "PARTIAL_APPROVAL") {
+      toast(`Only ${data.approvedMinutes} of ${extendMinutes} minutes were available`, "info");
+    } else {
+      toast("No more time is available on this charger right now", "info");
+    }
     load();
   }
 
@@ -257,6 +309,73 @@ export default function BookingsPage() {
                     Pay {formatCurrency(b.depositAmount ?? 0)} deposit to confirm
                   </button>
                 ))}
+
+              {/* Overstay banner — the driver's own view of what the staff dashboard calls an
+                  "active overstay". No fee or penalty language: nothing charges for this. */}
+              {b.overstayStatus && b.overstayStatus !== "NONE" && (
+                <div
+                  className={cn(
+                    "mt-4 rounded-xl2 p-3.5 text-sm",
+                    b.overstayStatus === "ALERTED"
+                      ? "bg-red-50 text-red-800"
+                      : "bg-amber-50 text-amber-800"
+                  )}
+                >
+                  {OVERSTAY_LABEL[b.overstayStatus]}
+                </div>
+              )}
+
+              {/* Extension request — only while the session is actually charging. The decision
+                  (approved/partial/rejected) is computed immediately, not a pending state. */}
+              {b.lifecycle === "CHARGING" && (
+                <div className="mt-4 rounded-xl2 bg-canvas p-3.5">
+                  {b.extensionDecision && (
+                    <p className="mb-2 text-xs text-ink-soft">
+                      Last request: {b.requestedExtensionMinutes} min asked,{" "}
+                      {EXTENSION_DECISION_LABEL[b.extensionDecision]}
+                      {(b.approvedExtensionMinutes ?? 0) > 0 &&
+                        ` — ${b.approvedExtensionMinutes} min added`}
+                    </p>
+                  )}
+                  {extendId === b._id ? (
+                    <div className="flex items-center gap-2">
+                      <select
+                        className="field"
+                        value={extendMinutes}
+                        onChange={(e) => setExtendMinutes(Number(e.target.value))}
+                      >
+                        {[15, 30, 45, 60].map((m) => (
+                          <option key={m} value={m}>
+                            {m} min
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => submitExtension(b._id)}
+                        disabled={extending}
+                        className="btn-primary"
+                      >
+                        {extending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                        Ask
+                      </button>
+                      <button onClick={() => setExtendId(null)} className="btn-ghost">
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setExtendId(b._id)}
+                      disabled={(b.extensionCount ?? 0) >= 2}
+                      className="btn-secondary"
+                    >
+                      <Clock className="h-4 w-4" />
+                      {(b.extensionCount ?? 0) >= 2
+                        ? "Extension limit reached"
+                        : "Request more time"}
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* Flexibility editor — a driver can change their mind either way. */}
               {tab === "upcoming" && flexId === b._id && (

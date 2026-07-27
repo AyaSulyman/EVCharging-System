@@ -28,6 +28,7 @@ const OptimizationRunSchema = new Schema(
         "capacity_released", // a cancellation, expiry or early departure freed time
         "recommendation_declined", // a rejected or expired offer returned capacity
         "scheduled", // a periodic sweep, if one is ever added
+        "extension_resolved", // an extension was rejected or shortened; the charger frees up sooner
       ],
       required: true,
       index: true,

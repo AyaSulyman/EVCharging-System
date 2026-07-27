@@ -62,8 +62,12 @@ export const MAX_UNHELD_ALTERNATIVES = 2;
  * problem is easy to miss — it just quietly halves the station's sellable time.
  *
  * Three is enough to survive a missed notification and short enough to stop a runaway. Past it the
- * request stays OPEN and fully live — it is still matched by search, still fulfillable by hand, still
- * re-offered if an operator runs a pass. What stops is the platform freezing capacity unprompted.
+ * request stays OPEN and fully live — it is still matched by search and still fulfillable by hand
+ * (`fulfillRequest`, the direct-pick path). What stops is the platform freezing capacity unprompted:
+ * `issueRecommendation`'s cap check does not distinguish a manual optimizer pass from an automatic
+ * one, so an operator re-running the optimizer for this request will see it decline with
+ * `offer_cap_reached` exactly like an automatic pass would — direct-pick is the intended way to
+ * unstick it, not a manual re-run.
  */
 export const MAX_OFFERS_PER_REQUEST = Number(process.env.MAX_OFFERS_PER_REQUEST ?? 3);
 

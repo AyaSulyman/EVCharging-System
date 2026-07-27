@@ -27,7 +27,7 @@ and write crosses the API boundary.
 ## ✅ What is implemented and working
 
 Everything in this section is built, type-checked, and exercised against a real database by
-`npm run ops:verify` (89/89 passing).
+`npm run ops:verify` (165/165 passing).
 
 ### Reservations
 - **Duration-aware reservations** — 15, 30, 45, 60, 90 or 120 minutes, on a 15-minute start grid.
@@ -42,6 +42,14 @@ Everything in this section is built, type-checked, and exercised against a real 
 - **Late Arrival Engine** — every arrival is classified `ON_TIME`/`EARLY`/`GRACE`/`LATE`, and
   no-show is detected automatically (configurable grace period and no-show threshold), not only
   declared manually by staff. One shared implementation for both triggers.
+- **Extension Request Engine** — a driver charging right now can ask for more time; the decision
+  (approved in full, partially approved, or rejected) is evaluated against the same occupancy
+  timeline and reused instantly, capped at two requests per reservation, and staff can override it.
+  No new reservation state or scheduling logic — see [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md#6g-the-extension-request-engine--more-charging-time-decided-against-real-capacity).
+- **Overstay Engine** — a session still `CHARGING` after its (extension-aware) end time is detected
+  automatically, no hardware required, and escalates through `WARNING` → `ESCALATED` → `ALERTED`,
+  visible on the staff board with a required-action label. Unlike extensions, it feeds the
+  reliability score. See [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md#6h-the-overstay-engine--still-charging-past-the-booked-end).
 - Cancellation with a **truthful refund quote shown before you confirm**, computed by the same
   function that performs the refund.
 
@@ -79,6 +87,20 @@ Everything in this section is built, type-checked, and exercised against a real 
 ### Staff operations
 - A dedicated **station-scoped staff role**. Station board with live reservations, on-site booking at
   the desk, deposit collection, and check-in / charging session start / end.
+- **Technical Incident Engine** — report a charger failure, planned maintenance, a power outage or a
+  partial station outage; the affected charger(s) go unavailable immediately. Its own lifecycle
+  (`CREATED → INVESTIGATING → ACTIVE → RESOLVED → CLOSED`) and its own event log, entirely separate
+  from reservation state. Identifies which active/upcoming reservations, live recommendations and
+  waitlisted requests are affected — visible on `/staff/incidents`; see
+  [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md#6i-the-technical-incident-engine--chargerstation-problems-their-own-domain).
+- **Delay Propagation Engine** — consumes that identification and turns it into a real cascade: one
+  root reservation per affected charger, delay walked forward through everyone queued behind it,
+  new estimated times computed and shown next to the original, and a `priority: "recovery"`
+  request automatically filed through the existing waitlist path for every driver displaced enough
+  to warrant one. Never cancels or reschedules the original reservation, and never touches
+  `reservationoccupancy` — a human still decides through the existing cancellation flow. Visible on
+  the "Delay cascade" panel on `/staff/incidents`; see
+  [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md#6j-the-delay-propagation-engine--cascading-delay-computed-and-recommended-never-applied).
 - Revoking access invalidates outstanding tokens immediately.
 
 ### Analytics
@@ -87,9 +109,20 @@ Everything in this section is built, type-checked, and exercised against a real 
   accuracy, trend, with the raw event timeline underneath.
 - **Reservation scoring engine** — five factors (station utilization, preference match, waiting time,
   priority, reliability) with a full breakdown and a plain-language rationale.
-- **Schedule Quality KPIs** — ten metrics: preference match rate, utilization, average waiting time,
-  customers served per day, reservation success rate, and five arrival-outcome rates (early, on-time,
-  grace-period usage, late, no-show).
+- **Schedule Quality KPIs** — twenty-one metrics: preference match rate, utilization, average
+  waiting time, customers served per day, reservation success rate, five arrival-outcome rates
+  (early, on-time, grace-period usage, late, no-show), six extension-outcome metrics (request rate,
+  approval rate, partial-approval rate, rejection rate, average requested/approved minutes), and
+  five overstay-outcome metrics (total incidents, frequency rate, average/maximum duration, repeat
+  offender count).
+- **Incident analytics** (`/admin/incidents`) — total incidents, incidents by type, average
+  resolution time, charger-failure and station-outage frequency, and affected-reservation count.
+  Read exclusively from incident records/events — never from bookings or the reservation event log,
+  a deliberately separate source from the two metrics above.
+- **Delay propagation analytics** (`/admin/delay-propagation`) — total propagated delays, average
+  delay duration, reservations affected per incident, maximum cascade depth, and recovery success
+  rate. Read exclusively from delay propagation records/events — a fourth, separate source again;
+  none of the four analytics domains recomputes what another already answers.
 
 ### Vehicles
 - Manufacturer-agnostic provider layer with a simulated provider; battery- and distance-aware
@@ -99,6 +132,12 @@ Everything in this section is built, type-checked, and exercised against a real 
 - 17 `ops:*` scripts: migrations with dry runs and snapshots, an end-to-end verification harness,
   demo-data generation, projection rebuilds, reconciliation, and the optimizer's own capacity-release
   consumer and offer sweep. See **[`docs/RUNBOOK.md`](docs/RUNBOOK.md)**.
+- **Demo Support Layer** (`npm run demo`) — eight deterministic, reproducible presentation
+  scenarios (normal flow, late arrival, waitlist promotion, extension approval, partial extension,
+  technical incident, delay propagation, reliability scoring), built entirely by sequencing the
+  real services above with a controlled, offset-based clock. `list` / `reset` / `run <scenario|all>`
+  / `inspect <scenario>`. No production service is demo-aware. See
+  [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md#6k-the-demo-support-layer--deterministic-scenarios-built-from-the-real-system).
 
 ---
 
@@ -143,9 +182,11 @@ Stated plainly, because several are commonly assumed:
 - **Notifications are not generated by platform activity.** The store and reading experience are
   complete; nothing produces them from events yet — including an offer being issued, which today is
   only visible by opening `/offers`.
-- **Not built:** session extensions, overstay handling, delay propagation, incident-triggered
-  recovery re-placement of displaced reservations, and per-station optimizer weight tuning (the
-  weights are constants). All are designed — see `docs/RESERVATION_*.md`.
+- **Not built:** per-station optimizer weight tuning (the weights are constants), and occupancy
+  enforcement for overstay (an overstaying charger's atom reads as free the instant its interval
+  ends — a known, accepted availability conflict reserved for its own future phase). See
+  `docs/PROJECT_STATE.md` §4, §7. (Session extensions, overstay handling, technical incident
+  tracking and delay propagation are no longer on this list — see above.)
 
 ---
 
@@ -201,7 +242,7 @@ npm run ops:demo-data
 npm run ops:verify
 ```
 
-Expect **89/89 checks passed**. It creates real reservations and optimizer offers, asserts what the
+Expect **165/165 checks passed**. It creates real reservations and optimizer offers, asserts what the
 database contains, and deletes everything it created.
 
 **Run both applications**

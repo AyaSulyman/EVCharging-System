@@ -29,6 +29,12 @@ interface Profile {
   totalCompleted: number;
   earlyDepartures: number;
   overstays: number;
+  overstayDetail: {
+    escalated: number;
+    alerted: number;
+    avgDurationMinutes: number;
+    maxDurationMinutes: number;
+  };
   computedAt: string | null;
   eventsProcessed: number;
   firstSeen: string | null;
@@ -272,6 +278,21 @@ export default function BehaviorDetailPage() {
             <Row label="Sessions completed" value={profile.totalCompleted} />
             <Row label="Left early (freed capacity)" value={profile.earlyDepartures} good />
             <Row label="Overstayed" value={profile.overstays} bad />
+            {profile.overstays > 0 && (
+              <>
+                <Row
+                  label="Avg / longest overstay"
+                  value={`${profile.overstayDetail.avgDurationMinutes} / ${profile.overstayDetail.maxDurationMinutes} min`}
+                />
+                {(profile.overstayDetail.escalated > 0 || profile.overstayDetail.alerted > 0) && (
+                  <Row
+                    label="Escalated / alerted"
+                    value={`${profile.overstayDetail.escalated} / ${profile.overstayDetail.alerted}`}
+                    bad
+                  />
+                )}
+              </>
+            )}
           </dl>
           <p className="mt-3 text-xs text-ink-soft">
             Trend over the last 30 days: {profile.trend.recentIncidents} incident

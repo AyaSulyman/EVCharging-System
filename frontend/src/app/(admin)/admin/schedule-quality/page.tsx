@@ -14,6 +14,14 @@ import {
   ShieldAlert,
   AlarmClockOff,
   UserX,
+  PlusCircle,
+  CheckCheck,
+  SplitSquareHorizontal,
+  XCircle,
+  Hourglass,
+  Siren,
+  Repeat,
+  TrendingUp,
 } from "lucide-react";
 import { KpiWidget, type KpiValue } from "@/components/admin/KpiWidget";
 import { BookingsLineChart, UtilizationBarChart } from "@/components/admin/Charts";
@@ -51,6 +59,17 @@ interface Quality {
   gracePeriodUsageRate: KpiValue;
   lateArrivalRate: KpiValue;
   noShowRate: KpiValue;
+  extensionRequestRate: KpiValue;
+  extensionApprovalRate: KpiValue;
+  extensionPartialApprovalRate: KpiValue;
+  extensionRejectionRate: KpiValue;
+  avgRequestedExtensionMinutes: KpiValue;
+  avgApprovedExtensionMinutes: KpiValue;
+  totalOverstayIncidents: KpiValue;
+  overstayFrequencyRate: KpiValue;
+  avgOverstayDurationMinutes: KpiValue;
+  maxOverstayDurationMinutes: KpiValue;
+  repeatOverstayOffenderCount: KpiValue;
   daily: DailyPoint[];
   utilizationByStation: { station: string; utilizationPercent: number; slots: number }[];
 }
@@ -202,6 +221,89 @@ export default function ScheduleQualityPage() {
               kpi={quality.noShowRate}
               icon={UserX}
               sampleLabel="arrivals with an outcome"
+            />
+          </div>
+
+          {/* Extension outcomes — the Extension Request Engine's platform view. A charging
+              session asking for more time, and how often the platform could say yes. Same
+              "no data isn't zero" and sample-size discipline as the sections above. */}
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
+            <KpiWidget
+              label="Extension requests"
+              kpi={quality.extensionRequestRate}
+              icon={PlusCircle}
+              sampleLabel="charging sessions"
+            />
+            <KpiWidget
+              label="Approved"
+              kpi={quality.extensionApprovalRate}
+              icon={CheckCheck}
+              sampleLabel="extension requests"
+            />
+            <KpiWidget
+              label="Partially approved"
+              kpi={quality.extensionPartialApprovalRate}
+              icon={SplitSquareHorizontal}
+              sampleLabel="extension requests"
+            />
+            <KpiWidget
+              label="Rejected"
+              kpi={quality.extensionRejectionRate}
+              icon={XCircle}
+              sampleLabel="extension requests"
+            />
+            <KpiWidget
+              label="Avg requested"
+              kpi={quality.avgRequestedExtensionMinutes}
+              unit=" min"
+              icon={Hourglass}
+              sampleLabel="extension requests"
+            />
+            <KpiWidget
+              label="Avg approved"
+              kpi={quality.avgApprovedExtensionMinutes}
+              unit=" min"
+              icon={Timer}
+              sampleLabel="extension requests"
+            />
+          </div>
+
+          {/* Overstay outcomes — the Overstay Engine's platform view. A session still charging past
+              its booked (or extended) end, and how the platform is coping with it. */}
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <KpiWidget
+              label="Overstay incidents"
+              kpi={quality.totalOverstayIncidents}
+              unit=""
+              icon={Siren}
+              sampleLabel="charging sessions"
+            />
+            <KpiWidget
+              label="Overstay frequency"
+              kpi={quality.overstayFrequencyRate}
+              icon={TrendingUp}
+              sampleLabel="charging sessions"
+            />
+            <KpiWidget
+              label="Avg overstay"
+              kpi={quality.avgOverstayDurationMinutes}
+              unit=" min"
+              icon={Hourglass}
+              sampleLabel="overstay incidents"
+            />
+            <KpiWidget
+              label="Longest overstay"
+              kpi={quality.maxOverstayDurationMinutes}
+              unit=" min"
+              icon={AlarmClockOff}
+              sampleLabel="overstay incidents"
+            />
+            <KpiWidget
+              label="Repeat offenders"
+              kpi={quality.repeatOverstayOffenderCount}
+              unit=""
+              icon={Repeat}
+              sampleLabel="distinct customers"
             />
           </div>
 

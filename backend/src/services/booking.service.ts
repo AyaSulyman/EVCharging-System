@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { connectDB } from "@/config/database";
 import Booking from "@/models/Booking";
 import Slot from "@/models/Slot";
@@ -21,12 +22,14 @@ import {
   computeCommitmentAmount,
   computeCommitmentExpiry,
   isOperatorFault,
+  type RefundAssessment,
 } from "@/models/commitmentPolicy";
 import {
   releaseExpiredCommitmentHold,
   settleCommitment,
 } from "@/services/commitment.service";
 import { emitReservationEvent } from "@/services/reservationEvents.service";
+import { finalizeOverstayOnCompletion } from "@/services/overstay.service";
 
 /** Statuses in which a reservation still holds its interval. Only cancellation releases it. */
 export const HOLDING_STATUSES = ["pending", "confirmed", "completed", "no_show"] as const;
@@ -294,6 +297,11 @@ export interface UpdateReservationInput {
   updates: Record<string, unknown>;
 }
 
+interface ApplyNoShowResult {
+  booking: InstanceType<typeof Booking>;
+  assessment: RefundAssessment;
+}
+
 /**
  * The one no-show transition, called by both the manual desk/admin action (via
  * `updateReservation`) and the automatic threshold sweep (`sweepNoShows`).
@@ -305,23 +313,42 @@ export interface UpdateReservationInput {
  * capacity outcomes for the same fact. One function, two callers, closes that off structurally
  * rather than by discipline.
  *
- * `booking` must already be loaded and its transition validity already checked by the caller —
- * `updateReservation` checks ownership/ALLOWED_TRANSITIONS/FORBIDDEN_FAULT_CLAIM (all specific to
- * a human actor); `sweepNoShows` claims the row atomically first (see there). This function only
- * performs the transition itself, identically either way.
+ * TWO MODES, ONE DECISION LOGIC. `assessRefund` runs identically either way — what differs is how
+ * the result gets written:
+ *
+ * - No `session` (the manual path): unchanged from before this function ever had a `session`
+ *   parameter. `updateReservation` has already validated the transition in-memory (ownership,
+ *   `ALLOWED_TRANSITIONS`, `FORBIDDEN_FAULT_CLAIM`) before calling this, so there is no race left
+ *   to guard against — a throw here leaves the booking exactly as it was, nothing partially
+ *   written.
+ * - With a `session` (the automatic sweep): the atomic claim, the terminal fields, and the
+ *   capacity release all happen inside the caller's transaction, so a failure partway through
+ *   rolls back the *entire* thing — including the claim — rather than leaving `lifecycle: NO_SHOW`
+ *   committed with nothing else done. `reservation.no_show` is deliberately NOT emitted here in
+ *   this mode: the caller must emit it only after the transaction has actually committed, or a
+ *   driver-retried transaction could fire it for a write that was later rolled back, or fire it
+ *   twice for one retry.
+ *
+ * A gateway refund (only reachable when a human attributes operator fault to a no-show) must
+ * never run inside a database transaction — it cannot be rolled back with the rest of the write,
+ * and holding a transaction open across a network call is its own hazard. Unreachable in practice
+ * for the sweep (its reason is never an operator-fault one, so its no-shows are always forfeited,
+ * never refundable) — guarded below rather than assumed.
  */
-async function applyNoShow(booking: InstanceType<typeof Booking>, {
-  reason,
-  actorId = null,
-  actorRole = "system",
-}: { reason?: string; actorId?: string | null; actorRole?: string }) {
-  booking.status = "no_show";
-  booking.lifecycle = "NO_SHOW";
-  booking.noShow = true;
-  // The fifth arrival outcome — stamped here rather than by classifyArrival, which requires an
-  // actual arrival timestamp that, by definition, a no-show never has.
-  booking.arrivalOutcome = "NO_SHOW";
-
+async function applyNoShow(
+  booking: InstanceType<typeof Booking>,
+  {
+    reason,
+    actorId = null,
+    actorRole = "system",
+    session,
+  }: {
+    reason?: string;
+    actorId?: string | null;
+    actorRole?: string;
+    session?: mongoose.ClientSession;
+  }
+): Promise<ApplyNoShowResult | null> {
   // Same function the read path uses to quote a driver beforehand, so the quote shown and the
   // outcome delivered cannot diverge. A no-show forfeits and is penalised, unless fault was
   // attributed to the operator — the caller is responsible for that reason being legitimate.
@@ -333,6 +360,55 @@ async function applyNoShow(booking: InstanceType<typeof Booking>, {
     reason,
     noShow: true,
   });
+
+  if (session) {
+    if (assessment.outcome === "refundable") {
+      throw new Error("NO_SHOW_REFUND_INSIDE_TRANSACTION");
+    }
+
+    // One write does the atomic claim AND sets every terminal field, so there is no moment where
+    // the database says NO_SHOW while status/noShow/arrivalOutcome still disagree — the gap the
+    // manual path never had and the sweep used to open. Conditional on the lifecycle still being
+    // eligible: a concurrent sweep, or a driver checking in a moment earlier, makes this match
+    // nothing, and the transaction below commits an effective no-op.
+    const claimed = await Booking.findOneAndUpdate(
+      { _id: booking._id, lifecycle: { $in: ["RESERVED", "LATE", "AT_RISK"] } },
+      {
+        $set: {
+          status: "no_show",
+          lifecycle: "NO_SHOW",
+          noShow: true,
+          arrivalOutcome: "NO_SHOW",
+          // "non_refundable" is settleCommitment's forfeiture branch — see there. "none" (nothing
+          // was ever held) leaves paymentStatus untouched, matching settleCommitment exactly.
+          ...(assessment.outcome === "non_refundable" ? { paymentStatus: "forfeited" as const } : {}),
+        },
+      },
+      { session, returnDocument: "after" }
+    );
+    if (!claimed) return null;
+
+    // Same capacity consequence as the manual path, same asymmetry preserved: the legacy slot is
+    // marked spent, not made bookable again; a range reservation's remaining occupancy IS
+    // released. Both writes are part of this transaction — either they land with the claim above,
+    // or none of it does.
+    await Slot.findOneAndUpdate(
+      { _id: claimed.slotId, status: "booked" },
+      { $set: { status: "completed" } },
+      { session }
+    );
+    await releaseOccupancy(claimed._id, { session });
+
+    return { booking: claimed, assessment };
+  }
+
+  // Manual path — unchanged from before this function had a session mode.
+  booking.status = "no_show";
+  booking.lifecycle = "NO_SHOW";
+  booking.noShow = true;
+  // The fifth arrival outcome — stamped here rather than by classifyArrival, which requires an
+  // actual arrival timestamp that, by definition, a no-show never has.
+  booking.arrivalOutcome = "NO_SHOW";
 
   // Mutates the in-memory booking; the save below is the single write.
   await settleCommitment({ booking, assessment, reason, actorId: actorId ?? undefined, actorRole });
@@ -371,7 +447,7 @@ async function applyNoShow(booking: InstanceType<typeof Booking>, {
   );
   await releaseOccupancy(booking._id);
 
-  return booking;
+  return { booking, assessment };
 }
 
 /**
@@ -422,6 +498,16 @@ export async function updateReservation({ id, actorId, actorRole, updates }: Upd
     if (booking.status === "pending" && nextStatus === "confirmed") {
       throw new Error("USE_COMMITMENT_ENDPOINT");
     }
+    // ALLOWED_TRANSITIONS reads the legacy `status`, which collapses RESERVED/ARRIVED/CHARGING/
+    // LATE/AT_RISK/EXTENSION_REQUESTED into one "confirmed" bucket — it cannot see that a session
+    // is actively CHARGING. Cancelling one here would release occupancy and settle the deposit
+    // without any of `endCharging`'s session-specific finalization (actualEnd, overstay
+    // finalization, the early-departure/session.ended event) — a real session discarded through a
+    // path with no equivalent for ending one properly. A session in progress must be ended via
+    // `endCharging`, not cancelled.
+    if (nextStatus === "cancelled" && booking.lifecycle === "CHARGING") {
+      throw new Error("SESSION_IN_PROGRESS");
+    }
   }
 
   Object.assign(booking, applied);
@@ -432,7 +518,9 @@ export async function updateReservation({ id, actorId, actorRole, updates }: Upd
   // with the automatic sweep.
   if (nextStatus === "no_show") {
     const reason = (applied.cancellationReason as string | undefined) ?? booking.cancellationReason;
-    return applyNoShow(booking, { reason, actorId, actorRole });
+    // No session is passed, so this is always the manual branch, which never returns null.
+    const result = await applyNoShow(booking, { reason, actorId, actorRole });
+    return result!.booking;
   }
 
   // Keep the v2 lifecycle coherent with the legacy status change. Phase 1 only mirrors the
@@ -540,10 +628,25 @@ export interface NoShowSweepReport {
  *
  * WHY A SWEEP AT ALL. No-show is defined by the *absence* of an event (no check-in, ever), so
  * nothing can react to it — something has to periodically look. This mirrors
- * `commitment.service.ts`'s `expirePendingCommitments` exactly: a conditional `findOneAndUpdate`
- * claims one candidate at a time before doing anything else, so two concurrent sweeps — or a
- * sweep racing a driver who checks in at the last second — cannot both process the same
- * reservation. The loser's claim matches nothing and it moves on.
+ * `commitment.service.ts`'s `expirePendingCommitments` in spirit, but not in mechanism: that
+ * function's atomic claim sets both `lifecycle` and `status` together in one write specifically to
+ * keep its own inconsistency window narrow, and this one goes further — the claim, the terminal
+ * fields, the slot release and the occupancy release are now one database transaction (see
+ * `applyNoShow`'s `session` branch). An earlier version of this sweep flipped only `lifecycle`
+ * atomically and left the rest to run afterward outside any transaction; a failure in between left
+ * a reservation permanently `NO_SHOW` with none of the rest done, and invisible to every future
+ * sweep and the staff board alike, since both filter it out by lifecycle. That gap is what the
+ * transaction below closes.
+ *
+ * CONCURRENCY. The claim inside `applyNoShow` is conditional on the lifecycle still being
+ * eligible, so two concurrent sweeps — or a sweep racing a driver who checks in at the last second
+ * — cannot both process the same reservation; the loser's claim matches nothing, its transaction
+ * commits as a no-op, and it moves on.
+ *
+ * REQUIRES A REPLICA SET. MongoDB transactions need one; Atlas always is one, including the free
+ * tier. A bare standalone `mongod` (README's "local" option) is not, unless explicitly initialised
+ * as a single-node replica set — this sweep will throw against one. Stated plainly rather than
+ * discovered the hard way.
  *
  * Scope is deliberately narrow: only RESERVED/LATE/AT_RISK — a reservation that has already
  * reached ARRIVED did show up, whatever happened after is a different, not-yet-built case
@@ -589,22 +692,54 @@ export async function sweepNoShows(
     const deadline = new Date(new Date(scheduled).getTime() + (grace + threshold) * 60_000);
     if (deadline > now) continue;
 
-    // Atomic claim, conditional on still being in a no-show-eligible state. A booking a
-    // concurrent writer already moved (check-in, cancellation, another sweep) matches nothing.
-    const claimed = await Booking.findOneAndUpdate(
-      { _id: candidate._id, lifecycle: { $in: ["RESERVED", "LATE", "AT_RISK"] } },
-      { $set: { lifecycle: "NO_SHOW" } }
-    );
-    if (!claimed) continue;
+    const session = await mongoose.startSession();
+    let result: ApplyNoShowResult | null;
+    try {
+      // Returning the callback's result rather than assigning an outer variable from inside it:
+      // TypeScript's narrowing does not track assignments made through a closure, so a captured
+      // variable set this way would type-check but never narrow past `null` afterward.
+      result = await session.withTransaction(async () => {
+        // Read inside the session too, so the claim below sees a snapshot consistent with the
+        // transaction rather than a value read a moment before it opened.
+        const booking = await Booking.findById(candidate._id).session(session);
+        if (!booking) return null;
+        return applyNoShow(booking, {
+          reason: "Scheduled start passed without arrival",
+          actorRole: "system",
+          session,
+        });
+      });
+    } finally {
+      await session.endSession();
+    }
 
-    const booking = await Booking.findById(candidate._id);
-    if (!booking) continue;
-
-    await applyNoShow(booking, {
-      reason: "Scheduled start passed without arrival",
-      actorRole: "system",
-    });
+    if (!result) continue;
     processed++;
+
+    // Emitted strictly after `withTransaction` has returned — the driver can retry the callback
+    // above on a transient error, and emitting inside it would risk firing once per retry, or
+    // firing for a commit that was ultimately rolled back. `applyNoShow`'s session branch
+    // deliberately does not emit this itself, for exactly that reason.
+    const { booking, assessment } = result;
+    await emitReservationEvent({
+      type: "reservation.no_show",
+      bookingId: booking._id,
+      userId: booking.userId,
+      stationId: booking.stationId,
+      slotId: booking.slotId,
+      lifecycle: booking.lifecycle,
+      fault: assessment.fault,
+      penalize: assessment.penalize,
+      basis: assessment.basis,
+      reason: "Scheduled start passed without arrival",
+      amount: booking.depositAmount,
+      actorRole: "system",
+      metadata: {
+        hoursUntilStart: Math.round(assessment.hoursUntilStart * 10) / 10,
+        scheduledStart: booking.scheduledStart ?? booking.startTime,
+        refundOutcome: assessment.outcome,
+      },
+    });
   }
 
   return { found: candidates.length, processed };
@@ -789,6 +924,10 @@ export async function endCharging(bookingId: string) {
   booking.departedAt = booking.actualEnd;
   booking.lifecycle = "COMPLETED";
   booking.status = "completed";
+  // Finalizes overstay tracking (and back-fills any tier a sweep never caught) using this exact
+  // actualEnd, BEFORE the single save below — see overstay.service.ts for why this needs its own
+  // finalization rather than relying solely on the periodic sweep.
+  await finalizeOverstayOnCompletion(booking, booking.actualEnd);
   await booking.save();
 
   // The interval is spent — mirror the completion path used by updateReservation.
@@ -817,14 +956,19 @@ export async function endCharging(bookingId: string) {
     lifecycle: booking.lifecycle,
     fault: "customer",
     penalize: false,
-    basis: minutesEarly > 0 ? "early_departure" : "ran_to_schedule",
+    // Three-way, not two: a negative minutesEarly IS an overstay and must say so. Before the
+    // Overstay Engine, this ternary collapsed every overstay into "ran_to_schedule" — silently
+    // wrong, since minutesOverstayed right below was already computing the real number correctly.
+    // reliabilityPolicy.ts reads this basis to decide the overstay penalty; the ternary being
+    // wrong meant that penalty could never have fired.
+    basis: minutesEarly > 0 ? "early_departure" : minutesEarly < 0 ? "overstay" : "ran_to_schedule",
     metadata: {
       scheduledEnd,
       actualEnd: booking.actualEnd,
       actualStart: booking.actualStart,
       minutesEarly: Math.max(0, minutesEarly),
-      // Negative would mean an overstay. Recorded rather than clamped, because overstay
-      // handling is a later phase and will want the history.
+      // Negative would mean an overstay — and now does mean one; overstayStatus/overstayDurationMinutes
+      // on the booking itself (finalized just above) are the richer record of the same fact.
       minutesOverstayed: minutesEarly < 0 ? Math.abs(minutesEarly) : 0,
       actualDurationMinutes: booking.actualStart
         ? Math.round((booking.actualEnd.getTime() - new Date(booking.actualStart).getTime()) / 60000)

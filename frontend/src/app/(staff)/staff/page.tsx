@@ -12,7 +12,9 @@ import {
   ShieldCheck,
   Shuffle,
   MapPin,
+  Siren,
 } from "lucide-react";
+import Link from "next/link";
 import { MovePanel } from "@/components/staff/MovePanel";
 import { ReliabilityBadge } from "@/components/ui/ReliabilityBadge";
 import { useApi } from "@/lib/useApi";
@@ -35,6 +37,13 @@ interface BoardReservation {
   commitmentExpiresAt: string | null;
   flexibilityType: string;
   moveCount: number;
+  extensionDecision: "APPROVED" | "PARTIAL_APPROVAL" | "REJECTED" | null;
+  requestedExtensionMinutes: number | null;
+  approvedExtensionMinutes: number | null;
+  overstayStatus: "NONE" | "WARNING" | "ESCALATED" | "ALERTED";
+  overstayStartTime: string | null;
+  overstayDurationMinutes: number | null;
+  overstayActionRequired: string;
   reliability: { score: number; band: string; explanation: string } | null;
 }
 interface BoardStation {
@@ -50,8 +59,15 @@ interface Board {
     upcoming: number;
     atRisk: number;
     awaitingDeposit: number;
+    overstaying: number;
   };
 }
+
+const OVERSTAY_STYLE: Record<string, string> = {
+  WARNING: "bg-amber-100 text-amber-800",
+  ESCALATED: "bg-orange-100 text-orange-800",
+  ALERTED: "bg-red-100 text-red-700",
+};
 
 const STARTABLE = ["RESERVED", "ARRIVED", "LATE", "AT_RISK"];
 // Not yet arrived — the only states a check-in makes sense from. Once ARRIVED, only Start applies.
@@ -86,13 +102,25 @@ export default function StaffBoardPage() {
   const [error, setError] = useState("");
   // Which reservation the move panel is open for.
   const [moveId, setMoveId] = useState<string | null>(null);
+  // Which reservation's extension override panel is open, and the minutes it currently proposes.
+  const [overrideId, setOverrideId] = useState<string | null>(null);
+  const [overrideMinutes, setOverrideMinutes] = useState(0);
+  // Just a count for the banner — full detail and actions live on /staff/incidents.
+  const [openIncidentCount, setOpenIncidentCount] = useState(0);
 
   const load = useCallback(async () => {
     if (!token) return;
-    const res = await call("/api/staff/board");
-    const data = await res.json();
-    if (res.ok) setBoard(data.board);
+    const [boardRes, incidentsRes] = await Promise.all([
+      call("/api/staff/board"),
+      call("/api/staff/incidents"),
+    ]);
+    const data = await boardRes.json();
+    if (boardRes.ok) setBoard(data.board);
     else setError(data.error ?? "Failed to load the board");
+    if (incidentsRes.ok) {
+      const incidentsData = await incidentsRes.json();
+      setOpenIncidentCount((incidentsData.incidents ?? []).length);
+    }
     setLoading(false);
   }, [call, token]);
 
@@ -111,6 +139,21 @@ export default function StaffBoardPage() {
     });
     const data = await res.json();
     if (!res.ok) setError(data.error ?? "Action failed");
+    await load();
+    setBusyId(null);
+  }
+
+  /** Revises the automatic extension decision. Never touches extensionCount — see extension.service.ts. */
+  async function submitOverride(id: string) {
+    setBusyId(id);
+    setError("");
+    const res = await call("/api/staff/extensions/override", {
+      method: "POST",
+      body: JSON.stringify({ bookingId: id, approvedMinutes: overrideMinutes }),
+    });
+    const data = await res.json();
+    if (!res.ok) setError(data.error ?? "Could not override the extension decision");
+    else setOverrideId(null);
     await load();
     setBusyId(null);
   }
@@ -154,7 +197,20 @@ export default function StaffBoardPage() {
         </div>
       )}
 
-      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {openIncidentCount > 0 && (
+        <Link
+          href="/staff/incidents"
+          className="mt-4 flex items-center justify-between rounded-lg border border-orange-200 bg-orange-50 px-3.5 py-2.5 text-sm text-orange-800 hover:bg-orange-100"
+        >
+          <span>
+            {openIncidentCount} open technical incident{openIncidentCount === 1 ? "" : "s"} at your
+            stations
+          </span>
+          <span className="font-semibold">View →</span>
+        </Link>
+      )}
+
+      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
         <Stat label="Charging" value={board?.counts.charging ?? 0} icon={Zap} tone="text-green-600" />
         <Stat label="Upcoming" value={board?.counts.upcoming ?? 0} icon={Clock} tone="text-primary" />
         <Stat label="At risk" value={board?.counts.atRisk ?? 0} icon={AlertTriangle} tone="text-red-600" />
@@ -164,7 +220,60 @@ export default function StaffBoardPage() {
           icon={ShieldAlert}
           tone="text-amber-600"
         />
+        <Stat
+          label="Overstaying"
+          value={board?.counts.overstaying ?? 0}
+          icon={Siren}
+          tone="text-orange-600"
+        />
       </div>
+
+      {/* Active overstays — a session still CHARGING past its booked (or extended) end. Its own
+          card, above the main board, because this is the one condition that genuinely needs an
+          operator to notice and act, not just a per-row detail to expand. */}
+      {board && board.reservations.some((r) => r.overstayStatus !== "NONE") && (
+        <div className="card mt-6 border-orange-200 bg-orange-50/40">
+          <h2 className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+            <Siren className="h-4 w-4 text-orange-600" />
+            Active overstays
+          </h2>
+          <div className="mt-3 space-y-2">
+            {board.reservations
+              .filter((r) => r.overstayStatus !== "NONE")
+              .map((r) => (
+                <div
+                  key={`overstay-${r._id}`}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl2 bg-white p-3 text-sm"
+                >
+                  <div>
+                    <p className="font-medium text-ink">
+                      {r.customerName} · {r.chargerLabel}
+                    </p>
+                    <p className="text-xs text-ink-soft">{r.overstayActionRequired}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-xs font-semibold",
+                        OVERSTAY_STYLE[r.overstayStatus]
+                      )}
+                    >
+                      {r.overstayStatus} · {r.overstayDurationMinutes ?? 0} min
+                    </span>
+                    <button
+                      onClick={() => act(r._id, "end")}
+                      disabled={busyId === r._id}
+                      className="btn-primary"
+                    >
+                      {busyId === r._id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                      End session
+                    </button>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
 
       <div className="card mt-6 overflow-x-auto">
         {!board || board.reservations.length === 0 ? (
@@ -318,9 +427,61 @@ export default function StaffBoardPage() {
                         {moveId === r._id ? "Close" : "Move"}
                       </button>
                     )}
+
+                    {/*
+                      Only shown once there is a decision to revise — a reservation that never
+                      asked for an extension has nothing here to override.
+                    */}
+                    {r.lifecycle === "CHARGING" && r.extensionDecision && (
+                      <button
+                        onClick={() => {
+                          setOverrideId(overrideId === r._id ? null : r._id);
+                          setOverrideMinutes(r.approvedExtensionMinutes ?? 0);
+                        }}
+                        className="btn-ghost ml-auto mt-1.5 inline-flex items-center gap-1.5 text-ink-soft"
+                      >
+                        <Clock className="h-4 w-4" />
+                        {overrideId === r._id ? "Close" : "Override extension"}
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
+              {/* The override panel, same full-width-row shape as the move panel below. */}
+              {board.reservations
+                .filter((r) => r._id === overrideId)
+                .map((r) => (
+                  <tr key={`${r._id}-override`}>
+                    <td colSpan={5} className="py-3">
+                      <div className="rounded-xl2 border border-line bg-canvas p-3.5">
+                        <p className="text-xs font-medium text-ink">
+                          Driver asked for {r.requestedExtensionMinutes} min — automatic decision:{" "}
+                          {r.extensionDecision}, {r.approvedExtensionMinutes} min granted.
+                        </p>
+                        <div className="mt-2 flex items-center gap-2">
+                          <input
+                            type="number"
+                            min={0}
+                            max={r.requestedExtensionMinutes ?? 120}
+                            step={15}
+                            value={overrideMinutes}
+                            onChange={(e) => setOverrideMinutes(Number(e.target.value))}
+                            className="field w-24"
+                          />
+                          <span className="text-xs text-ink-soft">minutes to approve</span>
+                          <button
+                            onClick={() => submitOverride(r._id)}
+                            disabled={busyId === r._id}
+                            className="btn-primary ml-auto"
+                          >
+                            {busyId === r._id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                            Save
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
               {/* The move panel gets its own full-width row so it is not cramped into a cell. */}
               {board.reservations
                 .filter((r) => r._id === moveId)

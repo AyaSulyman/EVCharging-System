@@ -74,6 +74,17 @@ export interface ScheduleQuality {
   gracePeriodUsageRate: KpiValue;
   lateArrivalRate: KpiValue;
   noShowRate: KpiValue;
+  extensionRequestRate: KpiValue;
+  extensionApprovalRate: KpiValue;
+  extensionPartialApprovalRate: KpiValue;
+  extensionRejectionRate: KpiValue;
+  avgRequestedExtensionMinutes: KpiValue;
+  avgApprovedExtensionMinutes: KpiValue;
+  totalOverstayIncidents: KpiValue;
+  overstayFrequencyRate: KpiValue;
+  avgOverstayDurationMinutes: KpiValue;
+  maxOverstayDurationMinutes: KpiValue;
+  repeatOverstayOffenderCount: KpiValue;
   daily: DailyPoint[];
   /** Utilization broken out per station, worst first — where to add or move capacity. */
   utilizationByStation: { station: string; utilizationPercent: number; slots: number }[];
@@ -249,4 +260,173 @@ export function lateArrivalRate(c: ArrivalOutcomeCounts): KpiValue {
 
 export function noShowRate(c: ArrivalOutcomeCounts): KpiValue {
   return arrivalOutcomeRate(c.noShow, c.known, "Never arrived, past the no-show threshold");
+}
+
+/**
+ * Extension Request Engine KPIs — the platform-wide view of a decision `extensionPolicy.ts` makes
+ * per reservation, the same relationship the arrival-outcome rates above have to `classifyArrival`.
+ *
+ * TWO DIFFERENT DENOMINATORS, EACH FOR THE SAME REASON THE REST OF THIS FILE PICKS ONE. The
+ * *request* rate asks "of the reservations that could have asked, how many did" — denominator is
+ * every reservation that reached `CHARGING` at all, whether or not it ever requested. The
+ * *approval/partial/rejection* rates ask "of the ones that asked, how did it go" — denominator is
+ * only the ones with a decision. Using `chargingEligible` for the outcome rates would understate
+ * them by counting every reservation that never asked as a silent failure, which it is not.
+ */
+export interface ExtensionOutcomeCounts {
+  approved: number;
+  partial: number;
+  rejected: number;
+  requestedMinutesTotal: number;
+  approvedMinutesTotal: number;
+  /** Denominator for approval/partial/rejection rates and both averages: approved + partial + rejected. */
+  requested: number;
+  /** Denominator for the request rate: reservations that reached CHARGING, decided or not. */
+  chargingEligible: number;
+}
+
+function extensionOutcomeRate(count: number, denominator: number, description: string): KpiValue {
+  const value = pct(count, denominator);
+  return {
+    value,
+    sampleSize: denominator,
+    meetsTarget: null,
+    note:
+      denominator === 0
+        ? "No reservations to measure this against in this period"
+        : description,
+  };
+}
+
+export function extensionRequestRate(c: ExtensionOutcomeCounts): KpiValue {
+  return extensionOutcomeRate(
+    c.requested,
+    c.chargingEligible,
+    "Reservations that asked for more time, over every reservation that reached charging — asked or not."
+  );
+}
+
+export function extensionApprovalRate(c: ExtensionOutcomeCounts): KpiValue {
+  return extensionOutcomeRate(
+    c.approved,
+    c.requested,
+    "Fully granted, over reservations that asked. Reservations that never asked are excluded — they are not a rejection."
+  );
+}
+
+export function extensionPartialApprovalRate(c: ExtensionOutcomeCounts): KpiValue {
+  return extensionOutcomeRate(
+    c.partial,
+    c.requested,
+    "Granted less than requested, over reservations that asked."
+  );
+}
+
+export function extensionRejectionRate(c: ExtensionOutcomeCounts): KpiValue {
+  return extensionOutcomeRate(
+    c.rejected,
+    c.requested,
+    "Granted nothing, over reservations that asked."
+  );
+}
+
+/** Mean requested minutes over every decided request — the true shape of demand, outcome aside. */
+export function avgRequestedExtensionMinutes(c: ExtensionOutcomeCounts): KpiValue {
+  const value = c.requested > 0 ? Math.round((c.requestedMinutesTotal / c.requested) * 10) / 10 : null;
+  return {
+    value,
+    sampleSize: c.requested,
+    meetsTarget: null,
+    note: c.requested === 0 ? "No extension requests in this period" : "Mean minutes asked for, across every decided request.",
+  };
+}
+
+/**
+ * Mean approved minutes, over requests that got SOME time (approved + partial). Rejected requests
+ * are excluded from this one denominator deliberately — averaging in their zeros would describe
+ * "how generous are rejections", which is not a meaningful question, rather than "how much do we
+ * typically grant when we grant anything", which is.
+ */
+export function avgApprovedExtensionMinutes(c: ExtensionOutcomeCounts): KpiValue {
+  const granted = c.approved + c.partial;
+  const value = granted > 0 ? Math.round((c.approvedMinutesTotal / granted) * 10) / 10 : null;
+  return {
+    value,
+    sampleSize: granted,
+    meetsTarget: null,
+    note: granted === 0 ? "No extensions granted in this period" : "Mean minutes granted, over requests that received any time at all.",
+  };
+}
+
+/**
+ * Overstay Engine KPIs — the platform-wide view of `overstayPolicy.ts`'s classification, read
+ * exclusively from `bookings.overstayStatus`/`overstayDurationMinutes`, never from
+ * `reservationevents`. This is the one and only place these five figures are computed: per-customer
+ * behaviour (`customerBehaviorPolicy.ts`) answers a different question ("how does this one driver
+ * behave") from a different source (the event log) — same non-overlapping relationship the
+ * Extension Request Engine KPIs above already have to their own per-customer counterpart.
+ */
+export interface OverstayOutcomeCounts {
+  /** Reservations with any overstay tier reached (WARNING, ESCALATED or ALERTED). */
+  incidents: number;
+  /** Reservations that reached CHARGING at all — the same denominator concept as extensions'. */
+  chargingEligible: number;
+  durationMinutesSum: number;
+  maxDurationMinutes: number;
+  /** Distinct customers with MORE THAN ONE overstay incident in the period. */
+  repeatOffenders: number;
+}
+
+export function totalOverstayIncidents(c: OverstayOutcomeCounts): KpiValue {
+  return {
+    value: c.incidents,
+    sampleSize: c.chargingEligible,
+    meetsTarget: null,
+    note: "Reservations that overstayed their booked (or extended) end time at all, any severity.",
+  };
+}
+
+export function overstayFrequencyRate(c: OverstayOutcomeCounts): KpiValue {
+  const value = pct(c.incidents, c.chargingEligible);
+  return {
+    value,
+    sampleSize: c.chargingEligible,
+    meetsTarget: null,
+    note:
+      c.chargingEligible === 0
+        ? "No reservations to measure this against in this period"
+        : "Overstay incidents, over every reservation that reached charging.",
+  };
+}
+
+export function avgOverstayDurationMinutes(c: OverstayOutcomeCounts): KpiValue {
+  const value = c.incidents > 0 ? Math.round((c.durationMinutesSum / c.incidents) * 10) / 10 : null;
+  return {
+    value,
+    sampleSize: c.incidents,
+    meetsTarget: null,
+    note: c.incidents === 0 ? "No overstays in this period" : "Mean minutes past the booked end, over reservations that overstayed.",
+  };
+}
+
+export function maxOverstayDurationMinutes(c: OverstayOutcomeCounts): KpiValue {
+  return {
+    value: c.incidents > 0 ? c.maxDurationMinutes : null,
+    sampleSize: c.incidents,
+    meetsTarget: null,
+    note: c.incidents === 0 ? "No overstays in this period" : "The single longest overstay in this period.",
+  };
+}
+
+/**
+ * Distinct customers, not incidents — a driver who overstayed three times counts once. Answers
+ * "is this a few habitual latecomers or a broad pattern," which the incident count alone cannot.
+ */
+export function repeatOverstayOffenderCount(c: OverstayOutcomeCounts): KpiValue {
+  return {
+    value: c.repeatOffenders,
+    sampleSize: c.chargingEligible,
+    meetsTarget: null,
+    note: "Distinct customers with more than one overstay incident in this period.",
+  };
 }

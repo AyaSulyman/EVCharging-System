@@ -26,7 +26,8 @@
     "ops:sweep-recommendations": "tsx scripts/sweep-recommendations.ts",
     "ops:optimize": "tsx scripts/run-optimizer.ts",
     "ops:optimizer-consumer": "tsx scripts/optimizer-consumer.ts",
-    "ops:demo-data": "tsx scripts/generate-demo-data.ts"
+    "ops:demo-data": "tsx scripts/generate-demo-data.ts",
+    "demo": "tsx scripts/demo.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
