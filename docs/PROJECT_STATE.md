@@ -1,8 +1,8 @@
 # PROJECT_STATE.md — what is built, what is not, what to do next
 
-**Last updated: 2026-07-27 (Final Project Audit — full cross-subsystem review; three functional
-bugs found and fixed — see §8; documentation drift corrected; no double-booking, duplicate-writer,
-or cross-contaminated-analytics path found anywhere in the live codebase).**
+**Last updated: 2026-07-27 (QR Scanner Interface — a browser-camera UI in front of §6l's existing
+lookup, §6m. No backend file changed; one lookup function now takes either a typed code or a
+camera-decoded string, never a second implementation of either).**
 Read this after `CLAUDE.md` and `AGENTS.md`, before writing code.
 
 See also **[`IMPLEMENTED_LOGIC.md`](IMPLEMENTED_LOGIC.md)** — the canonical register of every
@@ -49,6 +49,8 @@ same commit.**
 | Notifications from events | **Not built.** Store + UI exist; nothing produces them — including an optimizer offer being issued |
 | Real payments | Not built. The seam exists — see `CLAUDE.md` §7 |
 | **Demo Support Layer** (deterministic scenarios, controlled clock, `npm run demo`) | **Done** — see §6k. Sequences real services only; zero production code is demo-aware |
+| **QR Check-In Workflow** (lookup by scanned QR or booking code, ahead of check-in) | **Done** — see §6l. Read-only lookup; hands off to the pre-existing `checkIn`, never a second transition |
+| **QR Scanner Interface** (browser-camera UI for the above) | **Done** — see §6m. UI only; camera-decoded and manually-typed input share one lookup call |
 
 ---
 
@@ -978,6 +980,157 @@ ops:verify` — **165/165**, unchanged, confirming this layer changed no product
 previous run still legitimately holds (`CHARGER_BUSY` from the real occupancy index) — the same
 outcome two real drivers would get. `npm run demo -- reset` between runs is the expected
 operational step, not a workaround for a defect.
+
+---
+
+## 6l. QR Check-In Workflow — a lookup step in front of the existing check-in, nothing more
+
+Answers "how does a walk-up driver's QR (or a typed booking code) become a checked-in
+reservation?" — audited first (Phase Q) to confirm `checkIn`/`ARRIVED`/`CHARGING`/`COMPLETED` and
+staff RBAC already existed; this phase adds exactly the one missing piece, a read-only lookup, and
+hands off to the check-in that was already there.
+
+| Path | Role |
+|---|---|
+| `backend/src/models/qrCheckInPolicy.ts` | Pure: `QR_BOOKING_PREFIX`, `parseQrPayload` — the one place a scanned string is interpreted |
+| `backend/src/services/staff.service.ts` → `lookupReservationByCode` | Resolves a code to a reservation, station-scoped, read-only |
+| `backend/src/app/api/staff/reservations/lookup/route.ts` | `POST` — the new endpoint |
+| `frontend/src/lib/qrPayload.ts` | The frontend's copy of the same prefix, used by the confirmation page's QR generation |
+| `frontend/src/app/(staff)/staff/page.tsx` | The "Check in by QR or code" card |
+
+**Reuses, never reimplements, every rule the audit found already existed.** `lookupReservationByCode`
+calls `assertStationInScope` (not a second scope check) and reports `checkInAllowed` by checking
+the reservation's `lifecycle` against `CHECK_INABLE_LIFECYCLES` — now exported from
+`booking.service.ts` rather than redeclared, so there is exactly one definition of "checkinable"
+anywhere in the codebase. The actual check-in is a separate call to the pre-existing
+`POST /api/staff/sessions/checkin` (`checkInSession` → `checkIn`); the lookup route never
+transitions a reservation itself. "Cancelled / expired / already checked in / already completed"
+are not five separate rules to validate — they are all simply "not in `CHECK_INABLE_LIFECYCLES`",
+which the lookup reports back with a plain-language reason (`reasonCheckInIsBlocked`) rather than
+duplicating the gate.
+
+**The QR payload is unchanged.** `CHARGEHUB-BOOKING:<bookingCode>` (generated client-side on the
+driver's confirmation page, Phase Q's audit found this already existed) is parsed back to the bare
+code by `parseQrPayload`, which also accepts the bare code directly — a keyboard-wedge QR scanner
+or manual typing produces the same input a real scan would, so no code path needs to know which one
+happened. Case-insensitive: `bookingCode` is already generated uppercase, so a lowercase manual
+entry is normalised rather than rejected.
+
+**"Shared parser," honestly scoped to what a two-app repo can share.** CLAUDE.md §3: this is two
+separate Next.js apps with no shared package, so `qrCheckInPolicy.ts` cannot be imported by the
+frontend's confirmation page. What is shared is the *convention*: `frontend/src/lib/qrPayload.ts`
+holds the identical `QR_BOOKING_PREFIX` value, with a comment in each file pointing at the other.
+Changing the prefix requires editing both, in the same commit — a real, accepted limitation of the
+architecture, not an oversight.
+
+**A real bug the live-verification step caught before shipping:** the first draft of
+`lookupReservationByCode` called `assertStationInScope(auth, String(booking.stationId))` **after**
+already `.populate("stationId", ...)`-ing the same query — `booking.stationId` was by then the
+populated station sub-document, not its id, so `String()` on it never matched any real station and
+every lookup was refused as out-of-scope, even for a correctly-scoped staff member. Fixed by
+checking the already-extracted `station._id` instead. Caught by a standalone verification script
+before it ever reached the browser.
+
+**Verified live**, not only by script: a real seeded reservation was looked up by its QR-prefixed
+payload, by its bare code, and by a lowercase manual entry — all three resolved the same
+reservation; checking it in from the lookup card updated the exact same board row (lifecycle
+`RESERVED → ARRIVED`, the "Upcoming" counter decremented) as clicking that row's own pre-existing
+Check In button would; re-looking it up afterward correctly reported `checkInAllowed: false` with
+reason "Already checked in", with no Check In button rendered. `npm run ops:verify` — **165/165**,
+unchanged.
+
+**Update:** the "no in-browser camera scanning" limitation noted here is now closed — see §6m.
+
+---
+
+## 6m. QR Scanner Interface — camera input added to §6l, no new lookup or check-in
+
+Answers "how does a driver's QR get decoded without a physical keyboard-wedge scanner?" A pure UI
+addition on top of §6l — no backend file changed in this phase at all.
+
+| Path | Role |
+|---|---|
+| `frontend/src/components/staff/QrScannerPanel.tsx` | The camera: opens it, decodes a frame, calls `onDecode(payload)`. Nothing else — no fetch, no lookup, no check-in |
+| `frontend/src/app/(staff)/staff/page.tsx` | Wires `onDecode` to the exact same `lookupReservation()` the manual text field already calls |
+
+**One lookup function, two inputs.** `lookupReservation(payloadOverride?)` (§6l's function, now
+taking an optional argument) is called either with the manual field's value or with the camera's
+decoded string — the same fetch to `POST /api/staff/reservations/lookup`, the same result
+rendering, the same Check In button underneath. `QrScannerPanel` itself never imports `useApi`,
+never constructs a request, and never references a booking's lifecycle — it hands a plain string
+to its caller and does nothing else, which is what makes "the scanner must only provide the user
+interface" true by construction rather than by discipline.
+
+**Camera lifecycle, not a second business rule.** `QrScanner.hasCamera()` gates whether scanning is
+attempted at all; a `start()` rejection is inspected for `NotAllowedError`/`PermissionDeniedError`
+to distinguish "permission denied" from any other failure, each with its own plain-language message
+pointing at the manual field below as the fallback. The manual input is not conditionally rendered
+on any of this — it is simply always present, so "fall back to manual entry" needed no branching
+logic of its own.
+
+**Verified live**, camera included: this development environment provides a virtual camera, so the
+panel was driven through its real `starting → scanning` path (not just the fallback states) —
+confirmed by the video element actually mounting and the in-progress message rendering, then by
+closing it and confirming the video element and its stream were torn down. `npm run ops:verify` —
+**165/165**, unchanged (no backend file in this phase's diff).
+
+**Known limitation:** decoding a real QR image from a live camera end-to-end could not be exercised
+in this environment (no physical QR code to present to a virtual camera) — verified instead by (a)
+confirming the camera opens, scans, and cleans up correctly against the real `qr-scanner` library,
+and (b) `onDecode`'s target, `lookupReservation`, being the identical, already-live-verified
+function the manual path uses (§6l). The two are the same code from the point a string leaves this
+component onward.
+
+---
+
+## 6n. Arrival → Charging Integration — an audit that found the backend already integrated, and one real UI gap
+
+Answers "does the complete RESERVED → ARRIVED → CHARGING → COMPLETED flow actually work starting
+from a QR check-in?" Audited first, as asked, across ARRIVED/CHARGING/COMPLETED, `checkIn`/
+`startCharging`/`endCharging`, `session.started`/`session.ended`, reliability, behaviour,
+analytics, and station utilization — before writing any code.
+
+**Finding: the backend was already fully integrated, by construction.** §6l's `checkIn` (the QR
+path's target) and the board's own "Check in" button call the exact same function, which leaves a
+reservation in a state — `lifecycle: ARRIVED`, `actualArrival` stamped, `arrivalOutcome` classified
+— `startCharging` cannot distinguish from any other route to ARRIVED. `startCharging` and
+`endCharging` were untouched by Phases R–S entirely. `session.started`/`session.ended` are each
+emitted from exactly one place (both inside `booking.service.ts`, confirmed by grep), and `checkIn`
+itself deliberately emits no event of its own (a durable field, not a signal that would be lost) —
+so nothing about the event log's shape changes based on entry point. Reliability, behaviour,
+Schedule Quality (including station utilization, computed from booking duration data) all read
+`Booking` fields and `reservationevents` with **zero** reference anywhere to `createdVia` or any
+QR-specific marker — confirmed by grep. There was no backend gap to close.
+
+**Finding: a real UI continuity gap.** Checking in from the lookup card (§6l) cleared the card
+entirely — an operator scanning a QR and checking a driver in had to then scroll the board table to
+find that same row before they could click Start. Fixed by making the lookup card follow the same
+reservation through its whole session: check-in and start now **re-run the lookup** (rather than
+clearing it) so the card shows the freshly-updated lifecycle and offers the next action —
+`CHARGING → End`, `STARTABLE → Start`, mirroring the board row's own decision tree exactly (same
+`STARTABLE`/`CHECK_INABLE` constants, reused not redeclared); ending the session clears the card,
+since the desk is done with that driver. Every button still calls the identical `act()` the board
+rows already call — no second check-in, start, or end implementation exists anywhere.
+
+| Path | Role |
+|---|---|
+| `frontend/src/app/(staff)/staff/page.tsx` | `actOnLookedUpReservation` — carries the lookup card through checkin → start → end, re-fetching (not clearing) after checkin/start |
+
+**A pre-existing, unrelated observation, out of this phase's scope.** `lifecycle: COMPLETED` has a
+second writer: `updateReservation`'s admin-only `nextStatus === "completed"` branch (the same
+generic PATCH route whose `cancelled` branch got the `SESSION_IN_PROGRESS` guard in the Final
+Project Audit, §8). This predates Phases R–T entirely, is unrelated to the QR workflow, and does
+not interact with `checkIn` in any way — noted here for completeness, not fixed, per this phase's
+explicit "implement only missing pieces [of the QR-charging integration]" scope.
+
+**Verified live, real data:** a real seeded reservation was carried from RESERVED through ARRIVED,
+CHARGING, to COMPLETED entirely from the lookup card, confirmed at each step against both the UI
+and the database directly — `session.started`/`session.ended` fired with correct
+`arrivalOutcome`/`delayMinutes`, the Overstay Engine correctly back-filled its tiers for a session
+long past its scheduled end (proving cross-feature integration needed zero special-casing), and
+`recomputeForUser` picked up the new completion (`totalCompleted` 24 → 25) purely by folding the
+same event log every other completion already writes to. Test data reverted afterward. `npm run
+ops:verify` — **165/165**, unchanged.
 
 ---
 

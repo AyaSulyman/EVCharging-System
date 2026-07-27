@@ -101,6 +101,22 @@ Everything in this section is built, type-checked, and exercised against a real 
   `reservationoccupancy` — a human still decides through the existing cancellation flow. Visible on
   the "Delay cascade" panel on `/staff/incidents`; see
   [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md#6j-the-delay-propagation-engine--cascading-delay-computed-and-recommended-never-applied).
+- **QR Check-In Workflow** — resolve a driver's reservation by scanning the QR from their
+  confirmation page or typing the booking code manually, see the customer/station/charger/schedule
+  and whether check-in is currently allowed, then check them in with the same action the station
+  board's own Check In button already uses — never a second check-in path. See
+  [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md#6l-qr-check-in-workflow--a-lookup-step-in-front-of-the-existing-check-in-nothing-more).
+- **QR Scanner Interface** — a live browser-camera panel (`Scan QR` on the station board) that
+  decodes a driver's QR and feeds it into the exact same lookup above; a keyboard-wedge scanner or
+  manual typing works the same way, and the camera path falls back to the always-present manual
+  field if permission is denied or no camera exists. See
+  [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md#6m-qr-scanner-interface--camera-input-added-to-6l-no-new-lookup-or-check-in).
+- **Arrival → Charging continuity** — the lookup/scan card above now carries a reservation through
+  Check In → Start → End without leaving the card, reusing the station board's own actions; an audit
+  confirmed the backend already handled a QR-originated check-in identically to a board-button one
+  (no event distinguishes how a reservation reached `ARRIVED`), so this was a UI fix, not new backend
+  logic. See
+  [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md#6n-arrival--charging-integration--an-audit-that-found-the-backend-already-integrated-and-one-real-ui-gap).
 - Revoking access invalidates outstanding tokens immediately.
 
 ### Analytics

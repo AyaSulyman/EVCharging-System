@@ -13,9 +13,13 @@ import {
   Shuffle,
   MapPin,
   Siren,
+  ScanLine,
+  CheckCircle2,
+  Camera,
 } from "lucide-react";
 import Link from "next/link";
 import { MovePanel } from "@/components/staff/MovePanel";
+import { QrScannerPanel } from "@/components/staff/QrScannerPanel";
 import { ReliabilityBadge } from "@/components/ui/ReliabilityBadge";
 import { useApi } from "@/lib/useApi";
 import { cn } from "@/lib/utils";
@@ -63,6 +67,22 @@ interface Board {
   };
 }
 
+/** The shape `POST /api/staff/reservations/lookup` returns — a read-only resolution of a scanned
+ *  QR payload or a typed booking code, never a second check-in implementation. */
+interface LookupResult {
+  bookingId: string;
+  bookingCode: string;
+  status: string;
+  lifecycle: string;
+  checkInAllowed: boolean;
+  checkInBlockedReason: string | null;
+  scheduledStart: string;
+  scheduledEnd: string;
+  customer: { name: string; email: string; phone: string };
+  station: { _id: string; name: string; address: string } | null;
+  charger: { _id: string; label: string; connectorType: string } | null;
+}
+
 const OVERSTAY_STYLE: Record<string, string> = {
   WARNING: "bg-amber-100 text-amber-800",
   ESCALATED: "bg-orange-100 text-orange-800",
@@ -107,6 +127,15 @@ export default function StaffBoardPage() {
   const [overrideMinutes, setOverrideMinutes] = useState(0);
   // Just a count for the banner — full detail and actions live on /staff/incidents.
   const [openIncidentCount, setOpenIncidentCount] = useState(0);
+  // QR / manual-code check-in lookup — a read-only resolution step before the existing Check In
+  // action runs. Two inputs feed the exact same lookupReservation() call below: the camera panel
+  // (QrScannerPanel, opened via scannerOpen) and this text field, which also doubles as a
+  // keyboard-wedge scanner target and as the fallback when the camera is denied or unavailable.
+  const [lookupCode, setLookupCode] = useState("");
+  const [lookupResult, setLookupResult] = useState<LookupResult | null>(null);
+  const [lookupError, setLookupError] = useState("");
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -141,6 +170,48 @@ export default function StaffBoardPage() {
     if (!res.ok) setError(data.error ?? "Action failed");
     await load();
     setBusyId(null);
+  }
+
+  /** Resolves a scanned QR payload or a typed booking code — read-only, the existing `act(id,
+   *  "checkin")` above is what actually checks anyone in once this confirms who it is.
+   *
+   *  The one lookup call, called from two inputs. `payloadOverride` is what the camera scanner
+   *  passes (its decoded string never touches `lookupCode`'s own state); omitting it reads the
+   *  manual text field instead. Either way this is the only place that calls the lookup endpoint —
+   *  a second call site here would be exactly the "second lookup implementation" this phase's
+   *  brief forbids. */
+  async function lookupReservation(payloadOverride?: string) {
+    const payload = (payloadOverride ?? lookupCode).trim();
+    if (!payload) return;
+    setScannerOpen(false);
+    setLookupLoading(true);
+    setLookupError("");
+    setLookupResult(null);
+    const res = await call("/api/staff/reservations/lookup", {
+      method: "POST",
+      body: JSON.stringify({ payload }),
+    });
+    const data = await res.json();
+    if (!res.ok) setLookupError(data.error ?? "Reservation not found");
+    else setLookupResult(data.reservation);
+    setLookupLoading(false);
+  }
+
+  /** Carries the looked-up reservation through check-in, start, and end — the same `act()` every
+   *  board row already calls for the same three actions, never a second charging-session
+   *  implementation. After check-in or start, the lookup is re-run (not cleared) so the desk can
+   *  keep following the same driver from ARRIVED through CHARGING without leaving this card to
+   *  find the row in the table below; after end (COMPLETED), the desk is done with this driver, so
+   *  the lookup clears itself, ready for the next arrival. */
+  async function actOnLookedUpReservation(action: "checkin" | "start" | "end") {
+    if (!lookupResult) return;
+    await act(lookupResult.bookingId, action);
+    if (action === "end") {
+      setLookupResult(null);
+      setLookupCode("");
+    } else {
+      await lookupReservation(lookupResult.bookingCode);
+    }
   }
 
   /** Revises the automatic extension decision. Never touches extensionCount — see extension.service.ts. */
@@ -209,6 +280,159 @@ export default function StaffBoardPage() {
           <span className="font-semibold">View →</span>
         </Link>
       )}
+
+      {/* QR / manual-code check-in. A read-only lookup — the Check In button below reuses the
+          exact same action every board row already has; this only finds which row it is. The
+          camera (QrScannerPanel) and this text field both funnel into that one call — a
+          keyboard-wedge QR scanner also types straight into the field like a keyboard, and the
+          field itself is the fallback whenever the camera is unavailable or denied. */}
+      <div className="card mt-6">
+        <div className="flex items-center justify-between">
+          <h2 className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+            <ScanLine className="h-4 w-4 text-primary" />
+            Check in by QR or code
+          </h2>
+          {!scannerOpen && (
+            <button
+              onClick={() => setScannerOpen(true)}
+              className="btn-secondary flex items-center gap-1.5 text-xs"
+            >
+              <Camera className="h-3.5 w-3.5" />
+              Scan QR
+            </button>
+          )}
+        </div>
+
+        {scannerOpen && (
+          <div className="mt-3">
+            <QrScannerPanel
+              onDecode={(payload) => lookupReservation(payload)}
+              onClose={() => setScannerOpen(false)}
+            />
+          </div>
+        )}
+
+        <div className="mt-3 flex gap-2">
+          <input
+            type="text"
+            value={lookupCode}
+            onChange={(e) => setLookupCode(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") lookupReservation();
+            }}
+            placeholder="Scan a QR, or type a booking code (e.g. CHG-ABC123)"
+            className="field flex-1"
+            autoFocus
+          />
+          <button
+            onClick={() => lookupReservation()}
+            disabled={lookupLoading || !lookupCode.trim()}
+            className="btn-primary shrink-0"
+          >
+            {lookupLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Look up"}
+          </button>
+        </div>
+
+        {lookupError && (
+          <p className="mt-2.5 text-sm text-red-700">{lookupError}</p>
+        )}
+
+        {lookupResult && (
+          <div className="mt-3 rounded-xl2 border border-line bg-canvas p-3.5 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-semibold text-ink">{lookupResult.customer.name}</p>
+              <span
+                className={cn(
+                  "rounded-full px-2 py-0.5 text-xs font-semibold",
+                  LIFECYCLE_STYLE[lookupResult.lifecycle] ?? "bg-canvas text-ink-soft"
+                )}
+              >
+                {lookupResult.lifecycle}
+              </span>
+            </div>
+            <p className="text-xs text-ink-soft">{lookupResult.customer.email}</p>
+            <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-ink-soft sm:grid-cols-4">
+              <p>
+                <span className="font-medium text-ink">Code</span> {lookupResult.bookingCode}
+              </p>
+              <p>
+                <span className="font-medium text-ink">Station</span>{" "}
+                {lookupResult.station?.name?.replace("ChargeHub — ", "") ?? "—"}
+              </p>
+              <p>
+                <span className="font-medium text-ink">Charger</span>{" "}
+                {lookupResult.charger?.label ?? "—"}
+              </p>
+              <p>
+                <span className="font-medium text-ink">Scheduled</span>{" "}
+                {time(lookupResult.scheduledStart)}–{time(lookupResult.scheduledEnd)}
+              </p>
+            </div>
+            {/*
+              Arrival → Charging continuity: the same decision tree the board rows below already
+              use (CHARGING → End, STARTABLE → Start, else nothing to do), so the desk can carry
+              one driver from ARRIVED through CHARGING to COMPLETED without ever leaving this card
+              to find their row in the table. Every button here calls the exact same `act()` the
+              table already calls — no second check-in, start, or end implementation.
+            */}
+            <div className="mt-3 flex items-center justify-between gap-2">
+              {lookupResult.checkInAllowed ? (
+                <span className="flex items-center gap-1 text-xs font-medium text-green-700">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Ready to check in
+                </span>
+              ) : (
+                <span className="text-xs font-medium text-ink-soft">
+                  {lookupResult.checkInBlockedReason}
+                </span>
+              )}
+
+              {lookupResult.checkInAllowed ? (
+                <button
+                  onClick={() => actOnLookedUpReservation("checkin")}
+                  disabled={busyId === lookupResult.bookingId}
+                  className="btn-primary inline-flex items-center gap-1.5 text-xs"
+                >
+                  {busyId === lookupResult.bookingId ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <MapPin className="h-3.5 w-3.5" />
+                  )}
+                  Check in
+                </button>
+              ) : lookupResult.lifecycle === "CHARGING" ? (
+                <button
+                  onClick={() => actOnLookedUpReservation("end")}
+                  disabled={busyId === lookupResult.bookingId}
+                  className="btn-secondary inline-flex items-center gap-1.5 text-xs"
+                >
+                  {busyId === lookupResult.bookingId ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Square className="h-3.5 w-3.5" />
+                  )}
+                  End
+                </button>
+              ) : STARTABLE.includes(lookupResult.lifecycle) ? (
+                <button
+                  onClick={() => actOnLookedUpReservation("start")}
+                  disabled={busyId === lookupResult.bookingId}
+                  className="btn-primary inline-flex items-center gap-1.5 text-xs"
+                >
+                  {busyId === lookupResult.bookingId ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Play className="h-3.5 w-3.5" />
+                  )}
+                  Start
+                </button>
+              ) : (
+                <span className="text-xs text-ink-soft">—</span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
         <Stat label="Charging" value={board?.counts.charging ?? 0} icon={Zap} tone="text-green-600" />

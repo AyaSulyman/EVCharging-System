@@ -16,7 +16,13 @@ import Station from "@/models/Station";
 import User from "@/models/User";
 import Vehicle from "@/models/Vehicle";
 import { assertStationInScope, type StaffAuth } from "@/middleware/auth";
-import { claimReservation, checkIn, startCharging, endCharging } from "@/services/booking.service";
+import {
+  claimReservation,
+  checkIn,
+  startCharging,
+  endCharging,
+  CHECK_INABLE_LIFECYCLES,
+} from "@/services/booking.service";
 import { openCommitment, confirmCommitment } from "@/services/commitment.service";
 import { reliabilityForUsers } from "@/services/reliability.service";
 import { overrideExtension } from "@/services/extension.service";
@@ -280,6 +286,82 @@ export async function checkInSession(auth: StaffAuth, bookingId: string) {
   await connectDB();
   await assertBookingInScope(auth, bookingId);
   return checkIn(bookingId);
+}
+
+/**
+ * Resolves a scanned QR payload or a manually-typed booking code to the reservation it names, for
+ * the desk to confirm before checking someone in. Read-only — it identifies and reports, it never
+ * transitions anything. The actual check-in remains `checkInSession`/`checkIn`, called separately
+ * once the desk confirms this is the right reservation; this function's only job is finding it and
+ * saying whether check-in is currently allowed.
+ *
+ * `CHECK_INABLE_LIFECYCLES` (imported from `booking.service.ts`, not redeclared) is the SAME list
+ * `checkIn` itself gates on — this reuses it to answer "is check-in allowed" rather than inventing
+ * a second, parallel notion of "cancelled / expired / already checked in / already completed".
+ * Every one of those states is already exactly the complement of `CHECK_INABLE_LIFECYCLES`:
+ * PENDING_PAYMENT (payment not settled), ARRIVED/CHARGING (already checked in), COMPLETED, NO_SHOW
+ * (expired), CANCELLED/RELEASED (cancelled) are all simply "not in the checkinable list" — there is
+ * no separate rule to duplicate.
+ *
+ * Throws: RESERVATION_NOT_FOUND · Forbidden (via `assertStationInScope`, station outside scope —
+ * the same distinction, and the same error, every other staff action already makes)
+ */
+export async function lookupReservationByCode(auth: StaffAuth, code: string) {
+  await connectDB();
+
+  const booking = await Booking.findOne({ bookingCode: code })
+    .populate("userId", "name email phone")
+    .populate("chargerId", "label connectorType")
+    .populate("stationId", "name address")
+    .lean();
+  if (!booking) throw new Error("RESERVATION_NOT_FOUND");
+
+  const user = booking.userId as unknown as { name?: string; email?: string; phone?: string } | null;
+  const charger = booking.chargerId as unknown as { _id: unknown; label?: string; connectorType?: string } | null;
+  const station = booking.stationId as unknown as { _id: unknown; name?: string; address?: string } | null;
+
+  // `stationId` is already populated above, so its own `_id` — not the populated object itself —
+  // is what must be checked against scope; `String()` on the populated object would silently
+  // never match any real station id.
+  assertStationInScope(auth, String(station?._id ?? booking.stationId));
+
+  const lifecycle = booking.lifecycle as (typeof CHECK_INABLE_LIFECYCLES)[number] | string;
+  const checkInAllowed = (CHECK_INABLE_LIFECYCLES as readonly string[]).includes(lifecycle);
+
+  return {
+    bookingId: String(booking._id),
+    bookingCode: booking.bookingCode,
+    status: booking.status,
+    lifecycle: booking.lifecycle,
+    checkInAllowed,
+    checkInBlockedReason: checkInAllowed ? null : reasonCheckInIsBlocked(lifecycle),
+    scheduledStart: booking.scheduledStart ?? booking.startTime,
+    scheduledEnd: booking.scheduledEnd ?? booking.endTime,
+    customer: { name: user?.name ?? "—", email: user?.email ?? "—", phone: user?.phone ?? "—" },
+    station: station ? { _id: String(station._id), name: station.name, address: station.address } : null,
+    charger: charger ? { _id: String(charger._id), label: charger.label, connectorType: charger.connectorType } : null,
+  };
+}
+
+/** A plain-language reason for the desk, not a second gate — the gate is `CHECK_INABLE_LIFECYCLES`
+ *  itself; this only explains a lifecycle already known to have failed that check. */
+function reasonCheckInIsBlocked(lifecycle: string): string {
+  switch (lifecycle) {
+    case "PENDING_PAYMENT":
+      return "Deposit not yet settled";
+    case "ARRIVED":
+    case "CHARGING":
+      return "Already checked in";
+    case "COMPLETED":
+      return "Session already completed";
+    case "NO_SHOW":
+      return "Declared a no-show — this reservation has expired";
+    case "CANCELLED":
+    case "RELEASED":
+      return "Reservation cancelled";
+    default:
+      return `Not checkinable from ${lifecycle}`;
+  }
 }
 
 /** Starts a charging session, after checking the booking is at a station in scope. */

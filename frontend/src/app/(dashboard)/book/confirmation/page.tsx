@@ -18,6 +18,7 @@ import {
 import { DepositPanel } from "@/components/booking/DepositPanel";
 import { formatDate, formatTime } from "@/lib/utils";
 import { useApi } from "@/lib/useApi";
+import { qrPayloadFor } from "@/lib/qrPayload";
 
 interface BookingData {
   _id: string;
@@ -80,7 +81,7 @@ function Confirmation() {
 
   useEffect(() => {
     if (code) {
-      QRCode.toDataURL(`CHARGEHUB-BOOKING:${code}`, {
+      QRCode.toDataURL(qrPayloadFor(code), {
         width: 220,
         margin: 1,
         color: { dark: "#101915", light: "#ffffff" },

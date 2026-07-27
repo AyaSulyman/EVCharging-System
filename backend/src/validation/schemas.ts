@@ -392,6 +392,12 @@ export const sessionActionSchema = z.object({
   bookingId: objectId,
 });
 
+/** Staff resolves a reservation from a scanned QR payload or a manually-typed booking code —
+ *  either form of the same string, never a second identifier. */
+export const reservationLookupSchema = z.object({
+  payload: z.string().min(1).max(200),
+});
+
 /**
  * A driver's own extension request. `requestedMinutes` is the only decision input a driver
  * supplies — `approvedExtensionMinutes`/`extensionDecision` are server-derived and deliberately

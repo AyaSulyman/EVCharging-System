@@ -337,6 +337,35 @@ behavioural log) · `reservationrequests` (flexible demand) · `reservationoccup
   clock captures real "now" once per run and every scenario timestamp is a fixed offset from it (see
   `demo/clock.ts`) — never a frozen or fabricated calendar, since `validateRange` still refuses a
   claim whose start has already passed, exactly as it would for anyone else.
+- **The QR Check-In Workflow is a lookup in front of check-in, never a second check-in.** The
+  driver's QR (generated client-side on the confirmation page, encoding
+  `CHARGEHUB-BOOKING:<bookingCode>`) and a manually-typed booking code are the same input to the
+  same resolver — `staff.service.ts`'s `lookupReservationByCode` — which is read-only and reports
+  `checkInAllowed` by checking `CHECK_INABLE_LIFECYCLES` (exported from `booking.service.ts`, never
+  redeclared). The actual transition is still a separate call to the pre-existing
+  `checkInSession`/`checkIn`. `qrCheckInPolicy.ts` (backend) and `frontend/src/lib/qrPayload.ts`
+  hold the identical `QR_BOOKING_PREFIX` value by convention, not by import — this is two separate
+  Next.js apps with no shared package (§3), so keeping the two constants in sync across a change is
+  a manual, cross-referenced-by-comment step, not something the type system enforces.
+- **The QR Scanner Interface adds a camera, not a second lookup or a second check-in.**
+  `QrScannerPanel.tsx` only opens the camera and decodes a frame — it has no import of `useApi`, no
+  fetch call, no knowledge of a reservation's lifecycle. Its one output, `onDecode(payload)`, is
+  wired to the exact same `lookupReservation()` the manual booking-code field already calls (now
+  taking an optional argument so either input can supply the string), which is still the only
+  frontend call site for `POST /api/staff/reservations/lookup`. If you ever see the scanner
+  component itself import `useApi` or reference `checkInSession`, that is a regression back toward
+  "second implementation" — route the fix through the existing lookup/check-in functions instead.
+- **A QR-originated check-in is indistinguishable from a board-button one, by construction — never
+  special-case it.** `checkIn` emits no event (a deliberate design: `actualArrival` is a durable
+  field, not a signal); `session.started`/`session.ended` — the events reliability, behaviour
+  tracking and station-utilization analytics actually read — are emitted only by `startCharging`/
+  `endCharging`, untouched by the QR workflow. This is why the QR Check-In Workflow and Scanner
+  (above) needed no reliability/behaviour/analytics changes to integrate, and why the only real gap
+  found was UI continuity: the staff lookup card (`frontend/src/app/(staff)/staff/page.tsx`) now
+  carries a reservation through Check In → Start → End via `actOnLookedUpReservation`, reusing the
+  board's own `act()`/`STARTABLE`/`CHECK_INABLE`. If a future feature ever needs to know *how* a
+  reservation reached `ARRIVED`, that is new information the model does not carry today — do not
+  infer it from event absence/presence, which means something else.
 
 Keep these accurate in any docs, UI copy, or claims you produce.
 

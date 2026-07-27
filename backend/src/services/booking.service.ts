@@ -766,8 +766,13 @@ export async function sweepNoShows(
  */
 const STARTABLE_LIFECYCLES = ["RESERVED", "ARRIVED", "LATE", "AT_RISK"] as const;
 
-/** Lifecycle states from which a driver may be checked in (holding, not yet arrived). */
-const CHECK_INABLE_LIFECYCLES = ["RESERVED", "LATE", "AT_RISK"] as const;
+/**
+ * Lifecycle states from which a driver may be checked in (holding, not yet arrived). Exported so
+ * a read-only caller (the QR/code lookup, `staff.service.ts::lookupReservationByCode`) can report
+ * whether check-in is currently allowed without re-deriving or duplicating this list — the one
+ * gate `checkIn` itself enforces is the only definition of "checkinable" anywhere in this codebase.
+ */
+export const CHECK_INABLE_LIFECYCLES = ["RESERVED", "LATE", "AT_RISK"] as const;
 
 /**
  * Checks a driver in at the bay: stamps `actualArrival` and moves the reservation to ARRIVED,
