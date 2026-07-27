@@ -19,8 +19,9 @@ than a patch.
 | `npm run ops:verify` (backend) | **165/165** — 18 scheduler + 121 reservation-flow + 26 recommendations |
 | `npx tsc --noEmit` (backend) | Clean |
 | `npm run lint` (backend) | 0 errors, 15 warnings (pre-existing baseline, all `no-unused-vars` in provider stubs) |
-| `npx tsc --noEmit` (frontend) | **1 error** — see Finding A |
-| `npm run lint` (frontend) | **Not configured** — see Finding B |
+| `npx tsc --noEmit` (frontend) | ~~1 error~~ → **Clean** after the install in Finding A |
+| `npm run build` (frontend) | **Succeeds** — 38 routes; re-run after Finding A was resolved |
+| `npm run lint` (frontend) | **Not configured** — see Finding B (still open) |
 | `npm run demo -- list` | Works; 8 scenarios registered |
 | `git status` | Clean; nothing uncommitted or partially applied |
 
@@ -75,19 +76,32 @@ absent · **Broken** = does not run · **Contradicted** = code conflicts with a 
 
 ### Broken
 
-**Finding A — the frontend does not compile.**
+**Finding A — the frontend does not compile. ✅ RESOLVED 2026-07-27, re-verified.**
+
+As first found:
 
 ```
 src/components/staff/QrScannerPanel.tsx(40,51):
   error TS2307: Cannot find module 'qr-scanner' or its corresponding type declarations.
 ```
 
-`qr-scanner@^1.4.2` **is** declared in `frontend/package.json`, but `node_modules/qr-scanner` does
-not exist. This is an install gap, not a code defect — no source change is needed.
+`qr-scanner@^1.4.2` was declared in `frontend/package.json` and present in the lockfile, but
+`node_modules/qr-scanner` did not exist. An install gap, not a code defect.
 
-- **Impact: demo-blocking.** `next build` and the QR Scanner Interface both fail until it is fixed.
-- **Fix:** `cd frontend && npm install`.
-- This is the only thing standing between the current tree and a clean frontend typecheck.
+**Resolution.** The package is now installed — `qr-scanner@1.4.2`, with its type declarations at
+`node_modules/qr-scanner/types/qr-scanner.d.ts`. No source file and no tracked file changed; the
+fix was entirely inside `node_modules`.
+
+Re-verified end to end:
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` (frontend) | **Exit 0** — clean |
+| `npm run build` (frontend) | **Exit 0** — all 38 routes compiled, including `/offers` and `/staff/incidents` |
+| `git status` | Clean — no tracked file was touched |
+
+The build was the check that mattered: a typecheck alone would not have proven the dynamic
+`await import("qr-scanner")` in `QrScannerPanel.tsx` resolves at bundle time.
 
 ### Partial
 

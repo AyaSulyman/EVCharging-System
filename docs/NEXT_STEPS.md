@@ -8,19 +8,26 @@ modifying it** — this file is a snapshot, and `git log` is the ledger.
 
 ---
 
-## 0. Blockers — fix before anything else
+## 0. Blockers
 
-### 0.1 Install the frontend dependency ⛔ demo-blocking
+### ✅ 0.1 Frontend dependency — RESOLVED 2026-07-27
 
-The frontend does not typecheck or build. `qr-scanner@^1.4.2` is declared in `frontend/package.json`
-but is not present in `node_modules`.
+`qr-scanner@1.4.2` is installed and the frontend now typechecks (`tsc` exit 0) and builds
+(`npm run build` exit 0, 38 routes). No source file and no tracked file changed — the gap was
+entirely inside `node_modules`.
 
-```bash
-cd frontend && npm install
-```
+**There are no outstanding blockers.** Full verification as of 2026-07-27:
 
-No source change is required. Re-verify with `npx tsc --noEmit`, which should then be clean. Until
-this is done, `next build` fails and the QR Scanner Interface cannot run.
+| Check | Result |
+|---|---|
+| `ops:verify` (backend) | 165/165 |
+| `tsc --noEmit` (backend) | Clean |
+| `lint` (backend) | 0 errors, 15 warnings (baseline) |
+| `tsc --noEmit` (frontend) | Clean |
+| `build` (frontend) | Succeeds |
+
+If a fresh clone or a new machine reproduces the original error, the fix is `npm install` in
+`frontend/` — not a code change.
 
 ---
 
@@ -128,7 +135,8 @@ explicit authorisation from the owner.
 
 ## 6. Demo-impacting notes
 
-1. **Run `npm install` in `frontend/` first** (§0.1) or the frontend will not build at all.
+1. **The frontend builds** (§0.1, resolved). On a fresh clone, run `npm install` in `frontend/`
+   before anything else.
 2. **Two jobs need to be running**, or the system will look inert in ways that are not bugs:
    ```bash
    npm run ops:expire-commitments    # commitments, requests, no-shows, overstays, delay propagation

@@ -13,9 +13,10 @@ logic the system implements, and the file to build a presentation or slide deck 
 [`SYNC_AUDIT.md`](SYNC_AUDIT.md) for what was checked and [`NEXT_STEPS.md`](NEXT_STEPS.md) for what
 remains.** It reproduced the headline claims in this file (165/165, 21 KPIs, the incident and
 delay-propagation read-only boundaries) and found three things this file did not yet record: the
-frontend does not compile because a declared dependency is not installed, the frontend has never
-been linted, and the optimizer is called inline from the extension flow in contradiction of
-`CLAUDE.md` §2. All three are carried in §9 below.
+frontend did not compile because a declared dependency was not installed (**since resolved and
+re-verified — frontend `tsc` and `npm run build` both pass**), the frontend has never been linted,
+and the optimizer is called inline from the extension flow in contradiction of `CLAUDE.md` §2. All
+three are carried in §9 below.
 
 **All four migrations have now been APPLIED to the working `chargehub` database, `ops:indexes` has
 been run, and `ops:verify` passes 165/165** (scheduler + reservation-flow + recommendations
@@ -58,8 +59,8 @@ same commit.**
 | Real payments | Not built. The seam exists — see `CLAUDE.md` §7 |
 | **Demo Support Layer** (deterministic scenarios, controlled clock, `npm run demo`) | **Done** — see §6k. Sequences real services only; zero production code is demo-aware |
 | **QR Check-In Workflow** (lookup by scanned QR or booking code, ahead of check-in) | **Done** — see §6l. Read-only lookup; hands off to the pre-existing `checkIn`, never a second transition |
-| **QR Scanner Interface** (browser-camera UI for the above) | **Done** — see §6m. UI only; camera-decoded and manually-typed input share one lookup call. **Cannot currently run: `qr-scanner` is declared in `frontend/package.json` but not installed — run `npm install` in `frontend/`.** See `SYNC_AUDIT.md` Finding A |
-| **Verification status** (2026-07-27) | Backend `ops:verify` **165/165**, `tsc` clean, lint at its 15-warning baseline. **Frontend `tsc` fails on one missing install; frontend lint is unconfigured.** See [`SYNC_AUDIT.md`](SYNC_AUDIT.md) |
+| **QR Scanner Interface** (browser-camera UI for the above) | **Done** — see §6m. UI only; camera-decoded and manually-typed input share one lookup call. `qr-scanner@1.4.2` installed and building as of 2026-07-27 |
+| **Verification status** (2026-07-27, re-run) | Backend `ops:verify` **165/165**, `tsc` clean, lint at its 15-warning baseline. Frontend `tsc` **clean** and `npm run build` **succeeds** (38 routes). Frontend lint is still unconfigured — the one open quality gap. See [`SYNC_AUDIT.md`](SYNC_AUDIT.md) |
 
 ---
 
@@ -1320,10 +1321,10 @@ the 2026-07-27 verification pass ([`SYNC_AUDIT.md`](SYNC_AUDIT.md)), roughly in 
 would sensibly tackle them. **[`NEXT_STEPS.md`](NEXT_STEPS.md) is the working version of this list**
 — it carries the same items with the verification evidence attached.
 
-0. **⛔ BLOCKER — the frontend does not compile.** `qr-scanner@^1.4.2` is declared in
-   `frontend/package.json` but absent from `node_modules`, so `npx tsc --noEmit` fails on
-   `QrScannerPanel.tsx` and `next build` fails with it. **No source change is needed — run
-   `npm install` in `frontend/`.** Demo-blocking until then.
+0. **✅ RESOLVED (2026-07-27) — the frontend compiles and builds.** `qr-scanner@1.4.2` is installed;
+   `npx tsc --noEmit` is clean and `npm run build` succeeds across all 38 routes. The gap was
+   entirely inside `node_modules` — no source or tracked file changed. **There are no outstanding
+   blockers.** On a fresh clone, run `npm install` in `frontend/` before anything else.
 
 0b. **The optimizer is called inline from the extension flow — a documented contradiction.**
    `extension.service.ts:204` calls `runOptimization` directly. `CLAUDE.md:139` forbids inline
