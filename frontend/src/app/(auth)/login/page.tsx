@@ -6,9 +6,12 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2, Zap } from "lucide-react";
 import { loginSchema } from "@/lib/validations";
+import { App as AntdApp } from "antd";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { message } = AntdApp.useApp();
+
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -18,17 +21,20 @@ export default function LoginPage() {
     setError("");
 
     const parsed = loginSchema.safeParse(form);
+
     if (!parsed.success) {
       setError(parsed.error.errors[0]?.message ?? "Invalid input");
       return;
     }
 
     setLoading(true);
+
     const res = await signIn("credentials", {
       email: form.email,
       password: form.password,
       redirect: false,
     });
+
     setLoading(false);
 
     if (res?.error) {
@@ -36,10 +42,21 @@ export default function LoginPage() {
       return;
     }
 
-    // Land each role on its home surface. The session carries the role once signed in.
+    // Show success message
+    message.success("Logged in successfully");
+
+    // Land each role on its home surface
     const session = await getSession();
+
     const role = (session?.user as { role?: string } | undefined)?.role;
-    const home = role === "admin" ? "/admin" : role === "staff" ? "/staff" : "/dashboard";
+
+    const home =
+      role === "admin"
+        ? "/admin"
+        : role === "staff"
+        ? "/staff"
+        : "/dashboard";
+
     router.push(home);
     router.refresh();
   }
@@ -51,7 +68,11 @@ export default function LoginPage() {
           <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-primary-light text-primary">
             <Zap className="h-6 w-6" />
           </span>
-          <h1 className="mt-4 text-2xl font-bold text-ink">Welcome back</h1>
+
+          <h1 className="mt-4 text-2xl font-bold text-ink">
+            Welcome back
+          </h1>
+
           <p className="mt-1 text-sm text-ink-soft">
             Log in to manage your bookings and vehicles.
           </p>
@@ -68,6 +89,7 @@ export default function LoginPage() {
             <label htmlFor="email" className="label">
               Email
             </label>
+
             <input
               id="email"
               type="email"
@@ -75,13 +97,17 @@ export default function LoginPage() {
               className="field"
               placeholder="you@example.com"
               value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, email: e.target.value })
+              }
             />
           </div>
+
           <div>
             <label htmlFor="password" className="label">
               Password
             </label>
+
             <input
               id="password"
               type="password"
@@ -89,11 +115,17 @@ export default function LoginPage() {
               className="field"
               placeholder="••••••••"
               value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, password: e.target.value })
+              }
             />
           </div>
 
-          <button type="submit" disabled={loading} className="btn-primary w-full">
+          <button
+            type="submit"
+            disabled={loading}
+            className="btn-primary w-full"
+          >
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}
             {loading ? "Signing in…" : "Log in"}
           </button>
@@ -101,15 +133,16 @@ export default function LoginPage() {
 
         <p className="mt-6 text-center text-sm text-ink-soft">
           Don&apos;t have an account?{" "}
-          <Link href="/register" className="font-semibold text-primary hover:underline">
+          <Link
+            href="/register"
+            className="font-semibold text-primary hover:underline"
+          >
             Create one
           </Link>
         </p>
       </div>
 
-      <div className="mt-4 rounded-lg border border-line bg-white/60 px-4 py-3 text-center text-xs text-ink-soft">
-      
-      </div>
+      <div className="mt-4 rounded-lg border border-line bg-white/60 px-4 py-3 text-center text-xs text-ink-soft"></div>
     </div>
   );
 }
