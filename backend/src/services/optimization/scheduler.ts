@@ -33,7 +33,10 @@ import {
   type PriorityLevel,
   type ScoredCandidate,
 } from "./scoring";
-import type { WaitlistReason } from "@/models/recommendationPolicy";
+import {
+  MAX_UNHELD_ALTERNATIVES,
+  type WaitlistReason,
+} from "@/models/recommendationPolicy";
 
 /** Time budget for the repair phase. A booking screen must never wait on the optimizer. */
 export const REPAIR_BUDGET_MS = 250;
@@ -331,8 +334,10 @@ export function planAssignments(snapshot: Snapshot): Plan {
       reasons: best.reasons,
       rationale: explainAgainst(best, runnerUp),
       // Alternatives are shown, never held — freezing three bays to fill one is the inventory
-      // freeze the five-minute window exists to prevent.
-      alternatives: ranked.slice(1, 3).map((c) => ({
+      // freeze the five-minute window exists to prevent. Bounded by the policy constant rather than
+      // a literal: the constant existed for exactly this and was going unread, so raising it would
+      // have silently changed nothing.
+      alternatives: ranked.slice(1, 1 + MAX_UNHELD_ALTERNATIVES).map((c) => ({
         chargerId: c.chargerId,
         startTime: c.startTime,
         score: c.score,

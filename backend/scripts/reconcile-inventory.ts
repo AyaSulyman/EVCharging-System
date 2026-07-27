@@ -74,9 +74,15 @@ async function run() {
   console.log("     inert because availability queries filter on time, and deleting them would");
   console.log("     discard the record of capacity offered. Retention is a roadmap item.");
 
+  // Range occupancy is checked in BOTH modes. Detection is read-only and is the more urgent of the
+  // two models — it is the one every new reservation uses — so it must not be something you only
+  // discover by opting into writes.
+  const rangeOkDry = await reconcileOccupancy(apply);
+
   if (!apply) {
     console.log("\nNothing written. Re-run with --apply to snapshot and reconcile.");
     await mongoose.disconnect();
+    if (!rangeOkDry) process.exit(1);
     return;
   }
 
@@ -114,8 +120,65 @@ async function run() {
   console.log(`  intervals held by a pending/confirmed booking  : ${heldNow.length}`);
   console.log(`  agreement in both directions                  : ${ok ? "YES" : "NO  <-- INVESTIGATE"}`);
 
+  // Re-checked after the writes above, so the exit code reflects the final state rather than the
+  // state this run started in.
+  const rangeOk = await reconcileOccupancy(apply);
+
   await mongoose.disconnect();
-  if (!ok) process.exit(1);
+  if (!ok || !rangeOk) process.exit(1);
+}
+
+/**
+ * Reconciles the RANGE model — the one every new reservation actually uses.
+ *
+ * WHY THIS IS HERE AT ALL. `claimRangeReservation` deliberately writes the reservation first and
+ * claims the occupancy second, and its own comment justifies that ordering by saying a crash between
+ * the two "leaves a reservation with no occupancy — which reconciliation detects and repairs". That
+ * was not true: everything above this function reconciles the legacy `slots` collection only, so the
+ * failure mode the claim path deliberately chose had nothing watching for it. A reservation missing
+ * its occupancy is a bay two drivers can be sold, which is the single worst state this system has.
+ *
+ * The two directions fail differently and are handled differently:
+ *
+ *   **Occupancy with no live reservation** is waste — a bay nobody can book. Deleting it is safe and
+ *   is done under `--apply`, because the rows are derived and reconstructible from the booking.
+ *
+ *   **A live reservation with no occupancy** is a double-booking risk, and is NOT auto-repaired.
+ *   Re-claiming could legitimately lose to whoever now holds that time, and deciding which of two
+ *   reservations wins is a business call, not a script's. It is reported loudly and exits non-zero.
+ */
+async function reconcileOccupancy(apply: boolean): Promise<boolean> {
+  const { findOccupancyDrift } = await import("@/services/occupancy.service");
+  const { reservationsMissingOccupancy, orphanedOccupancy } = await findOccupancyDrift();
+
+  console.log("\nRange occupancy (the model new reservations use)");
+  console.log(`  live reservations holding no occupancy        : ${reservationsMissingOccupancy.length}`);
+  console.log(`  occupancy held by no live reservation         : ${orphanedOccupancy.length}`);
+
+  if (orphanedOccupancy.length > 0) {
+    if (apply) {
+      const Occupancy = mongoose.connection.db!.collection("reservationoccupancy");
+      const ids = orphanedOccupancy.map((id) => new mongoose.Types.ObjectId(id));
+      const res = await Occupancy.deleteMany({ bookingId: { $in: ids } });
+      console.log(`  B. orphaned occupancy rows deleted            : ${res.deletedCount}`);
+    } else {
+      console.log("     (dry run — re-run with --apply to delete these)");
+    }
+  }
+
+  if (reservationsMissingOccupancy.length > 0) {
+    console.log("\n  UNREPAIRED — a reservation with no occupancy is a bay two drivers can be sold.");
+    console.log("  Not auto-repaired: re-claiming may lose to whoever holds that time now, and");
+    console.log("  choosing between two reservations is an operator decision. Booking ids:");
+    for (const id of reservationsMissingOccupancy.slice(0, 20)) console.log(`    ${id}`);
+    if (reservationsMissingOccupancy.length > 20) {
+      console.log(`    ... and ${reservationsMissingOccupancy.length - 20} more`);
+    }
+    return false;
+  }
+
+  console.log(`  agreement in both directions                  : YES`);
+  return true;
 }
 
 run().catch((err) => {

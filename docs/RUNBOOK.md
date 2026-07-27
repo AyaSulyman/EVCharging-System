@@ -239,9 +239,21 @@ All of these are safe to run at any time, as often as you like. None is a migrat
 ```bash
 npm run ops:reconcile
 ```
-Checks `slots.status === "booked"` against live reservations, both directions. Dry run by default.
-It also reports expired unused intervals, which are informational — they are inert because
-availability filters on time.
+Checks **both reservation models**, in both directions. Dry run by default.
+
+- **Legacy slots** — `slots.status === "booked"` against live reservations.
+- **Range occupancy** — the model every new reservation uses. Reports live reservations holding no
+  occupancy (a bay two drivers could be sold) and occupancy held by no live reservation (a bay
+  nobody can book).
+
+The occupancy check runs in **dry-run too**, because discovering a double-booking risk must not
+require opting into writes. Under `--apply` it deletes orphaned occupancy — safe, those rows are
+derived and reconstructible. It deliberately does **not** auto-repair a reservation missing its
+occupancy: re-claiming may lose to whoever holds that time now, and choosing between two
+reservations is an operator decision. That case is reported and **exits non-zero**.
+
+Expect `agreement in both directions : YES` for both models. It also reports expired unused
+intervals, which are informational — they are inert because availability filters on time.
 
 ```bash
 npm run ops:reliability
@@ -322,7 +334,7 @@ only when you want that one effect in isolation.
 | `ops:publish -- <date>` | Additive | Idempotent |
 | `ops:migrate-v2` | Dry run | `-- --apply` to write |
 | `ops:migrate-commitments` | Dry run | Refuses until v2 applied |
-| `ops:migrate-flexibility` | Dry run | Refuses until v2 applied |
+| `ops:reconcile` | Dry run | Repair tool. Checks BOTH slots and range occupancy; exits non-zero if a reservation holds no occupancy |
 | `ops:migrate-occupancy` | Dry run | **Non-additive.** Rebuilds the `slotId` index |
 | `ops:verify` | Self-cleaning | Runs `ops:verify-scheduler` + `ops:verify-reservation-flow` (via `verify-reservation-flow.ts`) + `ops:verify-recommendations`; 175/175 expected |
 | `ops:demo-data` | Tagged `isDemo` | `-- --clear` removes it |

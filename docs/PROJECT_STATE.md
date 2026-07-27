@@ -9,6 +9,14 @@ See also **[`IMPLEMENTED_LOGIC.md`](IMPLEMENTED_LOGIC.md)** — the canonical re
 logic the system implements, and the file to build a presentation or slide deck from — and
 **[`RUNBOOK.md`](RUNBOOK.md)** for every operational command with its expected output.
 
+**A full operational-loop audit was run on 2026-07-28 — see
+[`OPERATIONAL_LOOP_AUDIT.md`](OPERATIONAL_LOOP_AUDIT.md)** for the workflow diagram, unused states,
+unused events, dead code and demo readiness. It found and fixed one critical contradiction:
+`ops:reconcile` reconciled only the legacy `slots` model, so the failure mode `claimRangeReservation`
+deliberately chose — a reservation holding no occupancy, i.e. a bay two drivers can be sold — had
+nothing detecting it, despite the claim path's own comment saying reconciliation covered it. It now
+reconciles range occupancy in both dry-run and apply.
+
 **A verification pass was run on 2026-07-27 against the live codebase — see
 [`SYNC_AUDIT.md`](SYNC_AUDIT.md) for what was checked and [`NEXT_STEPS.md`](NEXT_STEPS.md) for what
 remains.** It reproduced the headline claims in this file (175/175, 21 KPIs, the incident and

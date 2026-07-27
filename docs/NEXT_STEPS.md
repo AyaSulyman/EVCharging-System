@@ -108,10 +108,30 @@ These are unbuilt by design, not half-finished. Each is independently startable.
 
 ---
 
+## 3b. Named by the operational-loop audit (2026-07-28)
+
+See [`OPERATIONAL_LOOP_AUDIT.md`](OPERATIONAL_LOOP_AUDIT.md). Neither is a bug; both are decisions.
+
+1. **Four lifecycle states are declared and queried but never assigned** — `LATE`, `AT_RISK`,
+   `EXTENSION_REQUESTED`, `RELEASED`. `LATE`/`AT_RISK` are redundant with `arrivalOutcome`;
+   `EXTENSION_REQUESTED` is deliberately unused. Six query allowlists defend against states nothing
+   produces. **Decide**: assign them or retire them. Removing enum values is a schema change and the
+   project's rule is additive-only, so this is not a quiet edit.
+2. **`HOLDING_LIFECYCLE` is dead while five files hardcode the same array.** Exactly the drift shape
+   that has already caused defects here. Wiring it up touches several services and deserves its own
+   change rather than riding along with something else.
+
+---
+
 ## 4. Technical debt — low priority, independently addressable
 
 Each verified present during this pass:
 
+- `releaseReservationRange` (`booking.service.ts`) is a dead wrapper whose docstring wrongly claims
+  it is called on terminal transitions. Callers use `releaseOccupancy` directly — verified **not** a
+  leak. Remove it, or fix the comment.
+- `getReliability` is superseded by `reliabilityForUsers`; `disconnectVehicle` is implemented but
+  never routed; `HOLDING_RECOMMENDATION_STATUSES` and `BAND_LABELS` are unreferenced.
 - `HOLDING_STATUSES` (`booking.service.ts:35`) is exported and used nowhere. Remove it or wire it up.
 - `status = "FULFILLED"` is set independently in `recommendation.service.ts:307` and
   `reservationRequest.service.ts:386`. Unify or document why they differ.
