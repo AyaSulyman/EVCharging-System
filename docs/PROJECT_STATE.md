@@ -9,6 +9,14 @@ See also **[`IMPLEMENTED_LOGIC.md`](IMPLEMENTED_LOGIC.md)** — the canonical re
 logic the system implements, and the file to build a presentation or slide deck from — and
 **[`RUNBOOK.md`](RUNBOOK.md)** for every operational command with its expected output.
 
+**A verification pass was run on 2026-07-27 against the live codebase — see
+[`SYNC_AUDIT.md`](SYNC_AUDIT.md) for what was checked and [`NEXT_STEPS.md`](NEXT_STEPS.md) for what
+remains.** It reproduced the headline claims in this file (165/165, 21 KPIs, the incident and
+delay-propagation read-only boundaries) and found three things this file did not yet record: the
+frontend does not compile because a declared dependency is not installed, the frontend has never
+been linted, and the optimizer is called inline from the extension flow in contradiction of
+`CLAUDE.md` §2. All three are carried in §9 below.
+
 **All four migrations have now been APPLIED to the working `chargehub` database, `ops:indexes` has
 been run, and `ops:verify` passes 165/165** (scheduler + reservation-flow + recommendations
 harnesses). The §2 warnings below are kept for anyone setting up a different database.
@@ -50,7 +58,8 @@ same commit.**
 | Real payments | Not built. The seam exists — see `CLAUDE.md` §7 |
 | **Demo Support Layer** (deterministic scenarios, controlled clock, `npm run demo`) | **Done** — see §6k. Sequences real services only; zero production code is demo-aware |
 | **QR Check-In Workflow** (lookup by scanned QR or booking code, ahead of check-in) | **Done** — see §6l. Read-only lookup; hands off to the pre-existing `checkIn`, never a second transition |
-| **QR Scanner Interface** (browser-camera UI for the above) | **Done** — see §6m. UI only; camera-decoded and manually-typed input share one lookup call |
+| **QR Scanner Interface** (browser-camera UI for the above) | **Done** — see §6m. UI only; camera-decoded and manually-typed input share one lookup call. **Cannot currently run: `qr-scanner` is declared in `frontend/package.json` but not installed — run `npm install` in `frontend/`.** See `SYNC_AUDIT.md` Finding A |
+| **Verification status** (2026-07-27) | Backend `ops:verify` **165/165**, `tsc` clean, lint at its 15-warning baseline. **Frontend `tsc` fails on one missing install; frontend lint is unconfigured.** See [`SYNC_AUDIT.md`](SYNC_AUDIT.md) |
 
 ---
 
@@ -1306,8 +1315,25 @@ reasoning behind any specific feature you're about to touch. Do not re-derive, r
 "fix" anything marked intentional below — if a request seems to conflict with something stated as
 deliberate, that is a signal to flag the conflict, not to route around it silently.
 
-Every open item this project currently knows about, consolidated from §7's history and §8's audit,
-roughly in the order a team would sensibly tackle them:
+Every open item this project currently knows about, consolidated from §7's history, §8's audit, and
+the 2026-07-27 verification pass ([`SYNC_AUDIT.md`](SYNC_AUDIT.md)), roughly in the order a team
+would sensibly tackle them. **[`NEXT_STEPS.md`](NEXT_STEPS.md) is the working version of this list**
+— it carries the same items with the verification evidence attached.
+
+0. **⛔ BLOCKER — the frontend does not compile.** `qr-scanner@^1.4.2` is declared in
+   `frontend/package.json` but absent from `node_modules`, so `npx tsc --noEmit` fails on
+   `QrScannerPanel.tsx` and `next build` fails with it. **No source change is needed — run
+   `npm install` in `frontend/`.** Demo-blocking until then.
+
+0b. **The optimizer is called inline from the extension flow — a documented contradiction.**
+   `extension.service.ts:204` calls `runOptimization` directly. `CLAUDE.md:139` forbids inline
+   optimizer calls; `IMPLEMENTED_LOGIC.md` §17.6 documents the call as intended. The booking is
+   already saved (line 142) and occupancy already moved (line 110) by the time it runs, so a throw
+   inside the pass surfaces as a failed extension that actually succeeded. **Needs an explicit
+   decision, not a silent change** — options in `NEXT_STEPS.md` §1.1.
+
+0c. **The frontend has never been linted.** `npm run lint` in `frontend/` drops into `next lint`'s
+   interactive setup; no ESLint config is committed. The backend is linted and clean.
 
 1. **Resolve the reliability/behaviour fault-gating divergence (§8).** `reliabilityPolicy.ts`
    waives an event when `fault !== "customer"` **or** `penalize === false`; `customerBehaviorPolicy.ts`

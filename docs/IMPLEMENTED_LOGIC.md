@@ -7,10 +7,17 @@ to reverse-engineer the reasoning out of the code under time pressure.
 **Last updated: 2026-07-27 (Arrival → Charging Integration, §25 — an audit confirming the backend
 already integrated cleanly with §23–24's QR check-in, plus one UI-continuity fix in the lookup card;
 no backend file changed).**
+**Verified against the codebase on 2026-07-27** — see [`SYNC_AUDIT.md`](SYNC_AUDIT.md). Every
+headline claim in this file was reproduced (165/165 harness checks, 21 schedule-quality KPIs, the
+incident and delay-propagation read-only boundaries). **One entry now carries a conflict warning:
+§17.6 contradicts `CLAUDE.md` §2 and awaits a decision.** Nothing else was found out of sync.
+
 Read alongside:
 - [`../CLAUDE.md`](../CLAUDE.md) — what the project is, and the invariants that must not break
 - [`../AGENTS.md`](../AGENTS.md) — how to work here
 - [`PROJECT_STATE.md`](PROJECT_STATE.md) — what is built vs. not, and the ops commands
+- [`SYNC_AUDIT.md`](SYNC_AUDIT.md) · [`NEXT_STEPS.md`](NEXT_STEPS.md) — verification findings and
+  the remaining work derived from them
 
 > **If you are building a presentation or slide deck from this file:** every entry below has a
 > **Why it matters** line written for a non-engineer. Those lines are the talking points. The
@@ -1394,6 +1401,15 @@ duplicated occupancy logic.
   scheduler would have been exactly the duplication the brief for this feature explicitly forbade.
 - **Verified:** a REJECTED decision against a live database produces a new `optimizationruns`
   document with `trigger: "extension_resolved"` for that station.
+- **⚠ CONFLICTS WITH `CLAUDE.md` §2 — unresolved as of the 2026-07-27 verification pass.**
+  `CLAUDE.md:139` states the optimizer must "stay a *consumer*; never call [it] inline from the
+  reservation flow." This call is inline, and it is the only such call in the service layer. It is
+  also not merely stylistic: `moveOccupancy` has already run (line 110) and `booking.save()` has
+  already committed (line 142) by the time the pass fires at line 204, so an exception inside
+  `runOptimization` propagates out of `finalizeExtension` and the route reports a failure for an
+  extension that in fact succeeded. **Do not resolve this by editing one side quietly** — the two
+  documents state opposite intentions and need one decision. See
+  [`SYNC_AUDIT.md`](SYNC_AUDIT.md) Finding C and [`NEXT_STEPS.md`](NEXT_STEPS.md) §1.1.
 
 ### 17.7 Reliability: untouched, confirmed rather than assumed ⭐
 - **Rule:** `reliabilityPolicy.ts` has zero `extension.*` cases.
