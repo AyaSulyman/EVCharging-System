@@ -3,6 +3,11 @@
 **Read this before writing any code.** It is the source of truth for what this project
 is, how it is built, and the rules that must not be broken.
 
+> **§0 is mandatory and applies to every change, however small.** Verify the subsystem, verify its
+> documentation, and verify nothing already solves the problem — *before* implementing. Then run
+> verification, typecheck both sides, run the affected tests, update the docs, and record what you
+> found. **Never skip verification. Never assume documentation is current. Code is authoritative.**
+
 > **Three companion files, all required reading:**
 > - **`AGENTS.md`** — *how* to work here: verification standards, git conventions, and the
 >   specific mistakes this codebase has already been burned by.
@@ -28,6 +33,52 @@ This project is built and maintained by a three-person team, each owning a layer
 (frontend, backend, database). A large amount of the backend, security, data-integrity
 and architecture work is already complete and pushed. Treat the existing code as
 intentional.
+
+---
+
+## 0. The verification loop — mandatory, before and after every change
+
+**Never skip verification. Never assume documentation is current. Code is authoritative.**
+
+This section is first because skipping it is what produces the failures the rest of this file
+exists to prevent. It applies to every change, including ones that look too small to need it.
+
+### Before implementing
+
+1. **Verify the subsystem you are about to modify.** Read its actual code and trace the execution
+   path. A file's header comment describes what it was written to do, not necessarily what it does
+   now — a caller added later may have changed the answer.
+2. **Verify the related documentation.** Check `PROJECT_STATE.md`, `IMPLEMENTED_LOGIC.md` and this
+   file for what they claim about that subsystem. Where documentation and code disagree, **the code
+   is authoritative and the documentation is a defect to be fixed** in the same commit.
+3. **Verify that no existing implementation already solves the problem.** This codebase already has
+   a scheduler, a scoring engine, an occupancy arbiter, a claim path, an event log and a
+   verification harness. Reuse them. A second implementation of something that exists is not a
+   feature; it is a contradiction waiting to be reported as a bug — and the two will drift.
+
+If any of the three turns up a conflict, **stop and raise it** rather than implementing around it.
+
+### After implementing
+
+4. **Run verification** — `npm run ops:verify` from `backend/`. It must pass in full.
+5. **Run the typecheck** — `npx tsc --noEmit` in **both** `backend/` and `frontend/`. A change that
+   typechecks on one side and breaks the other is not done.
+6. **Run the tests affected by the change**, including the harness assertions covering the
+   subsystem you touched. If the change is significant and no assertion would have caught its
+   failure, add one — see §2's contradiction-check rule and `AGENTS.md` §4b.
+7. **Update the documentation** in the same commit: `IMPLEMENTED_LOGIC.md` for the logic itself,
+   `README.md` if the feature is user-visible, `RUNBOOK.md` if you added or changed a command.
+8. **Record findings in `docs/PROJECT_STATE.md`** — what you changed, anything you discovered that
+   is not fixed, and anything you deliberately left alone. A finding that is not written down is a
+   finding the next person will have to rediscover.
+
+### Why this is a rule and not a preference
+
+Every serious defect this project has had was invisible to the compiler: an index filter that
+matched present-but-null, a collection name Mongoose silently pluralised, a fault flag that waived
+every late arrival, a planning window that inverted and reported the cause as opening hours. None
+was a type error, and none would have been caught by reading the documentation — which was, in each
+case, describing the intended behaviour accurately. Only running the code found them.
 
 ---
 
@@ -460,6 +511,8 @@ their own SDKs) — keep the Strategy/Factory pattern scoped to vehicle provider
 
 ## 8. Working conventions
 
+- **§0's verification loop is not optional** — before and after, every change. The conventions
+  below are how to write the code; §0 is what makes it safe to ship.
 - **Follow the existing patterns** above rather than introducing parallel ones. Reuse
   services, the validation layer, `errorResponse`, and the provider seam.
 - **Verify against the live database** when changing data-integrity code — the team tests
