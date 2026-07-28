@@ -19,7 +19,7 @@ reconciles range occupancy in both dry-run and apply.
 
 **A verification pass was run on 2026-07-27 against the live codebase — see
 [`SYNC_AUDIT.md`](SYNC_AUDIT.md) for what was checked and [`NEXT_STEPS.md`](NEXT_STEPS.md) for what
-remains.** It reproduced the headline claims in this file (175/175, 21 KPIs, the incident and
+remains.** It reproduced the headline claims in this file (182/182, 21 KPIs, the incident and
 delay-propagation read-only boundaries) and found three things this file did not yet record: the
 frontend did not compile because a declared dependency was not installed (**since resolved and
 re-verified — frontend `tsc` and `npm run build` both pass**), the frontend has never been linted,
@@ -59,11 +59,11 @@ same commit.**
 | **Technical Incident Engine** (charger/station problems: creation, tracking, resolution) | **Done** — see §6i. Identifies affected reservations/recommendations/waitlist; acts on none of them |
 | **Delay Propagation Engine** (cascading delay detection, new estimated times, recovery requests) | **Done** — see §6j. Consumes `computeIncidentImpact`; never writes to a reservation |
 | Reservation Scoring Engine | **Done** — five factors, breakdown + rationale stored per assignment |
-| Schedule Quality KPIs | **Done** — twenty-six platform metrics (five scheduling + five arrival-outcome + six extension-outcome + five overstay-outcome + five early-departure/capacity-recovery), computed live, nothing stored |
+| Schedule Quality KPIs | **Done** — thirty-one platform metrics (five scheduling + five arrival-outcome + six extension-outcome + five overstay-outcome + five early-departure/capacity-recovery + five waitlist-effectiveness), computed live, nothing stored |
 | Reservation Optimization Engine (multi-request scheduler + commit path) | **Done** — Phase H, steps 1–5 of the roadmap. `ReservationRequest.priority`'s `"recovery"` tier is wired into scoring and, as of the Delay Propagation Engine (§6j), is actually created — the first real user of that tier. Per-station weight tuning still not built. See §6e |
 | Customer reliability score | **Done** — the first event-log consumer, derived not accumulated |
 | Customer behaviour tracking | **Done** — second consumer: delays, cancellations, no-shows, arrival accuracy |
-| Notifications from events | **Not built.** Store + UI exist; nothing produces them — including an optimizer offer being issued |
+| Notifications from events | **Done** — a CONSUMER of three event logs, idempotent via a unique dedupeKey. Nine generators; two notification centres. See IMPLEMENTED_LOGIC §27 |
 | Real payments | Not built. The seam exists — see `CLAUDE.md` §7 |
 | **Demo Support Layer** (deterministic scenarios, controlled clock, `npm run demo`) | **Done** — see §6k. Sequences real services only; zero production code is demo-aware |
 | **QR Check-In Workflow** (lookup by scanned QR or booking code, ahead of check-in) | **Done** — see §6l. Read-only lookup; hands off to the pre-existing `checkIn`, never a second transition |

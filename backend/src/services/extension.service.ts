@@ -71,6 +71,14 @@ interface FinalizeExtensionInput {
   isOverride: boolean;
   /** Only incremented on a fresh customer request — an override revises the same look, not a new one. */
   incrementCount: boolean;
+  /**
+   * Suppresses the trailing optimizer pass.
+   *
+   * Set only by `retryUnfulfilledExtensions`, which already runs INSIDE a capacity-release pass. A
+   * top-up only ever consumes capacity, so there is nothing for a further pass to find, and firing
+   * one would make a single release re-enter the optimizer.
+   */
+  skipOptimizerPass?: boolean;
 }
 
 /**
@@ -96,6 +104,7 @@ async function finalizeExtension({
   actorRole,
   isOverride,
   incrementCount,
+  skipOptimizerPass = false,
 }: FinalizeExtensionInput) {
   const originalStart = new Date(booking.scheduledStart ?? booking.startTime);
   const previouslyApproved = booking.approvedExtensionMinutes ?? 0;
@@ -200,7 +209,7 @@ async function finalizeExtension({
   // have. Reused verbatim: the exact function the capacity-release consumer and the admin "run
   // now" button already call, under its own trigger label so a run history reads honestly about
   // why the pass happened.
-  if (decision !== "APPROVED") {
+  if (decision !== "APPROVED" && !skipOptimizerPass) {
     await runOptimization({ trigger: "extension_resolved", stationIds: [String(booking.stationId)] });
   }
 
@@ -364,4 +373,113 @@ export async function overrideExtension({
     if ((err as Error).message === "CHARGER_BUSY") throw new Error("OVERRIDE_NOT_AVAILABLE");
     throw err;
   }
+}
+
+/* ============================================================================
+ * Capacity-release retry — the first step of the cascade
+ * ========================================================================== */
+
+export interface ExtensionRetryReport {
+  considered: number;
+  topUpsGranted: number;
+  minutesGranted: number;
+}
+
+/**
+ * Gives back time to customers who asked for an extension and were only partly granted it, when the
+ * capacity they were refused has since been freed.
+ *
+ * WHY THIS IS THE FIRST STEP OF THE CASCADE. The business rule is that unused capacity should be
+ * offered to an existing reservation *before* the waitlist, and the reason is simple: the person is
+ * already plugged in. Serving them costs no new arrival, no new deposit and no risk of a no-show, so a
+ * freed fifteen minutes is worth strictly more to them than to a remote request. Offering it to the
+ * pool first would move a car out of a bay that could simply have stayed there.
+ *
+ * WHAT "PENDING EXTENSION" MEANS HERE. Extensions are decided synchronously against real capacity, so
+ * there is no queue of undecided requests to drain. The durable trace of an unmet need is a booking
+ * where `requestedExtensionMinutes` exceeds `approvedExtensionMinutes` — the customer asked for
+ * thirty, got fifteen because the next slot was taken, and that shortfall is still recorded. If the
+ * blocking reservation then cancels, the remainder is exactly what this grants.
+ *
+ * IT DOES NOT RE-TRIGGER THE OPTIMIZER. `finalizeExtension` runs a pass when a decision is not fully
+ * approved, which is correct on the customer-initiated path but would be re-entrant here: this runs
+ * *inside* a capacity-release pass. Granting a top-up only ever consumes capacity, so there is nothing
+ * for a further pass to discover, and the deliberate omission keeps one release from cascading into a
+ * loop of passes.
+ *
+ * Never shortens and never revokes. A booking whose shortfall cannot be met is left exactly as it is.
+ */
+export async function retryUnfulfilledExtensions(
+  stationIds: string[],
+  now: Date = new Date()
+): Promise<ExtensionRetryReport> {
+  await connectDB();
+
+  const candidates = await Booking.find({
+    stationId: { $in: stationIds },
+    lifecycle: "CHARGING",
+    requestedExtensionMinutes: { $ne: null },
+  })
+    .select(
+      "chargerId stationId userId durationMinutes scheduledStart scheduledEnd startTime endTime requestedExtensionMinutes approvedExtensionMinutes"
+    )
+    .limit(50);
+
+  const report: ExtensionRetryReport = { considered: 0, topUpsGranted: 0, minutesGranted: 0 };
+
+  for (const booking of candidates) {
+    const requested = booking.requestedExtensionMinutes ?? 0;
+    const approved = booking.approvedExtensionMinutes ?? 0;
+    const shortfall = requested - approved;
+    if (shortfall <= 0) continue;
+    report.considered++;
+
+    const originalStart = new Date(booking.scheduledStart ?? booking.startTime);
+    const currentEnd = new Date(booking.scheduledEnd ?? booking.endTime);
+    const windowEnd = extensionWindowEnd(originalStart);
+    if (currentEnd >= windowEnd) continue;
+
+    const charger = await Charger.findById(booking.chargerId).select("status").lean<{ status: string } | null>();
+    if (charger?.status !== "available") continue;
+
+    // Measured against live occupancy, exactly as the customer-initiated path does — the freed time
+    // is only real if the index agrees, and `moveOccupancy` below is what actually settles that.
+    const occupied = await occupiedRangesForCharger(booking.chargerId, currentEnd, windowEnd, now);
+    const nowAvailable = maxContiguousFreeMinutes(currentEnd, occupied, windowEnd);
+    if (nowAvailable <= 0) continue;
+
+    // Same pure rule the automatic and override paths use, so "approved" means one thing everywhere.
+    const { decision, approvedMinutes } = decideExtension(shortfall, nowAvailable);
+    if (approvedMinutes <= 0) continue;
+
+    const total = approved + approvedMinutes;
+    try {
+      await finalizeExtension({
+        booking,
+        requestedMinutes: requested,
+        // Relabelled against the ORIGINAL request, not the shortfall: a customer who asked for 30 and
+        // now holds all 30 has been fully approved, whatever order the minutes arrived in.
+        decision: total >= requested ? "APPROVED" : decision,
+        approvedMinutes: total,
+        reason: "capacity_released_top_up",
+        actorRole: "system",
+        isOverride: false,
+        // Not a new request, so it must not count against the per-reservation extension cap — the
+        // customer asked once and is still being answered.
+        incrementCount: false,
+        // Deliberately suppressed: see the re-entrancy note above.
+        skipOptimizerPass: true,
+      });
+      report.topUpsGranted++;
+      report.minutesGranted += approvedMinutes;
+    } catch (err) {
+      // CHARGER_BUSY here means another writer took the time between the read and the claim, which is
+      // an ordinary lost race on a hot path — the next release will reconsider it.
+      if ((err as Error).message !== "CHARGER_BUSY") {
+        console.error("Extension top-up failed", String(booking._id), err);
+      }
+    }
+  }
+
+  return report;
 }

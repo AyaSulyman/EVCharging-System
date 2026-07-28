@@ -12,6 +12,7 @@ import {
   Car,
   CalendarCheck,
   Sparkles,
+  ListOrdered,
   User as UserIcon,
   LogOut,
   Shield,
@@ -141,6 +142,7 @@ export function Navbar() {
                       <MenuLink href="/bookings" icon={CalendarCheck} label="My bookings" />
                       <MenuLink href="/vehicles" icon={Car} label="My vehicles" />
                       <MenuLink href="/offers" icon={Sparkles} label="Your offers" />
+                      <MenuLink href="/waitlist" icon={ListOrdered} label="Your waitlist" />
                       <MenuLink href="/recommendations" icon={Sparkles} label="Recommendations" />
                       <MenuLink href="/profile" icon={UserIcon} label="Profile" />
                       {isAdmin && (
@@ -206,6 +208,7 @@ export function Navbar() {
                 <MobileLink href="/bookings" label="My bookings" />
                 <MobileLink href="/vehicles" label="My vehicles" />
                 <MobileLink href="/offers" label="Your offers" />
+                <MobileLink href="/waitlist" label="Your waitlist" />
                 <MobileLink href="/recommendations" label="Recommendations" />
                 <MobileLink href="/notifications" label={`Notifications${unread ? ` (${unread})` : ""}`} />
                 <MobileLink href="/profile" label="Profile" />

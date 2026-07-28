@@ -91,6 +91,12 @@ export interface ScheduleQuality {
   avgMinutesReleased: KpiValue;
   maxMinutesReleased: KpiValue;
   capacityRecoveryRate: KpiValue;
+  /* Waitlist effectiveness. */
+  totalWaitlistRequests: KpiValue;
+  waitlistFulfilledCount: KpiValue;
+  waitlistConversionRate: KpiValue;
+  avgWaitlistWaitMinutes: KpiValue;
+  maxWaitlistWaitMinutes: KpiValue;
   daily: DailyPoint[];
   /** Utilization broken out per station, worst first — where to add or move capacity. */
   utilizationByStation: { station: string; utilizationPercent: number; slots: number }[];
@@ -542,5 +548,102 @@ export function capacityRecoveryRate(c: EarlyDepartureCounts): KpiValue {
       c.bookedMinutesSum === 0
         ? "No booked time to measure this against in this period"
         : "Booked minutes handed back early, over all booked minutes on completed sessions.",
+  };
+}
+
+/* ============================================================================
+ * Waitlist effectiveness — does waiting actually get you served?
+ *
+ * THE METRIC GROUP THAT MOST DIRECTLY EVIDENCES THE BUSINESS GOAL, and the one that was missing.
+ * Utilization says how full the estate was; preference match says how well the served were served.
+ * Neither answers the question a customer on a waitlist is actually asking, and neither tells an
+ * operator whether the waitlist is a queue or a dead letter box.
+ *
+ * CONVERSION IS MEASURED OVER *RESOLVED* REQUESTS, not over all of them. A request still open in its
+ * window is neither a success nor a failure — counting it as a failure would make the rate improve
+ * simply by waiting, and counting it as a success would be a lie. Same discipline as
+ * `reservationSuccessRate`, for the same reason.
+ *
+ * WAIT TIME IS MEASURED TO FULFILMENT, not to the first offer. Being offered a bay you did not take
+ * is not being served, and averaging in the first offer would flatter a system that offers quickly
+ * and converts slowly.
+ * ========================================================================== */
+
+export interface WaitlistCounts {
+  /** Requests that were waitlisted at least once in the period. */
+  waitlisted: number;
+  /** Of those, the ones that ended as a real reservation. */
+  fulfilled: number;
+  /** Of those, the ones whose window passed with nothing found. */
+  expired: number;
+  /** Withdrawn by the customer while waiting. */
+  cancelled: number;
+  /** Summed minutes from request creation to fulfilment, over fulfilled requests only. */
+  waitMinutesSum: number;
+  /** Longest single wait that still ended in a reservation. */
+  maxWaitMinutes: number;
+  /** Requests still open — excluded from the conversion denominator by design. */
+  stillWaiting: number;
+}
+
+export function totalWaitlistRequests(c: WaitlistCounts): KpiValue {
+  return {
+    value: c.waitlisted,
+    sampleSize: c.waitlisted,
+    meetsTarget: null,
+    note: "Requests the optimizer could not place on at least one pass, so they waited.",
+  };
+}
+
+export function waitlistFulfilledCount(c: WaitlistCounts): KpiValue {
+  return {
+    value: c.fulfilled,
+    sampleSize: c.waitlisted,
+    meetsTarget: null,
+    note: "Waitlisted requests that became a held reservation.",
+  };
+}
+
+/**
+ * The headline: of the waitlisted requests whose outcome is known, how many were served.
+ *
+ * Denominator is fulfilled + expired + cancelled — everything resolved. Requests still inside their
+ * window are excluded, so this number cannot be gamed by leaving them open.
+ */
+export function waitlistConversionRate(c: WaitlistCounts): KpiValue {
+  const resolved = c.fulfilled + c.expired + c.cancelled;
+  return {
+    value: pct(c.fulfilled, resolved),
+    sampleSize: resolved,
+    meetsTarget: null,
+    note:
+      resolved === 0
+        ? "No waitlisted request has resolved yet in this period"
+        : "Served, over every waitlisted request whose outcome is known. Still-open requests excluded.",
+  };
+}
+
+export function avgWaitlistWaitMinutes(c: WaitlistCounts): KpiValue {
+  const value = c.fulfilled > 0 ? Math.round((c.waitMinutesSum / c.fulfilled) * 10) / 10 : null;
+  return {
+    value,
+    sampleSize: c.fulfilled,
+    meetsTarget: null,
+    note:
+      c.fulfilled === 0
+        ? "No waitlisted request has been fulfilled in this period"
+        : "Mean minutes from asking to holding a reservation, over waitlisted requests that were served.",
+  };
+}
+
+export function maxWaitlistWaitMinutes(c: WaitlistCounts): KpiValue {
+  return {
+    value: c.fulfilled > 0 ? c.maxWaitMinutes : null,
+    sampleSize: c.fulfilled,
+    meetsTarget: null,
+    note:
+      c.fulfilled === 0
+        ? "No waitlisted request has been fulfilled in this period"
+        : "The longest wait that still ended in a reservation.",
   };
 }

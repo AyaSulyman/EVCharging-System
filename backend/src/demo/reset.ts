@@ -18,6 +18,7 @@ import IncidentEvent from "@/models/IncidentEvent";
 import DelayPropagation from "@/models/DelayPropagation";
 import DelayPropagationEvent from "@/models/DelayPropagationEvent";
 import CustomerBehaviorProfile from "@/models/CustomerBehaviorProfile";
+import Notification from "@/models/Notification";
 import OptimizationRun from "@/models/OptimizationRun";
 import Charger from "@/models/Charger";
 import { recomputeForUser } from "@/services/reliability.service";
@@ -35,6 +36,7 @@ export interface DemoResetReport {
   delayPropagations: number;
   delayPropagationEvents: number;
   optimizationRuns: number;
+  notifications: number;
   chargersRestored: number;
 }
 
@@ -53,7 +55,7 @@ export async function resetDemo(): Promise<DemoResetReport> {
   const demoIncidents = await Incident.find({ stationId: DEMO_STATION_ID }).select("_id").lean();
   const incidentIds = demoIncidents.map((i) => i._id);
 
-  const [occ, events, requests, intents, refunds, incidentEvents, delayEvents, delayProps, incidents, , runs] =
+  const [occ, events, requests, intents, refunds, incidentEvents, delayEvents, delayProps, incidents, , runs, notifs] =
     await Promise.all([
       ReservationOccupancy.deleteMany({ chargerId: { $in: chargerIds } }),
       ReservationEvent.deleteMany({ bookingId: { $in: bookingIds } }),
@@ -66,6 +68,10 @@ export async function resetDemo(): Promise<DemoResetReport> {
       Incident.deleteMany({ stationId: DEMO_STATION_ID }),
       CustomerBehaviorProfile.deleteMany({ userId: { $in: driverIds } }),
       OptimizationRun.deleteMany({ stationId: DEMO_STATION_ID }),
+      // Added when the notification consumer was built. Without this a scenario re-run leaves the
+      // previous run's messages in the demo inbox, so the inbox grows every time and stops
+      // reflecting the scenario actually on screen.
+      Notification.deleteMany({ userId: { $in: driverIds } }),
     ]);
 
   await Booking.deleteMany({ chargerId: { $in: chargerIds } });
@@ -91,6 +97,7 @@ export async function resetDemo(): Promise<DemoResetReport> {
     delayPropagations: delayProps.deletedCount ?? 0,
     delayPropagationEvents: delayEvents.deletedCount ?? 0,
     optimizationRuns: runs.deletedCount ?? 0,
+    notifications: notifs.deletedCount ?? 0,
     chargersRestored: restored.modifiedCount ?? 0,
   };
 }

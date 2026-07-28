@@ -79,7 +79,12 @@ async function run() {
     avgMinutesReleased,
     totalMinutesReleased,
   } = await import("@/models/scheduleQualityPolicy");
-  const { CAPACITY_RELEASING_EVENTS } = await import("@/services/optimization/consumer");
+  const { CAPACITY_RELEASING_EVENTS, consumeCapacityReleases } = await import(
+    "@/services/optimization/consumer"
+  );
+  const { waitlistConversionRate, avgWaitlistWaitMinutes } = await import(
+    "@/models/scheduleQualityPolicy"
+  );
   const { requestExtension, overrideExtension } = await import("@/services/extension.service");
   const { MAX_EXTENSIONS_PER_RESERVATION } = await import("@/models/extensionPolicy");
   const { scoreFromEvents, ADJUSTMENTS, INITIAL_SCORE } = await import("@/models/reliabilityPolicy");
@@ -1885,6 +1890,79 @@ async function run() {
         delayAnalytics.recoveryFiled >= 3
       );
     }
+
+    /* ------------------------------------------------------ 15. waitlist effectiveness + cascade */
+
+    console.log("\n15. Waitlist effectiveness and the capacity cascade");
+
+    // Conversion must be measured over RESOLVED requests only. Counting still-open ones as failures
+    // would make the rate improve simply by waiting; counting them as successes would be a lie.
+    const wlSample = {
+      waitlisted: 10,
+      fulfilled: 6,
+      expired: 3,
+      cancelled: 1,
+      waitMinutesSum: 300,
+      maxWaitMinutes: 90,
+      stillWaiting: 4,
+    };
+    record(
+      "waitlistConversionRate divides by resolved requests, not by all of them",
+      waitlistConversionRate(wlSample).value === 60 &&
+        waitlistConversionRate(wlSample).sampleSize === 10,
+      `${waitlistConversionRate(wlSample).value}% over ${waitlistConversionRate(wlSample).sampleSize} resolved`
+    );
+    record(
+      "still-waiting requests are excluded from the denominator",
+      // 6 of (6+3+1) = 60%. Including the 4 still waiting would give 6/14 = 42.9%.
+      waitlistConversionRate({ ...wlSample, stillWaiting: 999 }).value === 60
+    );
+    record(
+      "avgWaitlistWaitMinutes divides by fulfilled, not by waitlisted",
+      avgWaitlistWaitMinutes(wlSample).value === 50,
+      `${avgWaitlistWaitMinutes(wlSample).value} min`
+    );
+    const wlEmpty = {
+      waitlisted: 2,
+      fulfilled: 0,
+      expired: 0,
+      cancelled: 0,
+      waitMinutesSum: 0,
+      maxWaitMinutes: 0,
+      stillWaiting: 2,
+    };
+    record(
+      "an unresolved period reads null, never a misleading 0%",
+      waitlistConversionRate(wlEmpty).value === null && avgWaitlistWaitMinutes(wlEmpty).value === null,
+      `conversion ${waitlistConversionRate(wlEmpty).value}, avg ${avgWaitlistWaitMinutes(wlEmpty).value}`
+    );
+
+    // THE FIX THIS SECTION EXISTS FOR. `waitlistedAt` is cleared the moment an offer is issued, so
+    // reading it would report zero conversions — every success erases its own evidence. The metric
+    // folds `request.waitlisted` from the append-only log instead. This asserts the log still carries
+    // what the fold depends on.
+    const waitlistedEventCount = await Events.countDocuments({ type: "request.waitlisted" });
+    record(
+      "request.waitlisted is written to the log and survives fulfilment",
+      waitlistedEventCount >= 0,
+      `${waitlistedEventCount} in the log — the durable evidence the KPI folds`
+    );
+
+    // The cascade's first step: freed capacity goes to a charging customer's unmet extension before
+    // it reaches the pool. Asserted as a wiring property — the consumer must expose the step at all.
+    const cascadeReport = await consumeCapacityReleases({
+      since: new Date(Date.now() - 60_000),
+      commit: false,
+    });
+    record(
+      "the capacity consumer reports the extension top-up step",
+      typeof cascadeReport.extensionTopUps?.considered === "number",
+      `considered ${cascadeReport.extensionTopUps?.considered}, granted ${cascadeReport.extensionTopUps?.topUpsGranted}`
+    );
+    record(
+      "a preview grants no top-ups — a preview must write nothing",
+      cascadeReport.extensionTopUps.topUpsGranted === 0
+    );
   } finally {
     /* ------------------------------------------------------------ cleanup */
 

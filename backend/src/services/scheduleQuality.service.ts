@@ -22,6 +22,7 @@
 import { connectDB } from "@/config/database";
 import Booking from "@/models/Booking";
 import Charger from "@/models/Charger";
+import ReservationEvent from "@/models/ReservationEvent";
 import ReservationRequest from "@/models/ReservationRequest";
 import Station from "@/models/Station";
 import { OPERATING_FROM_HOUR, OPERATING_TO_HOUR } from "@/models/occupancyPolicy";
@@ -53,6 +54,12 @@ import {
   maxMinutesReleased,
   capacityRecoveryRate,
   type EarlyDepartureCounts,
+  totalWaitlistRequests,
+  waitlistFulfilledCount,
+  waitlistConversionRate,
+  avgWaitlistWaitMinutes,
+  maxWaitlistWaitMinutes,
+  type WaitlistCounts,
   utilizationRate,
   type ArrivalOutcomeCounts,
   type DailyPoint,
@@ -277,6 +284,80 @@ export async function getScheduleQuality(
     );
   }
 
+  /* ---------------------------------------------------------------- waitlist effectiveness */
+
+  /**
+   * Does waiting actually get you served?
+   *
+   * MEASURED FROM THE EVENT LOG, not from the request document, and that is not a stylistic choice —
+   * the document cannot answer it. `waitlistedAt` is cleared the moment an offer is issued
+   * (`issueRecommendation`) or the request returns to the pool (`reopenRequest`), because it means
+   * "waiting since", not "has ever waited". Reading it would therefore have counted **zero**
+   * conversions: every request that was waitlisted and then successfully served has the evidence
+   * wiped by the very act of serving it. Verified by running exactly that case.
+   *
+   * `request.waitlisted` is append-only and survives, which is the same reason reliability and
+   * behaviour are folds over this log rather than counters on a row.
+   *
+   * Wait time runs from creation to fulfilment, not to the first offer: being offered a bay you did
+   * not take is not being served, and measuring to the offer would flatter a system that offers fast
+   * and converts slowly.
+   */
+  const waitlistedEvents = await ReservationEvent.find({
+    type: "request.waitlisted",
+    occurredAt: { $gte: from, $lte: to },
+    requestId: { $ne: null },
+  })
+    .select("requestId")
+    .lean<{ requestId: unknown }[]>();
+
+  // Distinct: a request waitlisted on three separate passes is one customer who waited, not three.
+  const waitlistedIds = [...new Set(waitlistedEvents.map((e) => String(e.requestId)))];
+
+  const waitlistRequests =
+    waitlistedIds.length > 0
+      ? await ReservationRequest.find({ _id: { $in: waitlistedIds } })
+          .select("status createdAt fulfilledAt")
+          .lean<{ status: string; createdAt?: Date; fulfilledAt?: Date | null }[]>()
+      : [];
+
+  const waitlistCounts: WaitlistCounts = {
+    waitlisted: waitlistRequests.length,
+    fulfilled: 0,
+    expired: 0,
+    cancelled: 0,
+    waitMinutesSum: 0,
+    maxWaitMinutes: 0,
+    stillWaiting: 0,
+  };
+
+  for (const r of waitlistRequests) {
+    switch (r.status) {
+      case "FULFILLED": {
+        waitlistCounts.fulfilled++;
+        if (r.fulfilledAt && r.createdAt) {
+          const waited = Math.max(
+            0,
+            Math.round((new Date(r.fulfilledAt).getTime() - new Date(r.createdAt).getTime()) / 60_000)
+          );
+          waitlistCounts.waitMinutesSum += waited;
+          waitlistCounts.maxWaitMinutes = Math.max(waitlistCounts.maxWaitMinutes, waited);
+        }
+        break;
+      }
+      case "EXPIRED":
+        waitlistCounts.expired++;
+        break;
+      case "CANCELLED":
+        waitlistCounts.cancelled++;
+        break;
+      default:
+        // OPEN, WAITLISTED or PENDING_ACCEPTANCE — outcome not yet known, deliberately excluded from
+        // the conversion denominator so the rate cannot be improved simply by leaving them open.
+        waitlistCounts.stillWaiting++;
+    }
+  }
+
   /* ---------------------------------------------------------------- daily series */
 
   const byDay = new Map<string, { customers: Set<string>; reservations: number; completed: number }>();
@@ -452,6 +533,11 @@ export async function getScheduleQuality(
     avgMinutesReleased: avgMinutesReleased(earlyDepartureCounts),
     maxMinutesReleased: maxMinutesReleased(earlyDepartureCounts),
     capacityRecoveryRate: capacityRecoveryRate(earlyDepartureCounts),
+    totalWaitlistRequests: totalWaitlistRequests(waitlistCounts),
+    waitlistFulfilledCount: waitlistFulfilledCount(waitlistCounts),
+    waitlistConversionRate: waitlistConversionRate(waitlistCounts),
+    avgWaitlistWaitMinutes: avgWaitlistWaitMinutes(waitlistCounts),
+    maxWaitlistWaitMinutes: maxWaitlistWaitMinutes(waitlistCounts),
     daily,
     utilizationByStation,
   };

@@ -8,7 +8,7 @@ to reverse-engineer the reasoning out of the code under time pressure.
 already integrated cleanly with §23–24's QR check-in, plus one UI-continuity fix in the lookup card;
 no backend file changed).**
 **Verified against the codebase on 2026-07-27** — see [`SYNC_AUDIT.md`](SYNC_AUDIT.md). Every
-headline claim in this file was reproduced (175/175 harness checks, 21 schedule-quality KPIs, the
+headline claim in this file was reproduced (182/182 harness checks, 21 schedule-quality KPIs, the
 incident and delay-propagation read-only boundaries). **One entry now carries a conflict warning:
 §17.6 contradicts `CLAUDE.md` §2 and awaits a decision.** Nothing else was found out of sync.
 
@@ -2334,7 +2334,161 @@ analytics, plus assertions pinning the parts that were previously working by con
   database: 11 early departures across 121 completed sessions, 193 minutes recovered.
 - **Demo:** `/admin/schedule-quality` — the fifth KPI row, read next to Utilization in the first row.
 
-# 27. Suggested demo running order
+# 27. Notification subsystem ⭐
+
+**The customer is finally told things.** Before this, the platform could hold a bay for five minutes
+awaiting a decision it never asked for, recompute a delayed arrival it never sent, and forfeit a
+deposit for a no-show it never warned about. Every one of those facts was already in the event log.
+
+### 27.1 A consumer, never an inline call ⭐
+- **Rule:** No reservation, deposit, extension or incident path creates a notification.
+  `notification.service.ts` folds three append-only logs (`reservationevents`, `incidentevents`,
+  `delaypropagationevents`) into rows.
+- **Where:** `backend/src/services/notification.service.ts`, run by `ops:notify`
+- **Why it matters:** Per `CLAUDE.md` §2/§7 delivery must never become the reservation path's
+  responsibility. A driver cancelling inside the refund window must not be told the cancellation
+  failed because a message template threw. This is the one originally-planned consumer that did not
+  exist; it now does, in the same shape as the reliability and behaviour projections.
+- **Demo:** run a scenario, then `npm run ops:notify`, then open the bell.
+
+### 27.2 Idempotency is enforced by the database ⭐
+- **Rule:** Every row carries a `dedupeKey` under a **unique partial index**. A replayed event
+  produces a duplicate-key error that is caught and counted, not a second message.
+- **Where:** `models/Notification.ts` — `{ dedupeKey: 1 }` unique, partial on `$type: "string"`
+- **Why it matters:** The cursor deliberately does not advance when there is nothing to write, so the
+  consumer *will* re-read events. Without the index every quiet cycle would duplicate someone's inbox
+  — the most visible way a notification system loses trust. `$type` not `$exists`, because `$exists`
+  matches present-but-null; this project has been bitten by that once already on `bookings.slotId`.
+- **Verified:** a duplicate insert on an existing key is rejected with code 11000, and the five
+  pre-existing seeded rows (which have no key) coexist without colliding.
+
+### 27.3 The cursor is the newest notification's own timestamp ⭐
+- **Rule:** "Where did I get to" is `max(sourceEventAt)` over the notifications collection itself.
+- **Why it matters:** No separate cursor collection to fall out of step with what was actually
+  written. A lost write makes the consumer **reprocess** rather than skip — the safe direction
+  precisely because §27.2 makes reprocessing free.
+
+### 27.4 Two audiences, one collection ⭐
+- **Rule:** `audience: "customer" | "operator"` is a first-class field; each notification centre
+  queries on it.
+- **Why it matters:** An admin is legitimately a recipient of operator messages *and* a customer of
+  their own reservations. One merged list would mix "a charger at your station failed" with "your
+  deposit was refunded". A naming convention on `type` would have meant matching string prefixes.
+- **Note:** the API accepts `?audience=` but only ever returns the caller's own rows, so the parameter
+  widens nothing — a driver asking for the operator inbox gets an empty list.
+
+### 27.5 Nine generators, two of them time-driven ⭐
+- **Event-driven:** waitlist offers, offer expiry, waitlisting, extension decisions, reservation
+  moves, deposit refunds, deposit forfeitures, delay propagation, and technical incidents (operator,
+  fanned out to the station's staff plus every admin).
+- **Time-driven:** `offer_expiring` (a hold with under two minutes left) and `booking_reminder`.
+- **Why two mechanisms:** nothing *happens* at the moment a hold becomes nearly-expired, so there is
+  no event to fold. Those two are swept from state and keyed on the booking or recommendation, so they
+  fire exactly once regardless of sweep frequency.
+- **Demo reset clears them.** Without that, a scenario re-run left the previous run's messages in the
+  inbox and it grew every time, no longer reflecting the scenario on screen.
+
+---
+
+# 28. Customer waitlist visibility ⭐
+
+### 28.1 A page that reads the API which already existed ⭐
+- **Rule:** `/waitlist` lists the customer's requests with status, position, how long they have
+  waited, and any live offer inline.
+- **Why it matters:** `GET /api/reservations/requests` existed and **nothing called it**. A waitlisted
+  customer was told once on the booking screen and then had no way to discover they were still in a
+  queue — the most visible hole in the waitlist story.
+
+### 28.2 Position is stated honestly, not as a promise ⭐
+- **Rule:** The number is the customer's place *by how long they have waited*, and the page says so:
+  "we also weigh how well a charger fits your window, so it is not a strict running order."
+- **Why it matters:** The optimizer orders by priority, then window tightness, then waiting time. A
+  bare "#3" reads as a queue position and would be wrong the first time someone behind them is served
+  first. Overclaiming here costs exactly the trust the page was built to earn.
+
+---
+
+# 29. Operator waitlist dashboard ⭐
+
+### 29.1 Station-scoped, enforced server-side ⭐
+- **Rule:** `/staff/waitlist` shows only the caller's assigned stations; every action re-checks the
+  request's own station with `assertStationInScope`.
+- **Why it matters:** An operator shown a queue they cannot act on is invited to promise a bay
+  belonging to another site. Scope is derived from the request, never from anything the client sent.
+
+### 29.2 Four actions, each reusing an existing mechanism ⭐
+- **Offer** → `runOptimization` for that one request (the optimizer's own commit path).
+- **Withdraw** → `releaseActiveRecommendation`, freeing the held bay immediately.
+- **Escalate** → raises the request to `onSite`, the tier that **already** outranks remote. No
+  ordering logic changed; only which tier the request sits in.
+- **Release capacity** → frees **unaccepted holds only**.
+- **Why release is deliberately narrow:** it never touches a confirmed reservation. Taking a paid
+  booking from a customer is not an operator convenience, and there is already a cancellation path
+  with a refund rule for that.
+
+---
+
+# 30. Waitlist effectiveness analytics ⭐
+
+Five metrics, taking schedule quality to **thirty-one**.
+
+### 30.1 Measured from the event log, because the document cannot answer it ⭐
+- **Rule:** `totalWaitlistRequests` folds distinct `request.waitlisted` events; the outcome comes from
+  the request's current status.
+- **Why it matters — a real bug, caught by running it.** The first implementation read `waitlistedAt`
+  on the request. That field is **cleared** the moment an offer is issued (`issueRecommendation`) or
+  the request returns to the pool (`reopenRequest`), because it means "waiting since", not "has ever
+  waited". So every request that was waitlisted **and then successfully served** erased its own
+  evidence, and the conversion rate read **zero** with a real promotion sitting in the database. The
+  append-only log survives; the mutable field does not.
+- **Verified:** after a real `waitlist_promotion` scenario — 1 waitlisted, 1 fulfilled, **100%
+  conversion**. Before the fix the same data read 0.
+
+### 30.2 Conversion is over RESOLVED requests only ⭐
+- **Rule:** denominator is fulfilled + expired + cancelled. Still-open requests are excluded.
+- **Why it matters:** counting open requests as failures would let the rate improve by simply waiting;
+  counting them as successes would be a lie. Same discipline as `reservationSuccessRate`.
+- **Verified:** a 10-request sample with 4 still waiting reads 60% (6 of 9 resolved), and is unchanged
+  when the still-waiting count is inflated to 999.
+
+### 30.3 Wait time runs to fulfilment, not to the first offer ⭐
+- **Why:** being offered a bay you did not take is not being served. Measuring to the offer would
+  flatter a system that offers quickly and converts slowly.
+
+---
+
+# 31. Capacity release cascade ⭐
+
+### 31.1 Existing reservations before the pool ⭐
+- **Rule:** on a capacity release the consumer first runs `retryUnfulfilledExtensions`, giving time
+  back to customers already charging whose extension was only partly granted. Only then does the
+  optimizer pass reach the demand pool, where on-site already outranks remote via the priority tier.
+- **Where:** `services/extension.service.ts` → `retryUnfulfilledExtensions`, called from
+  `optimization/consumer.ts`
+- **Why it matters:** the person is already plugged in. Serving them costs no new arrival, no new
+  deposit and no no-show risk, so a freed fifteen minutes is worth strictly more to them than to a
+  remote request. Offering it to the pool first would move a car out of a bay it could have stayed in.
+- **What "pending extension" means here:** extensions are decided synchronously, so there is no queue
+  of undecided requests. The durable trace of an unmet need is
+  `requestedExtensionMinutes > approvedExtensionMinutes` — asked for thirty, got fifteen because the
+  next slot was taken. If that blocker cancels, the remainder is what this grants.
+
+### 31.2 It runs above the "is anyone waiting" check ⭐
+- **Rule:** the top-up happens before the consumer's early return for an empty demand pool.
+- **Why it matters — a bug caught during implementation.** Placed after that check, an empty pool
+  silently skipped the top-up, which is the one case where topping up is most obviously right: nobody
+  else wants the time.
+
+### 31.3 It does not re-enter the optimizer ⭐
+- **Rule:** `finalizeExtension` runs an optimizer pass when a decision is not fully approved. The
+  retry passes `skipOptimizerPass: true`.
+- **Why it matters:** the retry already runs *inside* a capacity-release pass. A top-up only ever
+  consumes capacity, so there is nothing for a further pass to discover, and firing one would let a
+  single release cascade into a loop of passes.
+- **Verified:** a preview grants zero top-ups (a preview must write nothing), and the consumer reports
+  the step so it cannot silently disappear.
+
+# 32. Suggested demo running order
 
 1. **Conflict-free claim** (§1.1, §11.1) — two browsers, same charger and time. The core claim.
 1b. **Duration-aware booking** (§11.3) — on the time step, switch 15/30/45/60/90 and watch the

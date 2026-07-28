@@ -25,7 +25,7 @@ Read alongside [`PROJECT_STATE.md`](PROJECT_STATE.md) (what is built) and
 | Running in production | [§6 Scheduled jobs](#6-scheduled-jobs) |
 
 **Status as of 2026-07-27 (Final Project Audit):** all four migrations have been applied to the
-working `chargehub` database, `ops:indexes` has been run, and `ops:verify` passes 175/175
+working `chargehub` database, `ops:indexes` has been run, and `ops:verify` passes 182/182
 (scheduler, reservation flow, and recommendations/optimizer harnesses). If you are working on that
 database you do **not** need §2.
 
@@ -56,9 +56,17 @@ npm run ops:publish -- 2026-12-31
 Publishes bookable inventory. Idempotent. Without it the booking wizard is empty.
 
 ```bash
+npm run ops:ensure-staff
+```
+Creates the station-operator account `staff@chargehub.com` / `Staff123!`, scoped to **one** station.
+Additive and idempotent, so it is safe on a database that already holds real data — unlike `seed:all`.
+Deliberately one station and not all: an operator assigned everywhere is indistinguishable from an
+admin, which is exactly the configuration that hides a broken `assertStationInScope`.
+
+```bash
 npm run ops:verify
 ```
-Confirms the whole stack works. Expect **175/175 checks passed** and no blocked preconditions.
+Confirms the whole stack works. Expect **182/182 checks passed** and no blocked preconditions.
 
 ---
 
@@ -117,7 +125,7 @@ guarantee at all. Expect `migration complete and coherent : YES`.
 ```bash
 npm run ops:verify
 ```
-Last. Expect **175/175 and zero blocked preconditions**. In particular:
+Last. Expect **182/182 and zero blocked preconditions**. In particular:
 
 ```
 PASS  OVERLAPPING reservation rejected by the index — CHARGER_BUSY
@@ -273,7 +281,7 @@ wholesale — this rebuilds it.
 
 ## 6. Scheduled jobs
 
-Two commands need to run on a schedule in production:
+**Three** commands need to run on a schedule in production:
 
 ```bash
 npm run ops:expire-commitments
@@ -334,9 +342,11 @@ only when you want that one effect in isolation.
 | `ops:publish -- <date>` | Additive | Idempotent |
 | `ops:migrate-v2` | Dry run | `-- --apply` to write |
 | `ops:migrate-commitments` | Dry run | Refuses until v2 applied |
+| `ops:notify` | Yes | For a scheduler. Turns events into in-app notifications; idempotent |
+| `ops:ensure-staff` | Yes | Additive; creates the scoped operator account |
 | `ops:reconcile` | Dry run | Repair tool. Checks BOTH slots and range occupancy; exits non-zero if a reservation holds no occupancy |
 | `ops:migrate-occupancy` | Dry run | **Non-additive.** Rebuilds the `slotId` index |
-| `ops:verify` | Self-cleaning | Runs `ops:verify-scheduler` + `ops:verify-reservation-flow` (via `verify-reservation-flow.ts`) + `ops:verify-recommendations`; 175/175 expected |
+| `ops:verify` | Self-cleaning | Runs `ops:verify-scheduler` + `ops:verify-reservation-flow` (via `verify-reservation-flow.ts`) + `ops:verify-recommendations`; 182/182 expected |
 | `ops:demo-data` | Tagged `isDemo` | `-- --clear` removes it |
 | `demo -- run <scenario\|all>` | Yes | Deterministic presentation scenarios — see §3b |
 | `demo -- reset` | Yes | Clears scenario data; fixtures kept |

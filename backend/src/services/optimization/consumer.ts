@@ -28,6 +28,10 @@ import ReservationEvent, { type ReservationEventType } from "@/models/Reservatio
 import ReservationRequest, { ACTIVE_REQUEST_STATUSES } from "@/models/ReservationRequest";
 import { sweepExpiredRecommendations } from "@/services/recommendation.service";
 import { runOptimization, type OptimizationResult } from "./runner";
+import {
+  retryUnfulfilledExtensions,
+  type ExtensionRetryReport,
+} from "@/services/extension.service";
 
 /**
  * Events that mean charger time became available.
@@ -60,6 +64,8 @@ export interface ConsumeReport {
   stationsAffected: string[];
   activeRequests: number;
   swept: number;
+  /** Step one of the cascade: time handed back to customers already charging. */
+  extensionTopUps: ExtensionRetryReport;
   run: OptimizationResult | null;
 }
 
@@ -117,9 +123,30 @@ export async function consumeCapacityReleases({
       stationsAffected,
       activeRequests: 0,
       swept: sweep.expired,
+      extensionTopUps: { considered: 0, topUpsGranted: 0, minutesGranted: 0 },
       run: null,
     };
   }
+
+  /**
+   * THE CASCADE, step one: existing reservations before the pool.
+   *
+   * Freed capacity is offered first to a customer already charging who asked for more time and was
+   * only partly granted it. They are already in the bay — serving them costs no new arrival, no new
+   * deposit and no no-show risk, so a freed fifteen minutes is worth strictly more to them than to a
+   * remote request. Only after this does the pass below reach the demand pool, where on-site requests
+   * already outrank remote ones through the priority tier.
+   *
+   * DELIBERATELY ABOVE THE `activeRequests` CHECK. Whether anyone is waiting is irrelevant to this
+   * step — the customer being topped up is already here. Running it after that check meant an empty
+   * demand pool silently skipped the top-up, which is the one case where it is most obviously the
+   * right thing to do: nobody else wants the time.
+   *
+   * Skipped on a preview: a top-up is a real write, and a preview must write nothing.
+   */
+  const extensionTopUps = commit
+    ? await retryUnfulfilledExtensions(stationsAffected, now)
+    : { considered: 0, topUpsGranted: 0, minutesGranted: 0 };
 
   // Nothing is waiting on this capacity, so a pass would plan an empty pool and write a run record
   // for it. Checking first keeps the run history readable as a log of real decisions.
@@ -136,6 +163,7 @@ export async function consumeCapacityReleases({
       stationsAffected,
       activeRequests,
       swept: sweep.expired,
+      extensionTopUps,
       run: null,
     };
   }
@@ -153,6 +181,7 @@ export async function consumeCapacityReleases({
     stationsAffected,
     activeRequests,
     swept: sweep.expired,
+    extensionTopUps,
     run,
   };
 }

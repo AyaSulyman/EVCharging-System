@@ -24,6 +24,9 @@ import {
   LogOut,
   Recycle,
   Undo2,
+  ListOrdered,
+  UserCheck,
+  Percent,
   TrendingUp,
 } from "lucide-react";
 import { KpiWidget, type KpiValue } from "@/components/admin/KpiWidget";
@@ -78,6 +81,11 @@ interface Quality {
   avgMinutesReleased: KpiValue;
   maxMinutesReleased: KpiValue;
   capacityRecoveryRate: KpiValue;
+  totalWaitlistRequests: KpiValue;
+  waitlistFulfilledCount: KpiValue;
+  waitlistConversionRate: KpiValue;
+  avgWaitlistWaitMinutes: KpiValue;
+  maxWaitlistWaitMinutes: KpiValue;
   daily: DailyPoint[];
   utilizationByStation: { station: string; utilizationPercent: number; slots: number }[];
 }
@@ -352,6 +360,48 @@ export default function ScheduleQualityPage() {
               unit=" min"
               icon={Timer}
               sampleLabel="early departures"
+            />
+          </div>
+
+
+          {/* Waitlist effectiveness — does waiting actually get you served? Utilization says how full
+              the estate was; this says whether the queue is a queue or a dead letter box. Conversion
+              is measured over RESOLVED requests only, so it cannot be improved by leaving them open. */}
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <KpiWidget
+              label="Waitlisted"
+              kpi={quality.totalWaitlistRequests}
+              unit=""
+              icon={ListOrdered}
+              sampleLabel="requests"
+            />
+            <KpiWidget
+              label="Served from waitlist"
+              kpi={quality.waitlistFulfilledCount}
+              unit=""
+              icon={UserCheck}
+              sampleLabel="waitlisted requests"
+            />
+            <KpiWidget
+              label="Conversion"
+              kpi={quality.waitlistConversionRate}
+              icon={Percent}
+              sampleLabel="resolved requests"
+            />
+            <KpiWidget
+              label="Avg wait"
+              kpi={quality.avgWaitlistWaitMinutes}
+              unit=" min"
+              lowerIsBetter
+              icon={Hourglass}
+              sampleLabel="served from waitlist"
+            />
+            <KpiWidget
+              label="Longest wait"
+              kpi={quality.maxWaitlistWaitMinutes}
+              unit=" min"
+              icon={Timer}
+              sampleLabel="served from waitlist"
             />
           </div>
 
