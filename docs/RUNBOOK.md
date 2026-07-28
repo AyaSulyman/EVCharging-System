@@ -179,21 +179,21 @@ Future reservations do go through `claimRangeReservation`, so their occupancy is
 
 ## 3b. Presentation demo scenarios
 
-A different tool from `ops:demo-data` above, for a different purpose: eight deterministic, named
+A different tool from `ops:demo-data` above, for a different purpose: ten deterministic, named
 scenarios for a live presentation, each built by calling the real services — not a bulk history
 generator. See `docs/PROJECT_STATE.md` §6k.
 
 ```bash
 npm run demo -- list
 ```
-Prints all eight scenario keys and what each demonstrates.
+Prints all ten scenario keys and what each demonstrates.
 
 ```bash
 npm run demo -- run <scenario|all>
 ```
 Executes one scenario (`normal_flow`, `late_arrival`, `waitlist_promotion`, `extension_approval`,
-`partial_extension`, `technical_incident`, `delay_propagation`, `reliability_scoring`), or all
-eight in order with `all`. Prints the actual facts produced — arrival outcome, extension decision,
+`partial_extension`, `extension_denied`, `overstay_escalation`, `technical_incident`,
+`delay_propagation`, `reliability_scoring`), or all ten in order with `all`. Prints the actual facts produced — arrival outcome, extension decision,
 cascade depth, and so on.
 
 ```bash
