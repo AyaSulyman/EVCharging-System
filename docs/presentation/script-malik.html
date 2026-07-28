@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Presenter Script — Malik</title>
+<style>
+  :root { --primary:#0E7A5F; --dark:#0A5C48; --light:#E7F3EF; --volt:#F5A524; --voltLight:#FEF3DE;
+          --ink:#101915; --soft:#5B6B64; --canvas:#F5F8F6; --line:#E3EAE6; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--canvas); color:var(--ink);
+         font:16px/1.6 "Segoe UI",system-ui,sans-serif; }
+  header { background:var(--ink); color:#fff; padding:28px 32px; }
+  header h1 { margin:0 0 6px; font-size:28px; }
+  header .role { color:var(--volt); font-weight:600; font-size:14px; letter-spacing:1px; text-transform:uppercase; }
+  header .total { margin-top:10px; font-size:14px; color:#9FB3AA; }
+  main { max-width:980px; margin:0 auto; padding:24px 20px 80px; }
+  .seg { background:#fff; border:1px solid var(--line); border-radius:12px; margin:18px 0; overflow:hidden;
+         box-shadow:0 1px 3px rgba(16,25,21,.05); }
+  .seg > h2 { margin:0; padding:14px 20px; background:var(--light); color:var(--dark); font-size:17px;
+              display:flex; justify-content:space-between; align-items:center; gap:12px; }
+  .seg > h2 .meta { font-size:12px; font-weight:600; color:var(--primary); white-space:nowrap; }
+  .body { padding:18px 20px; }
+  .say { border-left:4px solid var(--primary); background:#fafdfb; padding:12px 16px; margin:12px 0;
+         border-radius:0 8px 8px 0; }
+  .say p { margin:0 0 10px; }
+  .say p:last-child { margin:0; }
+  .do { background:var(--voltLight); border:1px solid #f0dcae; border-radius:8px; padding:12px 16px; margin:12px 0; }
+  .do b { color:#8a5a00; }
+  .trans { background:var(--ink); color:#fff; border-radius:8px; padding:12px 16px; margin:14px 0 4px; }
+  .trans b { color:var(--volt); }
+  .warn { border:1px solid var(--volt); background:#fffdf7; border-radius:8px; padding:12px 16px; margin:12px 0; }
+  ul { margin:8px 0 0; padding-left:22px; }
+  li { margin:4px 0; }
+  .pill { display:inline-block; background:var(--primary); color:#fff; border-radius:999px;
+          padding:2px 10px; font-size:12px; font-weight:600; }
+  code { background:#eef4f1; padding:1px 6px; border-radius:4px; font-size:14px; }
+  @media print { body { background:#fff; } .seg { break-inside:avoid; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="role">Presenter script</div>
+  <h1>Malik — reservation logic, optimization, business value</h1>
+  <div class="total">Your speaking time: about <b>8 minutes</b> across the talk, plus Q&amp;A lead.
+  You open the presentation and you close it.</div>
+</header>
+
+<main>
+
+<div class="seg">
+  <h2>Slides 1–2 · Opening and team <span class="meta">1:00 · you start</span></h2>
+  <div class="body">
+    <div class="say">
+      <p>"Good morning. We are Malik, Abdel Aziz and Aya, and we built ChargeHub — a reservation
+      system for electric vehicle charging stations."</p>
+      <p>"Before we start, one thing worth saying: everything you will see today runs on real code
+      and a real database. There are no mock-ups and no screenshots pretending to be a working
+      system. When we click something, it really happens."</p>
+      <p>"I worked on the booking rules and the optimization engine. Abdel Aziz built the back end,
+      the database and the operator side. Aya built the customer journey and the dashboards."</p>
+    </div>
+    <div class="trans"><b>Transition →</b> "Let me start with the problem, because the problem is
+    what makes this more than a booking form."</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Slides 3–4 · Introduction and the problem <span class="meta">2:00</span></h2>
+  <div class="body">
+    <div class="say">
+      <p>"A charging station is a shop with very few seats. Charging a car takes anywhere from
+      fifteen minutes to two hours, and a station might only have three or four chargers. So if a
+      driver arrives and everything is busy, that driver is simply lost."</p>
+      <p><b>Then walk the four problems on slide 4, one sentence each:</b></p>
+      <p>"First — two drivers can book the same charger at the same moment, and one of them drives
+      there for nothing. Second — a driver finishes early or cancels, that time is free again, but
+      nobody knows, so it is wasted. Third — people who never turn up block a charger somebody else
+      wanted. Fourth — staff end up deciding all of this by hand, under pressure."</p>
+      <p>"So our goal was simple to say and hard to do: serve the most drivers possible, be fair
+      about it, and never sell the same charger twice."</p>
+    </div>
+    <div class="trans"><b>Hand over →</b> "Abdel Aziz will show you how it is built."</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Slides 10–12 · Business logic — your main section <span class="meta">4:00 · your strongest material</span></h2>
+  <div class="body">
+    <p><span class="pill">Slide 10</span> <b>How the optimizer decides</b></p>
+    <div class="say">
+      <p>"A driver tells us 'about thirty minutes, any time between two and six'. The system looks
+      at every possible slot across every compatible charger and gives each one a score."</p>
+      <p>"Five things go into that score. Does this keep the free time in usable blocks, rather
+      than leaving unbookable gaps. How close is it to the time they actually wanted. Have they
+      been waiting a long time already. Are they standing at the desk, or are they being rebooked
+      after a fault that was ours. And how likely are they to actually turn up."</p>
+      <p><b>Say this clearly:</b> "This is not artificial intelligence. It is a fixed set of rules
+      with fixed weights. The same situation always gives the same answer, and we can always say
+      why. If a customer asks why they were given four-thirty instead of three, there is a stored
+      sentence explaining it."</p>
+      <p>"And we do not just claim it helps. Every time it runs, it also calculates what plain
+      first-come-first-served would have achieved on exactly the same data. If our system does not
+      serve more people, the number tells us."</p>
+    </div>
+
+    <p><span class="pill">Slide 11</span> <b>The five-minute hold and reliability</b></p>
+    <div class="say">
+      <p>"When we offer a driver a charger, we genuinely hold it for five minutes. Nobody else can
+      book it in that window. That is what makes accepting safe — the charger was already secured
+      when we made the offer, so pressing accept cannot fail."</p>
+      <p>"It is five minutes whether the booking is fifteen minutes or two hours. That was a
+      deliberate decision. If the hold scaled with the booking length, then the most valuable
+      bookings would be the most expensive ones to offer."</p>
+      <p>"And if you answer late? You do not get an error. The system runs again and offers you a
+      new time. Being slow should not throw you out of the queue."</p>
+      <p><b>Point at the four scores:</b> "Reliability starts at one hundred for everyone. Turning
+      up adds a point. Arriving late, cancelling late, or not turning up takes points away. These
+      four are real drivers from our demo data — same system, very different behaviour."</p>
+      <p><b>Important, say it:</b> "A low score never stops anyone booking. It only decides who
+      gets the better slot when two people want the same one. We were careful about that — a system
+      that could lock people out is a ban dressed up as an optimisation."</p>
+    </div>
+
+    <p><span class="pill">Slide 12</span> <b>Deposits and fairness</b></p>
+    <div class="say">
+      <p>"A small deposit holds the booking. Cancel more than a day ahead and you get it all back.
+      Cancel at the last minute, or never turn up, and it is kept."</p>
+      <p><b>The line that matters:</b> "But our fault always beats the clock. If the charger broke,
+      or we moved your booking, you are refunded even inside the twenty-four hour window — and your
+      reliability score is not touched. Only staff can mark something as our fault. If a driver
+      could do that, they would refund themselves every single time."</p>
+    </div>
+    <div class="warn"><b>Say this before anyone asks:</b> "Payments are simulated. No card details
+    are accepted, stored or shown anywhere in this system. The records and the refund rules are
+    real; the money movement is not."</div>
+    <div class="trans"><b>Hand over →</b> "Aya is going to show you all of this actually working."</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Slide 15 · Business value <span class="meta">1:00 · after the demo</span></h2>
+  <div class="body">
+    <div class="say">
+      <p>"So what is this worth to a station owner?"</p>
+      <p>"More drivers served, because freed time is offered to someone waiting within a minute
+      instead of sitting empty. Fewer wasted trips, because the database makes double booking
+      impossible. Fewer no-shows, because the deposit gives a reason to turn up — and cancelling
+      early is always free, so it rewards telling us. Less staff work, because the system decides
+      and explains, and staff step in only when they choose to."</p>
+      <p>"And decisions based on evidence. A manager can see which station is short of capacity and
+      why people are waiting there, rather than guessing."</p>
+    </div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Slides 16, 18, 19 · Future work, lessons, close <span class="meta">2:00</span></h2>
+  <div class="body">
+    <div class="say">
+      <p><b>Future work — be honest and brief:</b> "Real card payments; the connection point is
+      already built, so it is a swap rather than a rebuild. Email and text alerts — messages work
+      inside the app today. And a real check-out signal: right now we assume a driver leaves when
+      charging stops, and a sensor would tell us for certain."</p>
+      <p><b>Lesson six (slide 18), your closer:</b> "The lesson that surprised us most was that
+      testing the logic is not the same as testing the wiring. At one point every single one of our
+      one hundred and eighty-two automatic checks was passing — while half of our dashboard showed
+      no data at all. The logic was correct. Nothing had ever fed it. Now we write a check that
+      would fail if two correct pieces disagreed with each other, and that habit found four real
+      problems that reading the code had missed."</p>
+      <p><b>Closing:</b> "ChargeHub turns a charging station from first-come-first-served into a
+      system that plans — and can always explain its decision. Nothing you saw is a mock-up.
+      Nothing can double-book. And nothing happens without a recorded reason. Thank you — we are
+      happy to take questions."</p>
+    </div>
+    <div class="do"><b>Q&amp;A:</b> You lead. Route database and implementation questions to Abdel
+    Aziz, interface and analytics questions to Aya. Use the Q&amp;A Handbook — you have 50 answers
+    prepared. If you genuinely do not know, say "we did not build that" rather than guessing; the
+    handbook lists what is deliberately not built.</div>
+  </div>
+</div>
+
+</main>
+</body>
+</html>

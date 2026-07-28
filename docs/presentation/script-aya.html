@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Presenter Script — Aya</title>
+<style>
+  :root { --primary:#0E7A5F; --dark:#0A5C48; --light:#E7F3EF; --volt:#F5A524; --voltLight:#FEF3DE;
+          --ink:#101915; --soft:#5B6B64; --canvas:#F5F8F6; --line:#E3EAE6; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--canvas); color:var(--ink);
+         font:16px/1.6 "Segoe UI",system-ui,sans-serif; }
+  header { background:var(--ink); color:#fff; padding:28px 32px; }
+  header h1 { margin:0 0 6px; font-size:28px; }
+  header .role { color:var(--volt); font-weight:600; font-size:14px; letter-spacing:1px; text-transform:uppercase; }
+  header .total { margin-top:10px; font-size:14px; color:#9FB3AA; }
+  main { max-width:980px; margin:0 auto; padding:24px 20px 80px; }
+  .seg { background:#fff; border:1px solid var(--line); border-radius:12px; margin:18px 0; overflow:hidden;
+         box-shadow:0 1px 3px rgba(16,25,21,.05); }
+  .seg > h2 { margin:0; padding:14px 20px; background:var(--light); color:var(--dark); font-size:17px;
+              display:flex; justify-content:space-between; align-items:center; gap:12px; }
+  .seg > h2 .meta { font-size:12px; font-weight:600; color:var(--primary); white-space:nowrap; }
+  .body { padding:18px 20px; }
+  .say { border-left:4px solid var(--primary); background:#fafdfb; padding:12px 16px; margin:12px 0;
+         border-radius:0 8px 8px 0; }
+  .say p { margin:0 0 10px; } .say p:last-child { margin:0; }
+  .do { background:var(--voltLight); border:1px solid #f0dcae; border-radius:8px; padding:12px 16px; margin:12px 0; }
+  .do b { color:#8a5a00; }
+  .trans { background:var(--ink); color:#fff; border-radius:8px; padding:12px 16px; margin:14px 0 4px; }
+  .trans b { color:var(--volt); }
+  .warn { border:1px solid var(--volt); background:#fffdf7; border-radius:8px; padding:12px 16px; margin:12px 0; }
+  ol.steps { counter-reset:s; list-style:none; padding:0; margin:10px 0; }
+  ol.steps > li { counter-increment:s; position:relative; padding:12px 12px 12px 52px; margin:8px 0;
+                  background:#fafdfb; border:1px solid var(--line); border-radius:8px; }
+  ol.steps > li::before { content:counter(s); position:absolute; left:12px; top:12px; width:28px; height:28px;
+                          background:var(--primary); color:#fff; border-radius:50%; display:flex;
+                          align-items:center; justify-content:center; font-weight:700; font-size:14px; }
+  code { background:#eef4f1; padding:1px 6px; border-radius:4px; font-size:14px; }
+  .pill { display:inline-block; background:var(--primary); color:#fff; border-radius:999px;
+          padding:2px 10px; font-size:12px; font-weight:600; }
+  @media print { body { background:#fff; } .seg { break-inside:avoid; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="role">Presenter script</div>
+  <h1>Aya — customer journey, demo, analytics</h1>
+  <div class="total">Your speaking time: about <b>6 minutes</b>. You drive the screen for the whole
+  demo — the most visible part of the presentation. Abdel Aziz operates the staff window beside you.</div>
+</header>
+
+<main>
+
+<div class="seg">
+  <h2>Slide 9 · What we built <span class="meta">1:00 · Abdel Aziz hands to you</span></h2>
+  <div class="body">
+    <div class="say">
+      <p>"Thank you. Before the demo, here is everything that actually works — twelve parts, and
+      every one of them is running on real data."</p>
+      <p><b>Do not read all twelve.</b> Pick four and move on:</p>
+      <p>"A driver can book any length from fifteen minutes up to two hours. A small deposit holds
+      it. They get a QR code to show at the station. And if there is nothing free, they keep their
+      place and we offer them a slot the moment one opens up."</p>
+      <p>"The rest — late arrivals, early departures, extensions, overstays, broken chargers and
+      the delays they cause — all work, and you will see several of them in a moment."</p>
+    </div>
+    <div class="trans"><b>Hand over →</b> "Malik will explain the thinking behind the decisions,
+    and then I will show you all of it working."</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Slide 13 · Demo — Anna's journey <span class="meta">4:00 · the centrepiece</span></h2>
+  <div class="body">
+    <div class="do">
+      <b>Before you begin — check all three:</b>
+      <br>1. The services window is running and printing a line every minute.
+      <br>2. You are logged in as <code>user@chargehub.com</code> / <code>User123!</code>.
+      <br>3. Abdel Aziz is logged in as staff on the second window.
+    </div>
+
+    <div class="say"><p>"This is Anna. She needs to charge her car this afternoon. Let me walk you
+    through exactly what happens."</p></div>
+
+    <ol class="steps">
+      <li><b>Book</b> — Open the booking page, pick a station and a charger, choose 60 minutes.
+        <div class="say"><p>"She picks a station and how long she needs. Watch what happens when I
+        change the length — the available start times change with it. That is not a stored list of
+        slots; it is worked out from what is genuinely free."</p></div>
+      </li>
+      <li><b>Pay the deposit</b> — Complete the simulated payment.
+        <div class="say"><p>"A small deposit confirms it. She has ten minutes to pay before the
+        charger is released to someone else. I should say clearly — this payment is simulated. No
+        card details are ever entered, stored or shown anywhere."</p></div>
+      </li>
+      <li><b>QR code appears</b> — Show the confirmation screen.
+        <div class="say"><p>"And here is her QR code. This is what she shows when she arrives."</p></div>
+      </li>
+      <li><b>Operator checks her in</b> — <span class="pill">Abdel Aziz</span> types the code and checks in.
+        <div class="say"><p>"Over to the station side."</p></div>
+      </li>
+      <li><b>Charging starts, then ends</b> — <span class="pill">Abdel Aziz</span> starts, then ends.
+        <div class="say"><p>"She plugs in and charges. And here is something worth watching — she
+        finishes early. That leftover time does not just disappear. It goes straight back on sale,
+        and within a minute the system offers it to somebody who was waiting."</p></div>
+      </li>
+      <li><b>A charger breaks</b> — <span class="pill">Abdel Aziz</span> reports a fault.
+        <div class="say"><p>"Now something goes wrong. A charger fails. The system works out which
+        bookings are affected and how far the delay spreads down the queue — and it tells those
+        drivers rather than letting them find out at the station."</p></div>
+      </li>
+      <li><b>Extension request</b> — Request more time from the driver side.
+        <div class="say"><p>"Anna asks for more time. The system checks whether it genuinely fits
+        before the next booking. If it fits, she gets it. If only part of it fits, she gets that
+        part and is told why. And if the next customer would be affected, she is refused — because
+        that customer's booking is a promise too."</p></div>
+      </li>
+      <li><b>Notifications</b> — Open the bell.
+        <div class="say"><p>"And Anna has been told about all of it — the offer, the delay, the
+        decision on her extra time. These messages are not written by the booking code. They are
+        produced separately by reading the record of what happened, which means a failure to send a
+        message can never cause a booking to fail."</p></div>
+      </li>
+      <li><b>Analytics update</b> — Open <code>/admin/schedule-quality</code>.
+        <div class="say"><p>"And every number here has moved. Thirty-one measurements — how full
+        the chargers are, how often drivers get the time they wanted, how long people wait, how many
+        waitlisted drivers we eventually serve."</p>
+        <p><b>Point at a sample size:</b> "Notice each one shows how many cases it is based on. And
+        where we have no data, it says 'no data' rather than showing zero — because zero and 'we
+        don't know' are very different things."</p></div>
+      </li>
+    </ol>
+    <div class="warn"><b>If something does not respond:</b> the background services run once a
+    minute. Say "this runs on a timer, so give it a moment" and move to the next step — do not stand
+    in silence waiting. Come back to it.</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Three short scenes <span class="meta">1:30</span></h2>
+  <div class="body">
+    <div class="do"><b>Run <code>npm run demo -- reset</code> between each one.</b> A booking from
+    the previous scene genuinely still holds its charger, so skipping the reset can fail — correctly,
+    but it looks like a bug.</div>
+    <div class="say">
+      <p><b>Waitlist promotion</b> — "Someone wanted a time that was full, so they waited. The
+      person who had it cancelled. Within a minute the waiting driver was offered that exact slot,
+      and accepted. Nobody at the station had to do anything."</p>
+      <p><b>Reliability scoring</b> — "Here are four drivers with the same account and very
+      different habits. One always turns up — a hundred. One is occasionally late — eighty-three.
+      Two are chronically late or frequently absent — zero. That is built from what they actually
+      did, not entered by anyone."</p>
+      <p><b>Technical incident</b> — "A charger is reported broken. The system identifies the
+      bookings affected. Notice it does not cancel anything automatically — it tells the operator
+      what is affected and lets a person decide. We felt cancelling someone's booking should be a
+      human decision."</p>
+    </div>
+    <div class="trans"><b>Hand over →</b> "Malik, over to you for what this is worth to a station."</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Slide 14 · Results <span class="meta">0:45</span></h2>
+  <div class="body">
+    <div class="say">
+      <p>"How do we know it works? One hundred and eighty-two automatic checks, and they run every
+      time we change anything."</p>
+      <p>"They do not check that the code runs. They check things like: two bookings that overlap —
+      the second one is refused. Two bookings back to back — both accepted. A held charger cannot be
+      taken by anyone else. And leaving early really does put the time back on sale."</p>
+    </div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Questions likely to come to you <span class="meta">Q&amp;A</span></h2>
+  <div class="body">
+    <div class="say">
+      <p><b>"Did you design this yourself?"</b> — Yes. One set of colours, fonts and components used
+      across every screen, with a minimum touch size so it works on a phone.</p>
+      <p><b>"Does it work on mobile?"</b> — Yes, every screen is built for small screens first.</p>
+      <p><b>"Why does that say 'no data'?"</b> — Because there genuinely is none for that period.
+      We deliberately never show zero in place of missing data — a zero looks like a real
+      measurement and would be misleading.</p>
+      <p><b>"What is the countdown on the offer?"</b> — The charger is really held for five minutes.
+      The number comes from the server, not the phone's clock, so a device with the wrong time
+      cannot show a hold that has already expired as still valid.</p>
+      <p><b>"Can I see the deposit figures?"</b> — Be honest: the data is all recorded, but we have
+      not built a screen for it yet. It is on our list.</p>
+    </div>
+  </div>
+</div>
+
+</main>
+</body>
+</html>

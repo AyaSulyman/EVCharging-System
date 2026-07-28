@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Presenter Script — Abdel Aziz</title>
+<style>
+  :root { --primary:#0E7A5F; --dark:#0A5C48; --light:#E7F3EF; --volt:#F5A524; --voltLight:#FEF3DE;
+          --ink:#101915; --soft:#5B6B64; --canvas:#F5F8F6; --line:#E3EAE6; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--canvas); color:var(--ink);
+         font:16px/1.6 "Segoe UI",system-ui,sans-serif; }
+  header { background:var(--ink); color:#fff; padding:28px 32px; }
+  header h1 { margin:0 0 6px; font-size:28px; }
+  header .role { color:var(--volt); font-weight:600; font-size:14px; letter-spacing:1px; text-transform:uppercase; }
+  header .total { margin-top:10px; font-size:14px; color:#9FB3AA; }
+  main { max-width:980px; margin:0 auto; padding:24px 20px 80px; }
+  .seg { background:#fff; border:1px solid var(--line); border-radius:12px; margin:18px 0; overflow:hidden;
+         box-shadow:0 1px 3px rgba(16,25,21,.05); }
+  .seg > h2 { margin:0; padding:14px 20px; background:var(--light); color:var(--dark); font-size:17px;
+              display:flex; justify-content:space-between; align-items:center; gap:12px; }
+  .seg > h2 .meta { font-size:12px; font-weight:600; color:var(--primary); white-space:nowrap; }
+  .body { padding:18px 20px; }
+  .say { border-left:4px solid var(--primary); background:#fafdfb; padding:12px 16px; margin:12px 0;
+         border-radius:0 8px 8px 0; }
+  .say p { margin:0 0 10px; } .say p:last-child { margin:0; }
+  .do { background:var(--voltLight); border:1px solid #f0dcae; border-radius:8px; padding:12px 16px; margin:12px 0; }
+  .do b { color:#8a5a00; }
+  .trans { background:var(--ink); color:#fff; border-radius:8px; padding:12px 16px; margin:14px 0 4px; }
+  .trans b { color:var(--volt); }
+  .warn { border:1px solid var(--volt); background:#fffdf7; border-radius:8px; padding:12px 16px; margin:12px 0; }
+  table { width:100%; border-collapse:collapse; margin:10px 0; font-size:14px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { background:#f4f8f6; font-size:13px; }
+  .pill { display:inline-block; background:var(--primary); color:#fff; border-radius:999px;
+          padding:2px 10px; font-size:12px; font-weight:600; }
+  code { background:#eef4f1; padding:1px 6px; border-radius:4px; font-size:14px; }
+  @media print { body { background:#fff; } .seg { break-inside:avoid; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="role">Presenter script</div>
+  <h1>Abdel Aziz — architecture, database, rendering, operator side</h1>
+  <div class="total">Your speaking time: about <b>5 minutes</b>, plus you operate the staff screen
+  during the demo. Section 4 (rendering) is a required part of the assessment — do not rush it.</div>
+</header>
+
+<main>
+
+<div class="seg">
+  <h2>Slides 5–6 · Architecture <span class="meta">2:00 · Malik hands to you</span></h2>
+  <div class="body">
+    <p><span class="pill">Slide 5</span> <b>Two applications, one database</b></p>
+    <div class="say">
+      <p>"Thank you Malik. The system is two applications sharing one database."</p>
+      <p>"The part people see is built with Next.js and React — the driver's app, the operator's
+      app and the manager's dashboards. Behind it is a back end with fifty-three endpoints, and
+      that is where every business rule lives. The screens never touch the database directly. That
+      matters because it means a rule cannot be enforced in one screen and forgotten in another."</p>
+      <p>"Underneath is MongoDB with fourteen collections. And one thing worth pointing out — we
+      keep a history of everything that happens to a booking, and that history is only ever added
+      to. It is never edited. Scores and reports are calculated from it rather than stored."</p>
+    </div>
+
+    <p><span class="pill">Slide 6</span> <b>The one rule the database enforces — your key slide</b></p>
+    <div class="say">
+      <p>"This is the most important technical decision we made, so I want to spend a moment on it."</p>
+      <p>"We split charger time into fifteen-minute blocks. A booking from three to four o'clock
+      owns four of those blocks. And we told the database: one block can be owned by only one
+      booking, ever."</p>
+      <p><b>Point at the diagram:</b> "So when Ben tries to book three-thirty to four-thirty, he
+      needs two blocks Anna already owns. The database refuses it. Not our code — the database
+      itself. But when Ben books four o'clock to five, nobody owns those blocks, so it works. Two
+      bookings sit back to back with no time wasted between them."</p>
+      <p><b>Say why:</b> "We could have written this check in our own code. We started that way.
+      The problem is that a check in code can be skipped by a feature somebody writes later, and if
+      two requests arrive at exactly the same moment they can both pass it. A rule inside the
+      database cannot be bypassed by code that does not exist yet."</p>
+    </div>
+    <div class="do"><b>If a mentor pushes:</b> MongoDB has no built-in way to say "these two time
+    ranges must not overlap". Splitting into fixed blocks turns overlap into a simple duplicate-key
+    rule, which the database does enforce natively. The cost is that bookings start on the quarter
+    hour. We accepted that trade deliberately.</div>
+    <div class="trans"><b>Transition →</b> "One part of the assessment asks how we chose to render
+    each page, so let me cover that next."</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Slides 7–8 · Next.js rendering <span class="meta">1:45 · required section</span></h2>
+  <div class="body">
+    <p><span class="pill">Slide 7</span> <b>Three ways to build a page</b></p>
+    <div class="say">
+      <p>"Next.js gives us three ways to build a page, and we chose per page rather than picking
+      one for the whole project."</p>
+      <p>"Server-rendered means the server builds the page fresh for every visitor. Static means it
+      is built once when we deploy and reused for everybody. Browser-rendered means a light shell
+      loads first and then the browser fetches the data."</p>
+    </div>
+
+    <p><span class="pill">Slide 8</span> <b>Every page, and why</b></p>
+    <div class="say">
+      <p>"The public pages — the home page, the station list, a station's detail page — are
+      server-rendered, because a driver and a search engine both need to see real availability in
+      the very first response."</p>
+      <p><b>The line to land:</b> "The QR landing page is server-rendered and never cached at all.
+      Showing a bay as free when it was taken thirty seconds ago is the one failure this product
+      exists to prevent."</p>
+      <p>"The information pages — about, FAQ, terms, privacy — are static. They are the same for
+      everyone and change rarely, so building them once is simply faster."</p>
+      <p>"And the driver's own area — the booking wizard, their bookings, offers, waitlist — is
+      browser-rendered. Those pages need the login token and involve a lot of clicking. A static
+      shell appears instantly and the data arrives a moment later."</p>
+      <p><b>Honest note:</b> "We also configured time-based refresh, but it is currently unused —
+      every request asks for fresh data. That is on our list to tidy up."</p>
+    </div>
+    <div class="trans"><b>Hand over →</b> "Malik will explain how the system actually decides who
+    gets which charger."</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Demo · you operate the staff screen <span class="meta">during Aya's demo</span></h2>
+  <div class="body">
+    <div class="do">
+      <b>Before you start:</b> log in as <code>staff@chargehub.com</code> / <code>Staff123!</code>
+      on a second window. Have <code>/staff</code> already open.
+    </div>
+    <table>
+      <tr><th>When Aya says</th><th>You do</th><th>You say</th></tr>
+      <tr>
+        <td>"Anna arrives at the station"</td>
+        <td>Open the check-in panel. <b>Type the booking code</b> rather than using the camera.</td>
+        <td>"On the operator side I look her up. I can scan her QR code with the camera, or type the
+        code — both go through exactly the same lookup, so nothing is different."</td>
+      </tr>
+      <tr>
+        <td>"Check her in"</td>
+        <td>Press check in.</td>
+        <td>"She is checked in, and the system has already recorded whether she was early, on time,
+        inside the grace period, or late. That happens automatically."</td>
+      </tr>
+      <tr>
+        <td>"Start the session"</td>
+        <td>Press start charging.</td>
+        <td>"Starting and ending are two separate recorded steps, so we always know how long the bay
+        was really occupied — not just how long it was booked for."</td>
+      </tr>
+      <tr>
+        <td>"A charger breaks"</td>
+        <td>Go to <code>/staff/incidents</code>, report a charger failure.</td>
+        <td>"I report the fault here. The system immediately works out which bookings are affected
+        and how far the delay spreads down the queue."</td>
+      </tr>
+      <tr>
+        <td>"Show the waitlist"</td>
+        <td>Open <code>/staff/waitlist</code>.</td>
+        <td>"This is my waitlist — and notice it only shows my station. I am assigned to Downtown,
+        so I cannot see or act on the other two. That is enforced on the server, not just hidden in
+        the screen."</td>
+      </tr>
+    </table>
+    <div class="warn"><b>Camera warning:</b> the browser only allows camera access on
+    <code>localhost</code> or over HTTPS. If the demo is on a phone over the office network, the
+    camera will not start. <b>Use the typed code.</b> It is the same code path, so you are not
+    avoiding anything real.</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Slide 17 · Design lessons <span class="meta">1:15</span></h2>
+  <div class="body">
+    <div class="say">
+      <p>"Three lessons from the design side."</p>
+      <p>"First — preventing double bookings belongs in the database, not in our code. We tried it
+      in the application first. A check in code can be skipped by a feature written later, and two
+      requests arriving together can both pass it. Moving it into a database rule made it
+      impossible to break."</p>
+      <p>"Second — we had to model charger time as small blocks. We started with fixed thirty-minute
+      slots, but real charging is anywhere from fifteen minutes to two hours. Splitting time into
+      fifteen-minute blocks let us support any length with one simple rule. And we got the boundary
+      wrong once, in a way that made every back-to-back booking impossible — which taught us to test
+      the edges, not the middle."</p>
+      <p>"Third — scores have to be rebuilt from history, never counted up as you go. A running
+      total drifts. If one update is missed or repeated, the number is wrong forever and nobody can
+      tell. Recalculating from the recorded history means a repeated event cannot double-count and a
+      lost one repairs itself."</p>
+    </div>
+    <div class="trans"><b>Hand over →</b> "Malik has the three that surprised us most."</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Questions likely to come to you <span class="meta">Q&amp;A</span></h2>
+  <div class="body">
+    <table>
+      <tr><th>Question</th><th>Short answer</th></tr>
+      <tr><td>Why MongoDB and not SQL?</td><td>Honest answer: it is what the team knew. A relational
+      database with an exclusion constraint would express the overlap rule more directly. We got the
+      same guarantee by splitting time into blocks and using a unique index.</td></tr>
+      <tr><td>Why fifteen minutes?</td><td>It divides evenly into every length we support — 15, 30,
+      45, 60, 90 and 120. No rounding and no wasted time. One minute would multiply the number of
+      database writes by fifteen for precision nothing needs.</td></tr>
+      <tr><td>What if two people click at exactly the same millisecond?</td><td>One of them gets a
+      duplicate-key error from the database and is told the charger is busy. This is tested — it is
+      one of our automatic checks.</td></tr>
+      <tr><td>How do you know the station scoping works?</td><td>We tested it by running it: the
+      assigned station is allowed, an unassigned one is refused with a 403, and an admin bypasses it
+      by design. We can show that.</td></tr>
+      <tr><td>Is the QR code secure?</td><td>It contains only the booking code, which the operator
+      could also type. It is a lookup shortcut, not a credential — and the operator still has to be
+      logged in and assigned to that station.</td></tr>
+    </table>
+  </div>
+</div>
+
+</main>
+</body>
+</html>
