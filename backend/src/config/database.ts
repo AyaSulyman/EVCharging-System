@@ -3,7 +3,10 @@ import mongoose from "mongoose";
 const MONGODB_URI = process.env.MONGODB_URI;
 
 if (!MONGODB_URI) {
-  throw new Error("Please define the MONGODB_URI environment variable in .env.local");
+  // Names `.env`, not `.env.local`: every ops:* script loads `.env` explicitly via
+  // `config({ path: ".env" })`, so a reader who follows this message to `.env.local` gets a dev
+  // server that works and 21 scripts that still fail. Cost a reviewer an evening once.
+  throw new Error("Please define the MONGODB_URI environment variable in backend/.env");
 }
 
 interface MongooseCache {

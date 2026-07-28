@@ -245,7 +245,7 @@ export default function FlexibleBookingPage() {
         <Link
           href="/book"
           className="flex h-9 w-9 items-center justify-center rounded-lg border border-line bg-white text-ink-soft hover:text-ink"
-          aria-label="Back to the step-by-step booking"
+          aria-label="Back to booking options"
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
