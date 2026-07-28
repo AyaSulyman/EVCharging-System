@@ -65,7 +65,7 @@ same commit.**
 | Customer behaviour tracking | **Done** — second consumer: delays, cancellations, no-shows, arrival accuracy |
 | Notifications from events | **Done** — a CONSUMER of three event logs, idempotent via a unique dedupeKey. Nine generators; two notification centres. See IMPLEMENTED_LOGIC §27 |
 | Real payments | Not built. The seam exists — see `CLAUDE.md` §7 |
-| **Demo Support Layer** (deterministic scenarios, controlled clock, `npm run demo`) | **Done** — see §6k. Sequences real services only; zero production code is demo-aware |
+| **Demo Support Layer** (deterministic scenarios, controlled clock, `npm run demo`) | **Done** — **ten** scenarios (overstay_escalation and extension_denied added 2026-07-28). See §6k and `DEMO_READINESS_REPORT.md`. Sequences real services only; zero production code is demo-aware |
 | **QR Check-In Workflow** (lookup by scanned QR or booking code, ahead of check-in) | **Done** — see §6l. Read-only lookup; hands off to the pre-existing `checkIn`, never a second transition |
 | **QR Scanner Interface** (browser-camera UI for the above) | **Done** — see §6m. UI only; camera-decoded and manually-typed input share one lookup call. `qr-scanner@1.4.2` installed and building as of 2026-07-27 |
 | **Early Departure Capacity Release** (leaving before the booked end returns the time) | **Done** — see §6o. The release, the event and the consumer trigger already existed and were verified; this phase added the `EARLY_DEPARTURE` reason and five capacity-recovery metrics. **No migration** — minutes released are derived from `scheduledEnd − actualEnd` |

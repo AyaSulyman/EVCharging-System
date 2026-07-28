@@ -40,6 +40,8 @@ export const DEMO_CHARGER_IDS = {
   incident: did("000000000016"),
   delayPropagation: did("000000000017"),
   reliability: did("000000000018"),
+  extensionDenied: did("000000000019"),
+  overstay: did("00000000001a"),
 } as const;
 
 export const DEMO_DRIVER_IDS = {
@@ -55,6 +57,9 @@ export const DEMO_DRIVER_IDS = {
   delayDownstreamB: did("00000000010a"),
   delayDownstreamC: did("00000000010b"),
   reliability: did("00000000010c"),
+  extensionDenied: did("00000000010d"),
+  extensionDeniedNeighbor: did("00000000010e"),
+  overstay: did("00000000010f"),
 } as const;
 
 /** One vehicle per driver, same key. All CCS, so every demo charger can be CCS too — no connector
@@ -74,7 +79,9 @@ export type DemoScenarioKey =
   | "partial_extension"
   | "technical_incident"
   | "delay_propagation"
-  | "reliability_scoring";
+  | "reliability_scoring"
+  | "extension_denied"
+  | "overstay_escalation";
 
 export const DEMO_SCENARIO_KEYS: readonly DemoScenarioKey[] = [
   "normal_flow",
@@ -85,4 +92,6 @@ export const DEMO_SCENARIO_KEYS: readonly DemoScenarioKey[] = [
   "technical_incident",
   "delay_propagation",
   "reliability_scoring",
+  "extension_denied",
+  "overstay_escalation",
 ];

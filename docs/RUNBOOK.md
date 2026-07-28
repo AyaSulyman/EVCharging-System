@@ -343,6 +343,8 @@ only when you want that one effect in isolation.
 | `ops:migrate-v2` | Dry run | `-- --apply` to write |
 | `ops:migrate-commitments` | Dry run | Refuses until v2 applied |
 | `ops:notify` | Yes | For a scheduler. Turns events into in-app notifications; idempotent |
+| `ops:demo-services` | Yes | ALL background jobs in one command, one terminal. Use this for a presentation |
+| `ops:verify-demo` | Self-cleaning | 16 checks: QR loop end to end, notification types, KPI emptiness |
 | `ops:ensure-staff` | Yes | Additive; creates the scoped operator account |
 | `ops:reconcile` | Dry run | Repair tool. Checks BOTH slots and range occupancy; exits non-zero if a reservation holds no occupancy |
 | `ops:migrate-occupancy` | Dry run | **Non-additive.** Rebuilds the `slotId` index |

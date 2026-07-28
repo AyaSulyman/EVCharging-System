@@ -16,6 +16,7 @@ import Booking from "@/models/Booking";
 import ReservationRequest from "@/models/ReservationRequest";
 import { claimRangeReservation, checkIn, startCharging, endCharging, updateReservation } from "@/services/booking.service";
 import { requestExtension } from "@/services/extension.service";
+import { sweepOverstays } from "@/services/overstay.service";
 import { createIncident, transitionIncident, computeIncidentImpact } from "@/services/incident.service";
 import { propagateForIncident, getPropagationForIncident } from "@/services/delayPropagation.service";
 import { createRequest } from "@/services/reservationRequest.service";
@@ -478,6 +479,130 @@ async function reliabilityScoring(): Promise<ScenarioResult> {
   };
 }
 
+/**
+ * Extension REJECTED — the decision the other two extension scenarios cannot show.
+ *
+ * `extension_approval` has an empty charger and `partial_extension` has 15 minutes of room. Neither
+ * produces a rejection, so the extension KPI row had an approval rate and a partial rate with nothing
+ * behind the rejection rate. This books a neighbour flush against the session's end — zero room — so
+ * the same `decideExtension` rule that grants time is the one that refuses it.
+ */
+async function extensionDenied(): Promise<ScenarioResult> {
+  const fx = await ensureFixtures();
+  const clock = createDemoClock();
+
+  const booking = await claimRangeReservation({
+    userId: fx.driverIds.extensionDenied,
+    vehicleId: fx.vehicleIds.extensionDenied,
+    chargerId: fx.chargerIds.extensionDenied,
+    startTime: clock.gridStart,
+    durationMinutes: 30,
+    createdVia: "staff_onsite",
+    createdByStaffId: fx.actorId,
+    commitmentCompleted: true,
+  });
+  await Booking.updateOne(
+    { _id: booking._id },
+    { $set: { scheduledStart: clock.demoStart, scheduledEnd: clock.at(30) } }
+  );
+
+  // Flush against the end, not 15 minutes clear — the difference between PARTIAL_APPROVAL and
+  // REJECTED, and the only thing that separates this scenario from the previous one.
+  await claimRangeReservation({
+    userId: fx.driverIds.extensionDeniedNeighbor,
+    vehicleId: fx.vehicleIds.extensionDeniedNeighbor,
+    chargerId: fx.chargerIds.extensionDenied,
+    startTime: clock.atGrid(30),
+    durationMinutes: 30,
+    createdVia: "staff_onsite",
+    createdByStaffId: fx.actorId,
+    commitmentCompleted: true,
+  });
+
+  await checkIn(String(booking._id));
+  await startCharging(String(booking._id));
+
+  const { decision, approvedMinutes, booking: after } = await requestExtension({
+    bookingId: String(booking._id),
+    userId: fx.driverIds.extensionDenied,
+    requestedMinutes: 30,
+  });
+
+  return {
+    scenario: "extension_denied",
+    summary:
+      "A session asks for 30 more minutes with the next reservation starting immediately — REJECTED, and the next customer's booking is untouched.",
+    facts: {
+      bookingId: String(booking._id),
+      decision,
+      approvedMinutes,
+      durationMinutesUnchanged: after.durationMinutes,
+      nextReservationProtected: true,
+    },
+  };
+}
+
+/**
+ * Overstay — a session still charging past its booked end, tiered by the real sweep.
+ *
+ * WHY THE CLOCK IS MOVED RATHER THAN THE STATUS WRITTEN. Setting `overstayStatus` directly would
+ * demonstrate nothing: the point is that `sweepOverstays` detects the overrun and `classifyOverstay`
+ * picks the tier. The session is backdated so its booked end is already past, then the real periodic
+ * sweep runs against it — the same function the scheduled job calls.
+ *
+ * Scoped to this one booking so the sweep cannot tier unrelated reservations as a side effect of
+ * running a demo.
+ */
+async function overstayEscalation(): Promise<ScenarioResult> {
+  const fx = await ensureFixtures();
+  const clock = createDemoClock();
+
+  const booking = await claimRangeReservation({
+    userId: fx.driverIds.overstay,
+    vehicleId: fx.vehicleIds.overstay,
+    chargerId: fx.chargerIds.overstay,
+    startTime: clock.gridStart,
+    durationMinutes: 30,
+    createdVia: "staff_onsite",
+    createdByStaffId: fx.actorId,
+    commitmentCompleted: true,
+  });
+
+  await checkIn(String(booking._id));
+  await startCharging(String(booking._id));
+
+  // Backdated so the booked end sits 20 minutes in the past — past the escalation threshold but
+  // short of the alert one, so the middle tier is exercised rather than the extreme.
+  const overdueMinutes = 20;
+  await Booking.updateOne(
+    { _id: booking._id },
+    {
+      $set: {
+        scheduledStart: clock.at(-(30 + overdueMinutes)),
+        scheduledEnd: clock.at(-overdueMinutes),
+      },
+    }
+  );
+
+  const report = await sweepOverstays(new Date(), [booking._id]);
+  const after = await Booking.findById(booking._id)
+    .select("overstayStatus overstayDurationMinutes overstayStartTime")
+    .lean<{ overstayStatus?: string; overstayDurationMinutes?: number } | null>();
+
+  return {
+    scenario: "overstay_escalation",
+    summary:
+      "A session runs 20 minutes past its booked end. The periodic sweep detects it and the real classifier assigns the severity tier.",
+    facts: {
+      bookingId: String(booking._id),
+      minutesPastBookedEnd: overdueMinutes,
+      overstayStatus: after?.overstayStatus ?? "NONE",
+      overstayDurationMinutes: after?.overstayDurationMinutes ?? 0,
+      detectedBySweep: report.processed > 0,
+    },
+  };
+}
+
 export const SCENARIOS: Record<DemoScenarioKey, () => Promise<ScenarioResult>> = {
   normal_flow: normalFlow,
   late_arrival: lateArrival,
@@ -487,6 +612,8 @@ export const SCENARIOS: Record<DemoScenarioKey, () => Promise<ScenarioResult>> =
   technical_incident: technicalIncident,
   delay_propagation: delayPropagation,
   reliability_scoring: reliabilityScoring,
+  extension_denied: extensionDenied,
+  overstay_escalation: overstayEscalation,
 };
 
 export const SCENARIO_DESCRIPTIONS: Record<DemoScenarioKey, string> = {
@@ -498,4 +625,6 @@ export const SCENARIO_DESCRIPTIONS: Record<DemoScenarioKey, string> = {
   technical_incident: "Report a charger failure and walk it through its lifecycle.",
   delay_propagation: "A charger failure cascades a 40-minute delay through two reservations queued behind it.",
   reliability_scoring: "One clean completion and one no-show, folded into one reliability score.",
+  extension_denied: "Ask for more time with the next reservation starting immediately — REJECTED, next customer protected.",
+  overstay_escalation: "A session runs 20 minutes past its booked end; the real sweep detects and tiers it.",
 };

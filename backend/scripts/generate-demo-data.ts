@@ -35,6 +35,8 @@ import { config } from "dotenv";
 config({ path: ".env" });
 
 import mongoose from "mongoose";
+import { classifyArrival } from "@/models/reservationLifecycle";
+import { classifyOverstay } from "@/models/overstayPolicy";
 
 /** Deterministic pseudo-random, so a regenerated demo tells the same story twice. */
 function makeRng(seed: number) {
@@ -157,6 +159,16 @@ async function run() {
     }
     const occ = await Occupancy.deleteMany({ bookingId: { $in: ids } });
     const ev = await Events.deleteMany({ bookingId: { $in: ids } });
+    // Flexible requests and their waitlist events. Added when the request generator was — without
+    // this, --clear left orphaned demo requests behind and the waitlist KPIs kept counting them
+    // against a pool of reservations that no longer existed.
+    const demoRequestIds = (
+      await db.collection("reservationrequests").find({ isDemo: true }).project({ _id: 1 }).toArray()
+    ).map((r) => r._id);
+    if (demoRequestIds.length) {
+      await Events.deleteMany({ requestId: { $in: demoRequestIds } });
+      await db.collection("reservationrequests").deleteMany({ isDemo: true });
+    }
     await db.collection("paymentintents").deleteMany({ bookingId: { $in: ids } });
     await db.collection("refunds").deleteMany({ bookingId: { $in: ids } });
     const bk = await Bookings.deleteMany({ isDemo: true });
@@ -311,6 +323,29 @@ async function run() {
       let actualEnd: Date | null = null;
       let releasedEarly = false;
 
+      /**
+       * The v2 outcome fields the schedule-quality KPIs aggregate.
+       *
+       * WHY THESE ARE SET HERE AT ALL. `getScheduleQuality` reads `bookings`, not the event log —
+       * deliberately, because a booking is the durable artifact of an outcome and exists for
+       * reservations predating the log. This generator was emitting the *events* and leaving these
+       * fields null, so 178 demo bookings produced `arrivalOutcome: 0` and the entire arrival,
+       * extension and overstay KPI rows read "No data" while the engines behind them worked.
+       *
+       * CLASSIFIED BY THE REAL FUNCTIONS, never by a second rule written here. `classifyArrival` and
+       * `classifyOverstay` are the same pure functions the live paths call, so demo data cannot drift
+       * from production semantics — which is the whole risk of a generator that writes rows directly.
+       */
+      let arrivalOutcome: string | null = null;
+      let extensionDecision: string | null = null;
+      let requestedExtensionMinutes: number | null = null;
+      let approvedExtensionMinutes: number | null = null;
+      let extensionCount = 0;
+      let overstayStatus = "NONE";
+      let overstayStartTime: Date | null = null;
+      let overstayDurationMinutes: number | null = null;
+      let overstayWarningAt: Date | null = null;
+
       const base = {
         bookingId,
         userId: driver._id,
@@ -351,6 +386,9 @@ async function run() {
         lifecycle = "NO_SHOW";
         paymentStatus = "forfeited";
         noShow = true;
+        // The arrival outcome the no-show sweep would have written. Without it the noShowRate KPI
+        // reads n=0 while sixteen no-shows sit in the database.
+        arrivalOutcome = "NO_SHOW";
         eventDocs.push({
           ...base,
           type: "reservation.no_show",
@@ -402,6 +440,99 @@ async function run() {
         const minutesEarly = outcome === "completed_early_departure" ? 10 + Math.floor(rng() * 20) : 0;
         releasedEarly = minutesEarly > 0;
         actualEnd = new Date(end.getTime() - minutesEarly * 60_000);
+
+        // The same classifier `checkIn` and `startCharging` use. A 3-minute delay inside the
+        // 15-minute grace is GRACE, not LATE — writing "LATE" by hand here would have made the
+        // dashboard disagree with the engine about the same reservation.
+        arrivalOutcome = classifyArrival(start, actualStart, 15).outcome;
+
+        /**
+         * A minority of sessions ask for more time, spread across all three decisions.
+         *
+         * Approved and rejected are both generated because the KPI row shows approval, partial and
+         * rejection rates side by side — a generator that only ever approved would leave two of the
+         * three reading zero and make the extension engine look one-sided.
+         */
+        if (rng() < 0.22) {
+          extensionCount = 1;
+          requestedExtensionMinutes = [15, 30, 45][Math.floor(rng() * 3)];
+          const roll = rng();
+          if (roll < 0.5) {
+            extensionDecision = "APPROVED";
+            approvedExtensionMinutes = requestedExtensionMinutes;
+          } else if (roll < 0.78) {
+            extensionDecision = "PARTIAL_APPROVAL";
+            // Always a whole atom, so the granted figure is one the range model could really hold.
+            approvedExtensionMinutes = 15;
+          } else {
+            extensionDecision = "REJECTED";
+            approvedExtensionMinutes = 0;
+          }
+
+          eventDocs.push({
+            ...base,
+            type: "extension.requested",
+            lifecycle: "CHARGING",
+            fault: "customer",
+            penalize: false,
+            basis: "customer_request",
+            occurredAt: new Date(actualStart.getTime() + 20 * 60_000),
+            metadata: { requestedMinutes: requestedExtensionMinutes },
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+          eventDocs.push({
+            ...base,
+            type: extensionDecision === "REJECTED" ? "extension.denied" : "extension.approved",
+            lifecycle: "CHARGING",
+            fault: extensionDecision === "REJECTED" ? "operator" : "customer",
+            penalize: false,
+            basis: extensionDecision === "REJECTED" ? "no_capacity" : "capacity_available",
+            occurredAt: new Date(actualStart.getTime() + 21 * 60_000),
+            metadata: {
+              requestedMinutes: requestedExtensionMinutes,
+              approvedMinutes: approvedExtensionMinutes,
+              decision: extensionDecision,
+            },
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+        }
+
+        /**
+         * A small number overstay, tiered by the real classifier.
+         *
+         * Only for sessions that did NOT leave early — a reservation cannot both hand time back and
+         * run past its end, and generating both would put a single booking into two contradictory
+         * KPI rows at once.
+         */
+        if (minutesEarly === 0 && rng() < 0.12) {
+          overstayDurationMinutes = [4, 9, 16, 24, 38][Math.floor(rng() * 5)];
+          overstayStatus = classifyOverstay(overstayDurationMinutes);
+          // The booking's own end at the moment the overstay began, not "now" — the same rule
+          // `sweepOverstays` uses, so the duration stays accurate however coarse the sweep was.
+          overstayStartTime = new Date(end);
+          overstayWarningAt = new Date(end.getTime() + 60_000);
+          actualEnd = new Date(end.getTime() + overstayDurationMinutes * 60_000);
+
+          eventDocs.push({
+            ...base,
+            type:
+              overstayStatus === "ALERTED"
+                ? "overstay.alert_created"
+                : overstayStatus === "ESCALATED"
+                  ? "overstay.escalated"
+                  : "overstay.warning",
+            lifecycle: "CHARGING",
+            fault: "customer",
+            penalize: true,
+            basis: "overstay",
+            occurredAt: new Date(end.getTime() + overstayDurationMinutes * 60_000),
+            metadata: { overstayMinutes: overstayDurationMinutes, tier: overstayStatus },
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+        }
 
         eventDocs.push({
           ...base,
@@ -477,7 +608,17 @@ async function run() {
         noShow,
         releasedEarly,
         gracePeriodMinutes: 15,
-        extensionCount: 0,
+        // The v2 outcome fields the schedule-quality KPIs aggregate. See the block where they are
+        // classified for why they are set here and why the real classifiers do the classifying.
+        arrivalOutcome,
+        extensionCount,
+        extensionDecision,
+        requestedExtensionMinutes,
+        approvedExtensionMinutes,
+        overstayStatus,
+        overstayStartTime,
+        overstayDurationMinutes,
+        overstayWarningAt,
         createdVia: "self",
         createdByStaffId: null,
         totalAmount,
@@ -501,6 +642,147 @@ async function run() {
   await Events.insertMany(eventDocs);
   console.log(`  historical reservations : ${bookingDocs.length}`);
   console.log(`  events                  : ${eventDocs.length}`);
+
+  /* ---------------------------------------------------------------- flexible requests */
+
+  /**
+   * Flexible requests, retro-fitted onto a slice of the reservations above.
+   *
+   * WHY THIS EXISTS. Five KPIs are derived from `reservationrequests` rather than from bookings —
+   * preference match, average waiting time, and the three waitlist-effectiveness metrics. This
+   * generator created only bookings, so those five tiles read "No data" on a fully-seeded database
+   * and the entire flexible-demand story had nothing behind it. Found by running the readiness
+   * harness, not by reading the code.
+   *
+   * REALISTIC OUTCOMES, NOT ALL SUCCESSES. Conversion is measured over *resolved* requests, so a
+   * pool of nothing but fulfilled ones would report 100% and mean nothing. The mix below produces
+   * fulfilled, expired and cancelled outcomes, and a subset that was waitlisted first and served
+   * afterwards — the case the conversion rate exists to measure.
+   *
+   * `request.waitlisted` events are emitted rather than relying on `waitlistedAt`, because that
+   * field is cleared the moment an offer is issued: a request that waited and was then served would
+   * otherwise erase its own evidence, which is precisely the bug the KPI had to be rewritten to
+   * avoid.
+   */
+  const Requests = db.collection("reservationrequests");
+  const requestDocs: Record<string, unknown>[] = [];
+  const requestEventDocs: Record<string, unknown>[] = [];
+
+  // Only completed reservations get a request — a cancelled booking's request history would muddle
+  // the conversion figure with an outcome the customer, not the platform, decided.
+  const completedForRequests = bookingDocs.filter((b) => b.status === "completed");
+  for (const b of completedForRequests) {
+    if (rng() > 0.4) continue; // roughly 40% of reservations came from a flexible request
+
+    const start = b.startTime as Date;
+    const createdAt = new Date(start.getTime() - (2 + Math.floor(rng() * 20)) * 3600_000);
+    const requestId = new mongoose.Types.ObjectId();
+
+    // Half ask for exactly what they got (a preference match); the rest asked up to an hour off,
+    // which is outside the 30-minute tolerance and correctly counts as a miss.
+    const driftMinutes = rng() < 0.62 ? Math.floor(rng() * 25) : 35 + Math.floor(rng() * 25);
+    const preferredStart = new Date(start.getTime() - driftMinutes * 60_000);
+
+    const waitlistedFirst = rng() < 0.3;
+    if (waitlistedFirst) {
+      requestEventDocs.push({
+        requestId,
+        userId: b.userId,
+        stationId: b.stationId,
+        type: "request.waitlisted",
+        fault: "operator",
+        penalize: false,
+        basis: "no_free_capacity",
+        occurredAt: new Date(createdAt.getTime() + 5 * 60_000),
+        actorRole: "system",
+        metadata: { durationMinutes: b.durationMinutes },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+    }
+
+    requestDocs.push({
+      _id: requestId,
+      userId: b.userId,
+      vehicleId: b.vehicleId,
+      stationIds: [b.stationId],
+      chargerId: null,
+      earliestStart: new Date(start.getTime() - 2 * 3600_000),
+      latestStart: new Date(start.getTime() + 2 * 3600_000),
+      preferredStart,
+      durationMinutes: b.durationMinutes,
+      chargerFlex: true,
+      stationFlex: false,
+      flexibilityType: "STRICT",
+      status: "FULFILLED",
+      origin: "self",
+      priority: "standard",
+      recommendationCount: waitlistedFirst ? 1 : 0,
+      fulfilledBookingId: b._id,
+      fulfilledAt: new Date(start.getTime() - 30 * 60_000),
+      expiresAt: new Date(start.getTime() + 2 * 3600_000),
+      isDemo: true,
+      createdAt,
+      updatedAt: new Date(),
+    });
+  }
+
+  // A handful that were never served, so the conversion rate is not a flattering 100%.
+  const unservedCount = Math.max(2, Math.round(requestDocs.length * 0.18));
+  for (let i = 0; i < unservedCount; i++) {
+    const driver = drivers[i % drivers.length];
+    const day = new Date(now.getTime() - (1 + Math.floor(rng() * days)) * 86_400_000);
+    day.setHours(9 + Math.floor(rng() * 8), 0, 0, 0);
+    const requestId = new mongoose.Types.ObjectId();
+    const createdAt = new Date(day.getTime() - 6 * 3600_000);
+    const expired = i % 3 !== 0;
+
+    requestEventDocs.push({
+      requestId,
+      userId: driver._id,
+      stationId: chargers[0].stationId,
+      type: "request.waitlisted",
+      fault: "operator",
+      penalize: false,
+      basis: "no_free_capacity",
+      occurredAt: new Date(createdAt.getTime() + 5 * 60_000),
+      actorRole: "system",
+      metadata: {},
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    requestDocs.push({
+      _id: requestId,
+      userId: driver._id,
+      vehicleId: null,
+      stationIds: [chargers[0].stationId],
+      chargerId: null,
+      earliestStart: day,
+      latestStart: new Date(day.getTime() + 2 * 3600_000),
+      preferredStart: day,
+      durationMinutes: 30,
+      chargerFlex: true,
+      stationFlex: false,
+      flexibilityType: "STRICT",
+      status: expired ? "EXPIRED" : "CANCELLED",
+      origin: "self",
+      priority: "standard",
+      recommendationCount: 0,
+      waitlistedAt: new Date(createdAt.getTime() + 5 * 60_000),
+      waitlistReason: "no_free_capacity",
+      expiresAt: new Date(day.getTime() + 2 * 3600_000),
+      isDemo: true,
+      createdAt,
+      updatedAt: new Date(),
+    });
+  }
+
+  if (requestDocs.length > 0) {
+    await Requests.insertMany(requestDocs);
+    await Events.insertMany(requestEventDocs);
+  }
+  console.log(`  flexible requests       : ${requestDocs.length} (${requestEventDocs.length} waitlisted)`);
   console.log("  outcome mix:");
   for (const [k, v] of Object.entries(tally).sort((a, b) => b[1] - a[1])) {
     console.log(`    ${k.padEnd(28)} ${v}`);

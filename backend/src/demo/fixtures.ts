@@ -38,6 +38,9 @@ const DRIVER_NAMES: Record<keyof typeof DEMO_DRIVER_IDS, string> = {
   delayDownstreamB: "Demo Driver — Delay Downstream B",
   delayDownstreamC: "Demo Driver — Delay Downstream C",
   reliability: "Demo Driver — Reliability",
+  extensionDenied: "Demo Driver — Extension Denied",
+  extensionDeniedNeighbor: "Demo Driver — Extension Denied Neighbour",
+  overstay: "Demo Driver — Overstay",
 };
 
 const CHARGER_LABELS: Record<keyof typeof DEMO_CHARGER_IDS, string> = {
@@ -48,6 +51,8 @@ const CHARGER_LABELS: Record<keyof typeof DEMO_CHARGER_IDS, string> = {
   partialExtension: "Demo Charger — Partial Extension",
   incident: "Demo Charger — Incident",
   delayPropagation: "Demo Charger — Delay Propagation",
+  extensionDenied: "Demo Charger — Extension Denied",
+  overstay: "Demo Charger — Overstay",
   reliability: "Demo Charger — Reliability",
 };
 

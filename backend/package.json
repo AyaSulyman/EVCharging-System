@@ -25,10 +25,12 @@
     "ops:verify": "tsx scripts/verify-scheduler.ts && tsx scripts/verify-reservation-flow.ts && tsx scripts/verify-recommendations.ts",
     "ops:verify-scheduler": "tsx scripts/verify-scheduler.ts",
     "ops:verify-recommendations": "tsx scripts/verify-recommendations.ts",
+    "ops:verify-demo": "tsx scripts/verify-demo-readiness.ts",
     "ops:sweep-recommendations": "tsx scripts/sweep-recommendations.ts",
     "ops:optimize": "tsx scripts/run-optimizer.ts",
     "ops:optimizer-consumer": "tsx scripts/optimizer-consumer.ts",
     "ops:demo-data": "tsx scripts/generate-demo-data.ts",
+    "ops:demo-services": "tsx scripts/demo-services.ts",
     "demo": "tsx scripts/demo.ts"
   },
   "dependencies": {
