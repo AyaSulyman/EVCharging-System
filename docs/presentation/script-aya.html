@@ -44,33 +44,58 @@
 <body>
 <header>
   <div class="role">Presenter script</div>
-  <h1>Aya — customer journey, demo, analytics</h1>
-  <div class="total">Your speaking time: about <b>6 minutes</b>. You drive the screen for the whole
-  demo — the most visible part of the presentation. Abdel Aziz operates the staff window beside you.</div>
+  <h1>Aya — page rendering, customer journey, demo, analytics</h1>
+  <div class="total">Your speaking time: about <b>7 minutes</b>. You cover the rendering section —
+  which is a required part of the assessment — and you drive the screen for the whole demo.
+  Abdel Aziz operates the staff window beside you.</div>
 </header>
 
 <main>
 
 <div class="seg">
-  <h2>Slide 9 · What we built <span class="meta">1:00 · Abdel Aziz hands to you</span></h2>
+  <h2>Slides 10–12 · How pages are rendered <span class="meta">1:45 · required section · Abdel Aziz hands to you</span></h2>
   <div class="body">
+    <div class="do"><b>Why this is yours:</b> rendering is really a question about how the page
+    <i>feels</i> to the person using it — how fast it appears and whether the information is right
+    the moment they see it. That is the customer journey, which is your half of the project.</div>
+
+    <p><span class="pill">Slide 11</span> <b>Three ways to build a page</b></p>
     <div class="say">
-      <p>"Thank you. Before the demo, here is everything that actually works — twelve parts, and
-      every one of them is running on real data."</p>
-      <p><b>Do not read all twelve.</b> Pick four and move on:</p>
-      <p>"A driver can book any length from fifteen minutes up to two hours. A small deposit holds
-      it. They get a QR code to show at the station. And if there is nothing free, they keep their
-      place and we offer them a slot the moment one opens up."</p>
-      <p>"The rest — late arrivals, early departures, extensions, overstays, broken chargers and
-      the delays they cause — all work, and you will see several of them in a moment."</p>
+      <p>"Thank you Abdel Aziz. Next.js gives us three different ways to build a page, and we chose per page
+      rather than picking one for the whole project."</p>
+      <p>"Server-rendered means the server builds the page fresh for every visitor. Static means it
+      is built once when we deploy and then reused for everybody. And browser-rendered means a light
+      shell arrives first, and then the browser fetches the data."</p>
+      <p>"Each one is right in a different situation, so the interesting part is not the three
+      names — it is why we picked each one."</p>
     </div>
-    <div class="trans"><b>Hand over →</b> "Malik will explain the thinking behind the decisions,
-    and then I will show you all of it working."</div>
+
+    <p><span class="pill">Slide 12</span> <b>Every page, and why</b></p>
+    <div class="say">
+      <p>"The public pages — the home page, the station list, a station's detail page — are
+      server-rendered. A driver looking for a charger, and a search engine indexing us, both need to
+      see real availability in the very first response. If those pages were cached, we would be
+      showing yesterday's answer."</p>
+      <p><b>The line to land — say it slowly:</b> "The QR landing page is server-rendered and never
+      cached at all. Showing a bay as free when it was taken thirty seconds ago is the one failure
+      this whole product exists to prevent."</p>
+      <p>"The information pages — about, FAQ, terms, privacy — are static. They are identical for
+      everyone and change very rarely, so building them once at deploy time is simply faster for the
+      visitor."</p>
+      <p>"And the driver's own area — the booking wizard, their bookings, their offers, the waitlist
+      — is browser-rendered. Those pages need the login token, and they involve a lot of clicking. A
+      static shell appears instantly and the personal data arrives a moment later, which feels much
+      faster than waiting for a full page."</p>
+      <p><b>Be honest, it scores well:</b> "We also configured a time-based refresh option, but it
+      is currently unused — every request asks for fresh data. That is on our list to tidy up."</p>
+    </div>
+    <div class="trans"><b>Hand over →</b> "Abdel Aziz will show you everything the system actually
+    does."</div>
   </div>
 </div>
 
 <div class="seg">
-  <h2>Slide 13 · Demo — Anna's journey <span class="meta">4:00 · the centrepiece</span></h2>
+  <h2>Slide 20 · Demo — Anna's journey <span class="meta">4:00 · the centrepiece</span></h2>
   <div class="body">
     <div class="do">
       <b>Before you begin — check all three:</b>
@@ -160,7 +185,7 @@
 </div>
 
 <div class="seg">
-  <h2>Slide 14 · Results <span class="meta">0:45</span></h2>
+  <h2>Slide 22 · Results <span class="meta">0:45</span></h2>
   <div class="body">
     <div class="say">
       <p>"How do we know it works? One hundred and eighty-two automatic checks, and they run every

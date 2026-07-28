@@ -4,8 +4,8 @@
 deliberately not built (Q41–50). A confident "we did not build that, and here is why" scores better
 than a vague answer that falls apart on the follow-up.
 
-**Who answers what:** Malik — rules, optimizer, business. Abdel Aziz — database, back end, rendering.
-Aya — screens, journey, analytics.
+**Who answers what:** Malik — rules, optimizer, business. Abdel Aziz — database, back end, operator
+side, what each feature does. **Aya — screens, customer journey, page rendering (Q38–40), analytics.**
 
 ---
 
@@ -180,6 +180,8 @@ underlying no-show and late counts.
 ---
 
 ## F. Technical implementation (37–44)
+
+> **Q38–40 are rendering — Aya answers these.** The rest of this section is Abdel Aziz.
 
 **37. Why MongoDB?**
 Honestly, it is what the team knew. A relational database with an exclusion constraint would express

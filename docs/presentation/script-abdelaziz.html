@@ -41,17 +41,17 @@
 <body>
 <header>
   <div class="role">Presenter script</div>
-  <h1>Abdel Aziz — architecture, database, rendering, operator side</h1>
-  <div class="total">Your speaking time: about <b>5 minutes</b>, plus you operate the staff screen
-  during the demo. Section 4 (rendering) is a required part of the assessment — do not rush it.</div>
+  <h1>Abdel Aziz — architecture, database, features, operator side</h1>
+  <div class="total">Your speaking time: about <b>4:30</b>, plus you operate the staff screen during the demo.
+  Slides 8–9 are the technical heart of the talk — the database rule is the strongest thing we have.</div>
 </header>
 
 <main>
 
 <div class="seg">
-  <h2>Slides 5–6 · Architecture <span class="meta">2:00 · Malik hands to you</span></h2>
+  <h2>Slides 8–9 · Architecture <span class="meta">2:00 · Malik hands to you</span></h2>
   <div class="body">
-    <p><span class="pill">Slide 5</span> <b>Two applications, one database</b></p>
+    <p><span class="pill">Slide 8</span> <b>Two applications, one database</b></p>
     <div class="say">
       <p>"Thank you Malik. The system is two applications sharing one database."</p>
       <p>"The part people see is built with Next.js and React — the driver's app, the operator's
@@ -63,7 +63,7 @@
       to. It is never edited. Scores and reports are calculated from it rather than stored."</p>
     </div>
 
-    <p><span class="pill">Slide 6</span> <b>The one rule the database enforces — your key slide</b></p>
+    <p><span class="pill">Slide 9</span> <b>The one rule the database enforces — your key slide</b></p>
     <div class="say">
       <p>"This is the most important technical decision we made, so I want to spend a moment on it."</p>
       <p>"We split charger time into fifteen-minute blocks. A booking from three to four o'clock
@@ -82,41 +82,27 @@
     ranges must not overlap". Splitting into fixed blocks turns overlap into a simple duplicate-key
     rule, which the database does enforce natively. The cost is that bookings start on the quarter
     hour. We accepted that trade deliberately.</div>
-    <div class="trans"><b>Transition →</b> "One part of the assessment asks how we chose to render
-    each page, so let me cover that next."</div>
+    <div class="trans"><b>Hand over →</b> "Aya will explain how we chose to build each page, which is a required part of the assessment."</div>
   </div>
 </div>
 
 <div class="seg">
-  <h2>Slides 7–8 · Next.js rendering <span class="meta">1:45 · required section</span></h2>
+  <h2>Slide 14 · What we built <span class="meta">1:00 · Aya hands back to you</span></h2>
   <div class="body">
-    <p><span class="pill">Slide 7</span> <b>Three ways to build a page</b></p>
+    <div class="do"><b>Why this is yours:</b> you built most of these services, so you can answer a
+    follow-up on any one of them without passing it along.</div>
     <div class="say">
-      <p>"Next.js gives us three ways to build a page, and we chose per page rather than picking
-      one for the whole project."</p>
-      <p>"Server-rendered means the server builds the page fresh for every visitor. Static means it
-      is built once when we deploy and reused for everybody. Browser-rendered means a light shell
-      loads first and then the browser fetches the data."</p>
+      <p>"Thank you Aya. Before the demonstration, here is everything that actually works — twelve
+      parts, and every one of them is running against a real database."</p>
+      <p><b>Do not read all twelve.</b> Pick four, then move on:</p>
+      <p>"A driver can book any length from fifteen minutes up to two hours. A small deposit holds
+      the booking. They get a QR code to show at the station. And if nothing is free, they keep
+      their place in the queue and we offer them a charger the moment one opens up."</p>
+      <p>"The rest — late arrivals, early departures, extensions, overstays, broken chargers and the
+      delays they cause — all work, and you will see several of them in a few minutes."</p>
     </div>
-
-    <p><span class="pill">Slide 8</span> <b>Every page, and why</b></p>
-    <div class="say">
-      <p>"The public pages — the home page, the station list, a station's detail page — are
-      server-rendered, because a driver and a search engine both need to see real availability in
-      the very first response."</p>
-      <p><b>The line to land:</b> "The QR landing page is server-rendered and never cached at all.
-      Showing a bay as free when it was taken thirty seconds ago is the one failure this product
-      exists to prevent."</p>
-      <p>"The information pages — about, FAQ, terms, privacy — are static. They are the same for
-      everyone and change rarely, so building them once is simply faster."</p>
-      <p>"And the driver's own area — the booking wizard, their bookings, offers, waitlist — is
-      browser-rendered. Those pages need the login token and involve a lot of clicking. A static
-      shell appears instantly and the data arrives a moment later."</p>
-      <p><b>Honest note:</b> "We also configured time-based refresh, but it is currently unused —
-      every request asks for fresh data. That is on our list to tidy up."</p>
-    </div>
-    <div class="trans"><b>Hand over →</b> "Malik will explain how the system actually decides who
-    gets which charger."</div>
+    <div class="trans"><b>Hand over →</b> "Malik will explain the thinking behind how the system
+    decides who gets which charger."</div>
   </div>
 </div>
 
@@ -169,7 +155,7 @@
 </div>
 
 <div class="seg">
-  <h2>Slide 17 · Design lessons <span class="meta">1:15</span></h2>
+  <h2>Slide 27 · Design lessons <span class="meta">1:15</span></h2>
   <div class="body">
     <div class="say">
       <p>"Three lessons from the design side."</p>

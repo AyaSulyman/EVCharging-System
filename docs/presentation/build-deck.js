@@ -149,8 +149,8 @@ function speaker(slide, who) {
 
   const people = [
     { n: "Malik", r: "Booking rules, optimization engine,\nreliability scoring, waitlists,\nextensions, business value", g: "M", x: 0.6 },
-    { n: "Abdel Aziz", r: "Backend services, database design,\nQR workflow, operator screens,\ntechnical implementation", g: "A", x: 4.75 },
-    { n: "Aya", r: "Customer journey, interface design,\nanalytics dashboards,\nbusiness outcomes, demo support", g: "Y", x: 8.9 },
+    { n: "Abdel Aziz", r: "Backend services, database design,\nQR workflow, operator screens,\nwhat the system does", g: "A", x: 4.75 },
+    { n: "Aya", r: "Customer journey, interface design,\nhow pages are rendered,\nanalytics dashboards, demo support", g: "Y", x: 8.9 },
   ];
   people.forEach((p) => {
     card(s, p.x, 1.85, 3.8, 3.1);
@@ -374,7 +374,7 @@ sectionSlide(4, "How pages are rendered", "Next.js gives us three ways to build 
   "Server-rendered",
   "Static",
   "Browser-rendered",
-]).addNotes("Abdel Aziz. Ninety seconds — this is a required section.");
+]).addNotes("Aya. Ninety seconds — this is a required section.");
 
 /* ================================================================ 7. RENDERING MODES */
 {
@@ -413,7 +413,7 @@ sectionSlide(4, "How pages are rendered", "Next.js gives us three ways to build 
   s.addText("We also have time-based refresh (ISR) configured, but it is currently unused — we tell every request to fetch fresh data.", {
     x: 0.6, y: 5.8, w: 12.1, h: 0.4, fontFace: B, fontSize: 12, italic: true, color: C.inkSoft, margin: 0,
   });
-  speaker(s, "Abdel Aziz");
+  speaker(s, "Aya");
 }
 
 /* ================================================================ 8. RENDERING TABLE */
@@ -450,7 +450,7 @@ sectionSlide(4, "How pages are rendered", "Next.js gives us three ways to build 
     });
     y += h + 0.14;
   });
-  speaker(s, "Abdel Aziz");
+  speaker(s, "Aya");
   s.addNotes("Say the QR line out loud — it ties rendering back to the business problem.");
 }
 
@@ -460,7 +460,7 @@ sectionSlide(5, "What we built", "Twelve working parts, all verified against a r
   "Sessions and QR",
   "Optimizer and waitlists",
   "Analytics",
-]).addNotes("Aya takes over.");
+]).addNotes("Abdel Aziz — you cover what was built; Aya returns for the demo.");
 
 /* ================================================================ 9. FEATURES */
 {
@@ -493,7 +493,7 @@ sectionSlide(5, "What we built", "Twelve working parts, all verified against a r
       x: x + 0.25, y: y + 0.44, w: 3.4, h: 0.52, fontFace: B, fontSize: 11, color: C.inkSoft, margin: 0,
     });
   });
-  speaker(s, "Aya");
+  speaker(s, "Abdel Aziz");
 }
 
 /* ================================================================ SECTION 6 */
