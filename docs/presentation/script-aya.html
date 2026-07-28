@@ -44,10 +44,11 @@
 <body>
 <header>
   <div class="role">Presenter script</div>
-  <h1>Aya — page rendering, customer journey, demo, analytics</h1>
+  <h1>Aya — page rendering, customer journey, demo, analytics, what comes next</h1>
   <div class="total">Your speaking time: about <b>7 minutes</b>. You cover the rendering section —
-  which is a required part of the assessment — and you drive the screen for the whole demo.
-  Abdel Aziz operates the staff window beside you.</div>
+  which is a required part of the assessment — you drive the main demo, you present the results, and
+  you give the honest list of what we have not built.
+  Abdel Aziz operates the staff window beside you and runs the three short scenes after the demo.</div>
 </header>
 
 <main>
@@ -95,7 +96,7 @@
 </div>
 
 <div class="seg">
-  <h2>Slide 20 · Demo — Anna's journey <span class="meta">4:00 · the centrepiece</span></h2>
+  <h2>Slide 20 · Demo — Anna's journey <span class="meta">3:30 · the centrepiece</span></h2>
   <div class="body">
     <div class="do">
       <b>Before you begin — check all three:</b>
@@ -158,42 +159,50 @@
     <div class="warn"><b>If something does not respond:</b> the background services run once a
     minute. Say "this runs on a timer, so give it a moment" and move to the next step — do not stand
     in silence waiting. Come back to it.</div>
+    <div class="trans"><b>Hand over →</b> "That was one driver from start to finish. Abdel Aziz will
+    show you three shorter scenes that each make one point."</div>
   </div>
 </div>
 
-<div class="seg">
-  <h2>Three short scenes <span class="meta">1:30</span></h2>
-  <div class="body">
-    <div class="do"><b>Run <code>npm run demo -- reset</code> between each one.</b> A booking from
-    the previous scene genuinely still holds its charger, so skipping the reset can fail — correctly,
-    but it looks like a bug.</div>
-    <div class="say">
-      <p><b>Waitlist promotion</b> — "Someone wanted a time that was full, so they waited. The
-      person who had it cancelled. Within a minute the waiting driver was offered that exact slot,
-      and accepted. Nobody at the station had to do anything."</p>
-      <p><b>Reliability scoring</b> — "Here are four drivers with the same account and very
-      different habits. One always turns up — a hundred. One is occasionally late — eighty-three.
-      Two are chronically late or frequently absent — zero. That is built from what they actually
-      did, not entered by anyone."</p>
-      <p><b>Technical incident</b> — "A charger is reported broken. The system identifies the
-      bookings affected. Notice it does not cancel anything automatically — it tells the operator
-      what is affected and lets a person decide. We felt cancelling someone's booking should be a
-      human decision."</p>
-    </div>
-    <div class="trans"><b>Hand over →</b> "Malik, over to you for what this is worth to a station."</div>
-  </div>
-</div>
 
 <div class="seg">
-  <h2>Slide 22 · Results <span class="meta">0:45</span></h2>
+  <h2>Slide 22 · Results <span class="meta">0:45 · Abdel Aziz hands to you</span></h2>
   <div class="body">
     <div class="say">
-      <p>"How do we know it works? One hundred and eighty-two automatic checks, and they run every
-      time we change anything."</p>
+      <p>"Thank you Abdel Aziz. How do we know it works? One hundred and eighty-two automatic
+      checks, and they run every time we change anything."</p>
       <p>"They do not check that the code runs. They check things like: two bookings that overlap —
       the second one is refused. Two bookings back to back — both accepted. A held charger cannot be
       taken by anyone else. And leaving early really does put the time back on sale."</p>
     </div>
+    <div class="trans"><b>Hand over →</b> "Malik will tell you what all of that is worth to a
+    station owner."</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Slide 25 · What we would build next <span class="meta">0:45 · Malik hands back to you</span></h2>
+  <div class="body">
+    <div class="do"><b>Why this is yours:</b> this is the honest half of the customer journey — the
+    things a driver would notice are missing. You already say "no data" instead of zero and that the
+    refresh option is unused, so being the one who names the gaps is consistent. <b>Do not read all
+    six.</b> Take the first three properly and summarise the rest in one sentence.</div>
+    <div class="say">
+      <p>"Thank you Malik. We should be equally clear about what is not built."</p>
+      <p>"Real card payments. Everything around them exists — the connection point, the deposit and
+      refund records, the protection against charging twice — but no money actually moves. That is a
+      swap, not a rebuild."</p>
+      <p>"Email and text alerts. Messages work today, but only inside the app. A driver has to open
+      it to see that their charger is ready."</p>
+      <p><b>The one worth dwelling on:</b> "And a real check-out signal. Right now we assume a driver
+      leaves when charging stops. If someone unplugs and leaves the car parked in the bay, we would
+      put that time back on sale while a car is still sitting there. That is the weakest assumption
+      in the system, and no amount of code fixes it — it needs a sensor or a second scan."</p>
+      <p><b>Then one sentence for the rest:</b> "Beyond that: reserving extra time automatically for
+      someone overstaying, tuning the scoring differently per station, and long bookings that span
+      two separate free periods."</p>
+    </div>
+    <div class="trans"><b>Hand over →</b> "Abdel Aziz will start on what we learned."</div>
   </div>
 </div>
 

@@ -43,7 +43,8 @@
   <div class="role">Presenter script</div>
   <h1>Malik — reservation logic, optimization, business value</h1>
   <div class="total">Your speaking time: about <b>8 minutes</b> across the talk, plus Q&amp;A lead.
-  You open the presentation and you close it.</div>
+  You open the presentation and you close it, and you own the optimizer, reliability and business
+  value — the reasoning half of the project.</div>
 </header>
 
 <main>
@@ -66,7 +67,7 @@
 </div>
 
 <div class="seg">
-  <h2>Slides 3–4 · Introduction and the problem <span class="meta">2:00</span></h2>
+  <h2>Slides 4 and 6 · Introduction and the problem <span class="meta">2:00</span></h2>
   <div class="body">
     <div class="say">
       <p>"A charging station is a shop with very few seats. Charging a car takes anywhere from
@@ -85,9 +86,9 @@
 </div>
 
 <div class="seg">
-  <h2>Slides 10–12 · Business logic — your main section <span class="meta">4:00 · your strongest material</span></h2>
+  <h2>Slides 16–17 · Business logic — your main section <span class="meta">3:10 · your strongest material</span></h2>
   <div class="body">
-    <p><span class="pill">Slide 10</span> <b>How the optimizer decides</b></p>
+    <p><span class="pill">Slide 16</span> <b>How the optimizer decides</b></p>
     <div class="say">
       <p>"A driver tells us 'about thirty minutes, any time between two and six'. The system looks
       at every possible slot across every compatible charger and gives each one a score."</p>
@@ -104,7 +105,7 @@
       serve more people, the number tells us."</p>
     </div>
 
-    <p><span class="pill">Slide 11</span> <b>The five-minute hold and reliability</b></p>
+    <p><span class="pill">Slide 17</span> <b>The five-minute hold and reliability</b></p>
     <div class="say">
       <p>"When we offer a driver a charger, we genuinely hold it for five minutes. Nobody else can
       book it in that window. That is what makes accepting safe — the charger was already secured
@@ -122,24 +123,17 @@
       that could lock people out is a ban dressed up as an optimisation."</p>
     </div>
 
-    <p><span class="pill">Slide 12</span> <b>Deposits and fairness</b></p>
-    <div class="say">
-      <p>"A small deposit holds the booking. Cancel more than a day ahead and you get it all back.
-      Cancel at the last minute, or never turn up, and it is kept."</p>
-      <p><b>The line that matters:</b> "But our fault always beats the clock. If the charger broke,
-      or we moved your booking, you are refunded even inside the twenty-four hour window — and your
-      reliability score is not touched. Only staff can mark something as our fault. If a driver
-      could do that, they would refund themselves every single time."</p>
-    </div>
-    <div class="warn"><b>Say this before anyone asks:</b> "Payments are simulated. No card details
-    are accepted, stored or shown anywhere in this system. The records and the refund rules are
-    real; the money movement is not."</div>
-    <div class="trans"><b>Hand over →</b> "Aya is going to show you all of this actually working."</div>
+    <div class="do"><b>Slide 18 is no longer yours.</b> The deposit and refund rules are enforced in
+    the back-end services, and only staff can mark a problem as our fault — which is server-side
+    access control. Abdel Aziz owns both, so he takes that slide. You still lead any money question
+    in Q&amp;A if it is about fairness rather than how it is enforced.</div>
+    <div class="trans"><b>Hand over →</b> "Abdel Aziz will explain the deposit, and how we make sure
+    it is fair."</div>
   </div>
 </div>
 
 <div class="seg">
-  <h2>Slide 15 · Business value <span class="meta">1:00 · after the demo</span></h2>
+  <h2>Slide 23 · Business value <span class="meta">1:00 · after the demo, Aya hands to you</span></h2>
   <div class="body">
     <div class="say">
       <p>"So what is this worth to a station owner?"</p>
@@ -151,18 +145,18 @@
       <p>"And decisions based on evidence. A manager can see which station is short of capacity and
       why people are waiting there, rather than guessing."</p>
     </div>
+    <div class="trans"><b>Hand over →</b> "Aya will tell you what we have <i>not</i> built yet."</div>
   </div>
 </div>
 
 <div class="seg">
-  <h2>Slides 16, 18, 19 · Future work, lessons, close <span class="meta">2:00</span></h2>
+  <h2>Slides 28–29 · The closing lesson, and the close <span class="meta">1:05 · Abdel Aziz hands to you</span></h2>
   <div class="body">
+    <div class="do"><b>You come in last.</b> Aya covers what is not built yet (slide 25) and Abdel
+    Aziz covers the three design lessons (slide 27). You take the three that surprised us, and then
+    you close the presentation.</div>
     <div class="say">
-      <p><b>Future work — be honest and brief:</b> "Real card payments; the connection point is
-      already built, so it is a swap rather than a rebuild. Email and text alerts — messages work
-      inside the app today. And a real check-out signal: right now we assume a driver leaves when
-      charging stops, and a sensor would tell us for certain."</p>
-      <p><b>Lesson six (slide 18), your closer:</b> "The lesson that surprised us most was that
+      <p><b>Lesson six (slide 28), your closer:</b> "The lesson that surprised us most was that
       testing the logic is not the same as testing the wiring. At one point every single one of our
       one hundred and eighty-two automatic checks was passing — while half of our dashboard showed
       no data at all. The logic was correct. Nothing had ever fed it. Now we write a check that

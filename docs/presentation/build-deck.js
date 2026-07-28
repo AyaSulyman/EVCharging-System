@@ -149,8 +149,8 @@ function speaker(slide, who) {
 
   const people = [
     { n: "Malik", r: "Booking rules, optimization engine,\nreliability scoring, waitlists,\nextensions, business value", g: "M", x: 0.6 },
-    { n: "Abdel Aziz", r: "Backend services, database design,\nQR workflow, operator screens,\nwhat the system does", g: "A", x: 4.75 },
-    { n: "Aya", r: "Customer journey, interface design,\nhow pages are rendered,\nanalytics dashboards, demo support", g: "Y", x: 8.9 },
+    { n: "Abdel Aziz", r: "Backend services, database design,\nQR workflow, operator screens,\ndeposit and refund rules", g: "A", x: 4.75 },
+    { n: "Aya", r: "Customer journey, interface design,\nhow pages are rendered,\nanalytics dashboards, live demo", g: "Y", x: 8.9 },
   ];
   people.forEach((p) => {
     card(s, p.x, 1.85, 3.8, 3.1);
@@ -501,7 +501,7 @@ sectionSlide(6, "The thinking behind it", "How the system decides — and why it
   "How the optimizer chooses",
   "Reliability",
   "Deposits and fairness",
-]).addNotes("Malik. This is the heart of the project.");
+]).addNotes("Malik takes the optimizer and reliability (3:10). Abdel Aziz takes the deposit and refund rules (1:00) — they are enforced in the backend he built.");
 
 /* ================================================================ 10. OPTIMIZER */
 {
@@ -628,7 +628,8 @@ sectionSlide(6, "The thinking behind it", "How the system decides — and why it
   s.addText("Payments are simulated. No card details are ever accepted, stored, or shown anywhere in this system.", {
     x: 0.6, y: 6.35, w: 12.1, h: 0.35, fontFace: B, fontSize: 12, bold: true, italic: true, color: C.volt, margin: 0,
   });
-  speaker(s, "Malik");
+  speaker(s, "Abdel Aziz");
+  s.addNotes("Abdel Aziz — the refund rules are enforced in one backend service, and only staff can set the operator-fault flag. Say the simulated-payments line out loud before anyone asks.");
 }
 
 /* ================================================================ SECTION 7 */
@@ -637,7 +638,7 @@ sectionSlide(7, "Live demonstration", "One driver's journey, then three short sc
   "Waitlist promotion",
   "Reliability scoring",
   "A broken charger",
-]).addNotes("Aya drives the screen. Abdel Aziz operates the staff side.");
+]).addNotes("Aya drives the main journey (3:30). Abdel Aziz operates the staff window throughout, then runs the three short scenes (1:30).");
 
 /* ================================================================ 13. DEMO MAP */
 {
@@ -668,11 +669,11 @@ sectionSlide(7, "Live demonstration", "One driver's journey, then three short sc
       x: x + 0.9, y: y + 0.52, w: 2.8, h: 0.55, fontFace: B, fontSize: 10.5, color: C.inkSoft, margin: 0,
     });
   });
-  s.addText("Then three short scenes: a waitlisted driver promoted to a real booking · a reliability score built from real history · a broken charger reported and resolved.", {
+  s.addText("Then Abdel Aziz runs three short scenes: a waitlisted driver promoted to a real booking · a reliability score built from real history · a broken charger reported and resolved.", {
     x: 0.6, y: 5.95, w: 12.1, h: 0.5, fontFace: B, fontSize: 13, italic: true, color: C.primary, margin: 0,
   });
   speaker(s, "Aya");
-  s.addNotes("SWITCH TO THE APP HERE. Aya drives. Follow the presenter script.");
+  s.addNotes("SWITCH TO THE APP HERE. Aya drives the main journey; Abdel Aziz operates the staff window and then runs the three short scenes.");
 }
 
 /* ================================================================ SECTION 8 */
@@ -680,7 +681,7 @@ sectionSlide(8, "Results", "What works, and how we know.", [
   "182 automatic checks",
   "31 measurements",
   "Real data behind them",
-]).addNotes("Aya, then Malik for the business value.");
+]).addNotes("Aya takes the results, then Malik for the business value, then Aya again for what is not built.");
 
 /* ================================================================ 14. RESULTS */
 {
@@ -759,7 +760,7 @@ sectionSlide(9, "What comes next", "Honest about what is not built yet.", [
   "Real payments",
   "Email and phone alerts",
   "A real check-out signal",
-]).addNotes("Malik. Keep it short and honest.");
+]).addNotes("Aya. Keep it short and honest — three properly, one sentence for the rest.");
 
 /* ================================================================ 16. FUTURE */
 {
@@ -786,7 +787,8 @@ sectionSlide(9, "What comes next", "Honest about what is not built yet.", [
       x: x + 0.28, y: y + 0.5, w: 5.4, h: 0.72, fontFace: B, fontSize: 11.5, color: C.inkSoft, margin: 0,
     });
   });
-  speaker(s, "Malik");
+  speaker(s, "Aya");
+  s.addNotes("Aya. Do not read all six — take the first three properly, then one sentence for the rest. The check-out signal is the honest one to dwell on.");
 }
 
 /* ================================================================ SECTION 10 */
@@ -894,9 +896,9 @@ sectionSlide(10, "What we learned", "Six lessons we could only have learned by b
   s.addText("Malik  ·  Abdel Aziz  ·  Aya", {
     x: 0.9, y: 6.5, w: 8, h: 0.3, fontFace: B, fontSize: 12, color: "7E918A", margin: 0,
   });
-  s.addNotes("Malik leads Q&A. Abdel Aziz takes database and implementation questions. Aya takes interface and analytics questions.");
+  s.addNotes("Malik leads Q&A. Abdel Aziz takes database, implementation and money questions. Aya takes interface, rendering, analytics and scope questions.");
 }
 
-pres.writeFile({ fileName: "ChargeHub-Presentation.pptx" }).then((f) => {
+pres.writeFile({ fileName: process.env.OUT || "ChargeHub-Presentation.pptx" }).then((f) => {
   console.log("Wrote", f);
 });

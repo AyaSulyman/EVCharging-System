@@ -4,8 +4,10 @@
 deliberately not built (Q41–50). A confident "we did not build that, and here is why" scores better
 than a vague answer that falls apart on the follow-up.
 
-**Who answers what:** Malik — rules, optimizer, business. Abdel Aziz — database, back end, operator
-side, what each feature does. **Aya — screens, customer journey, page rendering (Q38–40), analytics.**
+**Who answers what:** Malik — booking rules, optimizer, reliability, business value (A, B, C, E).
+Abdel Aziz — database, back end, operator side, and **deposits and refunds (D, Q26–31)**, because
+those rules are enforced in the backend services he built.
+**Aya — screens, customer journey, page rendering (Q38–40), analytics, and what is not built (G, Q45–46).**
 
 ---
 
@@ -128,6 +130,9 @@ be fulfilled by hand or by an operator.
 
 ## D. Deposits and money (26–31)
 
+> **Abdel Aziz answers this section** — he presents slide 18 and owns the enforcement. Malik takes
+> over only if the question is about whether the rule is *fair* rather than how it is enforced.
+
 **26. Are payments real?**
 No. Payments are simulated. No card number, expiry, CVC or token is ever accepted, stored,
 transmitted or displayed. There is no field for one.
@@ -219,6 +224,9 @@ expiring, no-shows are not detected and freed time is not re-offered. It degrade
 ---
 
 ## G. Scope, honesty and limits (45–50)
+
+> **Aya answers Q45–46** — she presents slide 25, the "what we would build next" slide. Malik takes
+> Q47–50, which are about how we found our own mistakes.
 
 **45. What is not built?**
 Real card payments. Email and SMS delivery — messages are in-app only. A real check-out signal. Extra
