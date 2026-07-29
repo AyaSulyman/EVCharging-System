@@ -68,7 +68,7 @@ export default async function QrPage({
           {/* Action */}
           {available ? (
             <Link
-              href={`/book?station=${station._id}&charger=${charger._id}`}
+              href={`/book/exact?station=${station._id}&charger=${charger._id}`}
               className="btn-primary mt-4 w-full py-3 text-base"
             >
               Reserve this charger

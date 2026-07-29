@@ -243,9 +243,9 @@ export default function FlexibleBookingPage() {
     <div className="mx-auto max-w-3xl">
       <div className="flex items-center gap-3">
         <Link
-          href="/book"
+          href="/dashboard"
           className="flex h-9 w-9 items-center justify-center rounded-lg border border-line bg-white text-ink-soft hover:text-ink"
-          aria-label="Back to booking options"
+          aria-label="Back to your dashboard"
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>

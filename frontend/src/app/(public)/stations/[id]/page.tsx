@@ -100,7 +100,7 @@ export default async function StationDetailPage({
 
                 {c.status === "available" ? (
                   <Link
-                    href={`/book?station=${station._id}&charger=${c._id}`}
+                    href={`/book/exact?station=${station._id}&charger=${c._id}`}
                     className="btn-primary mt-4 w-full"
                   >
                     Reserve

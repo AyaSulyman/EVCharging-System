@@ -166,7 +166,7 @@ function RecCard({ rec }: { rec: Rec }) {
             </span>
           </div>
           <Link
-            href={`/book?station=${rec.nearestStation._id}&charger=${rec.bestCharger._id}`}
+            href={`/book/exact?station=${rec.nearestStation._id}&charger=${rec.bestCharger._id}`}
             className="btn-primary mt-4"
           >
             Reserve now

@@ -196,7 +196,7 @@ npm run ops:demo-services     # leave running the whole session</pre>
       <h3 class="sec">Record these actions — silently</h3>
       <ol class="beats">
         <li>
-          <div class="doit"><span class="win">Window 1</span>Book Downtown, exact time, 15:00–16:00, 60 minutes. Pay the deposit. Stop on the QR screen.</div>
+          <div class="doit"><span class="win">Window 1</span>From <b>Stations → Downtown</b>, press <b>Book</b> on a charger — that link carries the charger, so it opens the step-by-step wizard at <code>/book/exact</code>. Take 15:00–16:00, 60 minutes, pay the deposit, stop on the QR screen.</div>
           <div class="say">"This is Rami. He knows exactly when he needs to charge, so he picks his own time. Watch the available start times as I change the length — that is not a stored list of slots, it is worked out from what is genuinely free right now."</div>
           <div class="ovl"><b>0:18</b> — "Not a stored list. Calculated from what is actually free, for this exact length."</div>
         </li>
@@ -211,7 +211,7 @@ npm run ops:demo-services     # leave running the whole session</pre>
           <div class="ovl"><b>0:58</b> — "15:00 · 15:15 · 15:30 · 15:45 owned — 16:00 free."</div>
         </li>
         <li>
-          <div class="doit"><span class="win">Window 2</span>Cancel that booking. Then submit a <b>flexible</b> request: about 30 minutes, any time this afternoon, Downtown.</div>
+          <div class="doit"><span class="win">Window 2</span>Cancel that booking. Then press <b>Book now</b> in the navbar — it goes straight to the booking form. Ask for about 30 minutes, any time this afternoon, Downtown.</div>
           <div class="say">"Now the interesting half. Instead of naming a time, she describes a window — about thirty minutes, some time this afternoon. That is the whole difference. A step-by-step wizard can only answer 'which of these exact times?' It has nothing to say when the honest answer is none of them."</div>
         </li>
         <li>
@@ -277,7 +277,7 @@ npm run ops:demo-services     # leave running the whole session</pre>
       <h3 class="sec">Record these actions — silently</h3>
       <ol class="beats">
         <li>
-          <div class="doit"><span class="win">Window 1</span>Book at Airport for later today. Pay the deposit. Show the QR code.</div>
+          <div class="doit"><span class="win">Window 1</span>Press <b>Book now</b>, choose Airport, a window later today. Pay the deposit. Show the QR code.</div>
           <div class="say">"Sara books a charger at the airport and pays a small deposit. I should say this before anyone asks — the payment is simulated. No card number, expiry or security code is ever entered, stored or shown anywhere in this system. There is no field for one. What is real is the rules and the records."</div>
           <div class="ovl"><b>0:20</b> — "Payment simulated. No card data is accepted, stored or displayed anywhere."</div>
         </li>
@@ -350,11 +350,11 @@ npm run ops:demo-services     # leave running the whole session</pre>
       <h3 class="sec">Record these actions — silently</h3>
       <ol class="beats">
         <li>
-          <div class="doit"><span class="win">Window 1</span>Book Marina, 60 minutes, starting shortly.</div>
+          <div class="doit"><span class="win">Window 1</span>Press <b>Book now</b>, choose Marina, 60 minutes, a narrow window starting shortly.</div>
           <div class="say">"Lina books an hour at the marina this afternoon."</div>
         </li>
         <li>
-          <div class="doit"><span class="win">Window 2</span>Request a <b>flexible</b> slot in the same window, when Marina is full. Land on the waitlist.</div>
+          <div class="doit"><span class="win">Window 2</span>Press <b>Book now</b> and ask for the same window at Marina, now that it is full. Land on the waitlist.</div>
           <div class="say">"Ziad wants roughly the same time, and there is nothing free. In most systems that is where he disappears — 'sorry, fully booked', and you have lost the customer. Here he keeps his place and the request stays alive. A waitlist entry in our system is not a separate list; it is simply a request we have not been able to satisfy yet, and it gets reconsidered automatically every single time a charger frees up."</div>
           <div class="ovl"><b>0:30</b> — "Not turned away. The request stays live and is reconsidered on every release."</div>
         </li>
