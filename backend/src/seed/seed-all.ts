@@ -36,7 +36,6 @@ import ReservationRequest from "@/models/ReservationRequest";
 import CustomerBehaviorProfile from "@/models/CustomerBehaviorProfile";
 import { atomsForRange, OCCUPANCY_ATOM_MINUTES } from "@/models/occupancyPolicy";
 
-const WIKI = "https://commons.wikimedia.org/wiki/Special:FilePath";
 
 const WEEK_HOURS = {
   monday: { open: "08:00", close: "22:00" },
@@ -119,7 +118,7 @@ async function run() {
         "Our flagship downtown hub with high-speed CCS chargers and a comfortable indoor waiting lounge.",
       amenities: ["wifi", "restroom", "cafe", "waiting_area"],
       operatingHours: WEEK_HOURS,
-      images: [`${WIKI}/Electric_car_charging_station.jpg?width=1200`],
+      images: ["/images/charging-station.jpg"],
       isActive: true,
     },
     {
@@ -129,7 +128,7 @@ async function run() {
       description: "Ultra-fast 350 kW chargers ideal for a quick top-up before or after your flight.",
       amenities: ["wifi", "restroom", "parking"],
       operatingHours: WEEK_HOURS,
-      images: [`${WIKI}/Electric_vehicle_charging_station_Th%C3%B6rey.jpg?width=1200`],
+      images: ["/images/charging-station-thorey.jpg"],
       isActive: true,
     },
     {
@@ -139,7 +138,7 @@ async function run() {
       description: "Charge while you enjoy the waterfront. Cafes, shops, and sea views steps away.",
       amenities: ["wifi", "cafe", "shopping", "sea_view"],
       operatingHours: WEEK_HOURS,
-      images: [`${WIKI}/Electric_vehicle_charging_station_in_Drongen%2C_Begium_-_2.jpg?width=1200`],
+      images: ["/images/charging-station-drongen.jpg"],
       isActive: true,
     },
   ]);
@@ -361,7 +360,7 @@ async function run() {
       title: "Charge Anywhere, Anytime",
       subtitle: "Find and book fast chargers across the network in seconds.",
       tag: "ChargeHub Network",
-      imageUrl: `${WIKI}/Electric_car_charging_station.jpg?width=1600`,
+      imageUrl: "/images/charging-station.jpg",
       ctaLabel: "Find a Station",
       ctaHref: "/stations",
       order: 1,
@@ -371,7 +370,7 @@ async function run() {
       title: "Ultra-Fast DC Charging",
       subtitle: "Get back on the road in minutes with our high-power chargers.",
       tag: "Up to 350 kW",
-      imageUrl: `${WIKI}/Electric_vehicle_charging_station_Th%C3%B6rey.jpg?width=1600`,
+      imageUrl: "/images/charging-station-thorey.jpg",
       ctaLabel: "See Charger Types",
       ctaHref: "/stations",
       order: 2,
@@ -381,7 +380,7 @@ async function run() {
       title: "One Plug, Every Vehicle",
       subtitle: "CCS, CHAdeMO and Type 2 support for every EV on the road.",
       tag: "Universal Connectors",
-      imageUrl: `${WIKI}/Public_domain_image_-_CHAdeMO_fast_charger_plugged_into_electric_car.JPG?width=1600`,
+      imageUrl: "/images/chademo-charger.jpg",
       ctaLabel: "Explore Compatibility",
       ctaHref: "/vehicles",
       order: 3,
@@ -391,9 +390,9 @@ async function run() {
       title: "Reserve Your Slot in Advance",
       subtitle: "Skip the wait — book a charging slot before you arrive.",
       tag: "Smart Booking",
-      imageUrl: `${WIKI}/Electric_vehicle_charging_station_in_Drongen%2C_Begium_-_2.jpg?width=1600`,
+      imageUrl: "/images/charging-station-drongen.jpg",
       ctaLabel: "Book Now",
-      ctaHref: "/bookings/new",
+      ctaHref: "/book",
       order: 4,
       isActive: true,
     },

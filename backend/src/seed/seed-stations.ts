@@ -24,7 +24,6 @@ const WEEK_HOURS = {
   sunday: { open: "09:00", close: "20:00" },
 };
 
-const WIKI = "https://commons.wikimedia.org/wiki/Special:FilePath";
 
 const stationDefs = [
   {
@@ -35,7 +34,7 @@ const stationDefs = [
       "Our flagship downtown hub with high-speed CCS chargers and a comfortable indoor waiting lounge.",
     amenities: ["wifi", "restroom", "cafe", "waiting_area"],
     operatingHours: WEEK_HOURS,
-    images: [`${WIKI}/Electric_car_charging_station.jpg?width=1200`],
+    images: ["/images/charging-station.jpg"],
     isActive: true,
   },
   {
@@ -45,7 +44,7 @@ const stationDefs = [
     description: "Ultra-fast 350 kW chargers ideal for a quick top-up before or after your flight.",
     amenities: ["wifi", "restroom", "parking"],
     operatingHours: WEEK_HOURS,
-    images: [`${WIKI}/Electric_vehicle_charging_station_Th%C3%B6rey.jpg?width=1200`],
+    images: ["/images/charging-station-thorey.jpg"],
     isActive: true,
   },
   {
@@ -55,7 +54,7 @@ const stationDefs = [
     description: "Charge while you enjoy the waterfront. Cafes, shops, and sea views steps away.",
     amenities: ["wifi", "cafe", "shopping", "sea_view"],
     operatingHours: WEEK_HOURS,
-    images: [`${WIKI}/Electric_vehicle_charging_station_in_Drongen%2C_Begium_-_2.jpg?width=1200`],
+    images: ["/images/charging-station-drongen.jpg"],
     isActive: true,
   },
 ];
