@@ -18,15 +18,13 @@ import { FlexibilitySelector } from "@/components/booking/FlexibilitySelector";
 import { useToast } from "@/components/Toast";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useApi } from "@/lib/useApi";
+import { DURATIONS, durationLabel } from "@/lib/durations";
 import type {
   StationWithChargers,
   ICharger,
   IVehicle,
   FlexibilityType,
 } from "@/types";
-
-/** Durations the platform offers. Mirrors ALLOWED_DURATIONS_MINUTES on the server. */
-const DURATIONS = [15, 30, 45, 60, 90] as const;
 
 interface OccupiedBlock {
   start: string;
@@ -209,10 +207,10 @@ function BookingWizard() {
       <h1 className="text-2xl font-bold text-ink">Reserve a charger</h1>
 
       {/*
-        Kept as an escape hatch, not as the primary offer — `/book` now asks exact-or-flexible before
-        anything else, so a driver arriving here has usually already chosen. It still earns its place
-        twice over: a driver who deep-linked from a station, a recommendation or a QR code skipped
-        the chooser entirely, and a driver who finds no time they like needs a way out that is not
+        Kept as an escape hatch. `/book` now goes straight to the flexible form, so the only way to
+        reach this wizard is a link that already carries a charger — a station page, a recommendation
+        or a QR code. Those drivers never saw the flexible form, and a driver who finds no time they
+        like here needs a way across that is not
         the back button.
 
         Step 0 only. Once a station and a charger are picked, switching to the flexible path would
@@ -387,7 +385,7 @@ function BookingWizard() {
                       : "border-line bg-white text-ink hover:border-primary"
                   }`}
                 >
-                  {d < 60 ? `${d} min` : d === 60 ? "1 hr" : "1½ hr"}
+                  {durationLabel(d)}
                 </button>
               ))}
             </div>

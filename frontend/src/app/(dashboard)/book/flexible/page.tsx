@@ -16,6 +16,7 @@ import { FlexibilitySelector } from "@/components/booking/FlexibilitySelector";
 import { useToast } from "@/components/Toast";
 import { useApi } from "@/lib/useApi";
 import { formatDate } from "@/lib/utils";
+import { DURATIONS, durationLabel } from "@/lib/durations";
 import type { StationWithChargers, IVehicle, FlexibilityType } from "@/types";
 
 /**
@@ -327,19 +328,19 @@ export default function FlexibleBookingPage() {
         </p>
 
         <label className="label mt-4">For about</label>
-        <div className="flex gap-2">
-          {[30, 45, 60].map((m) => (
+        <div className="flex flex-wrap gap-2">
+          {DURATIONS.map((m) => (
             <button
               key={m}
               type="button"
               onClick={() => setDuration(m)}
-              className={`flex-1 rounded-lg border py-2 text-sm font-medium transition-colors ${
+              className={`min-h-[44px] min-w-[4.5rem] flex-1 rounded-lg border py-2 text-sm font-medium transition-colors ${
                 duration === m
                   ? "border-primary bg-primary text-white"
                   : "border-line bg-white text-ink hover:border-primary"
               }`}
             >
-              {m} min
+              {durationLabel(m)}
             </button>
           ))}
         </div>
