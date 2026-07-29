@@ -171,6 +171,13 @@
       system. When we click something, it really happens."</p>
       <p>"I worked on the booking rules and the optimization engine. Abdel Aziz built the back end,
       the database and the operator side. Aya built the customer journey and the dashboards."</p>
+      <p><b>Say this clearly — it sets expectations and protects you later:</b> "One thing before we
+      start. We built more than we can show you in twenty minutes. So the demonstrations are not a
+      tour of every screen. Each of us recorded one story, start to finish, and we chose the three
+      stories that prove the most about how the system thinks. Everything else we built is in these
+      slides, including a list of the parts we deliberately left out of the demo. If something you
+      expected to see is missing from a video, it is almost certainly on a slide — and please just
+      ask."</p>
     </div>
     <div class="trans"><b>Transition →</b> "Let me start with the problem, because the problem is
     what makes this more than a booking form."</div>
@@ -197,9 +204,9 @@
 </div>
 
 <div class="seg">
-  <h2>Slides 16–17 · Business logic — your main section <span class="meta">3:10 · your strongest material</span></h2>
+  <h2>Slides 17–18 · Business logic — your main section <span class="meta">3:10 · your strongest material</span></h2>
   <div class="body">
-    <p><span class="pill">Slide 16</span> <b>How the optimizer decides</b></p>
+    <p><span class="pill">Slide 17</span> <b>How the optimizer decides</b></p>
     <div class="say">
       <p>"A driver tells us 'about thirty minutes, any time between two and six'. The system looks
       at every possible slot across every compatible charger and gives each one a score."</p>
@@ -216,7 +223,7 @@
       serve more people, the number tells us."</p>
     </div>
 
-    <p><span class="pill">Slide 17</span> <b>The five-minute hold and reliability</b></p>
+    <p><span class="pill">Slide 18</span> <b>The five-minute hold and reliability</b></p>
     <div class="say">
       <p>"When we offer a driver a charger, we genuinely hold it for five minutes. Nobody else can
       book it in that window. That is what makes accepting safe — the charger was already secured
@@ -234,13 +241,13 @@
       that could lock people out is a ban dressed up as an optimisation."</p>
     </div>
 
-    <div class="do"><b>Then slide 32 — your new one, 30 seconds.</b> Do not read all six numbers.
+    <div class="do"><b>Then slide 33 — your new one, 30 seconds.</b> Do not read all six numbers.
     Take the five-minute hold and the three-offer cap, then land the closing line: <i>"a held charger
     is frozen stock — every one of these numbers exists to stop one customer's indecision costing
     another customer a bay."</i> Worth saying why it is a slide and not a video: showing the
     three-offer cap live would take fifteen minutes of waiting.</div>
 
-    <div class="do"><b>Slide 18 is no longer yours.</b> The deposit and refund rules are enforced in
+    <div class="do"><b>Slide 19 is no longer yours.</b> The deposit and refund rules are enforced in
     the back-end services, and only staff can mark a problem as our fault — which is server-side
     access control. Abdel Aziz owns both, so he takes that slide. You still lead any money question
     in Q&amp;A if it is about fairness rather than how it is enforced.</div>
@@ -262,7 +269,7 @@
 </div>
 
 <div class="seg">
-  <h2>Slide 23 · Business value <span class="meta">1:00 · after the demo, Aya hands to you</span></h2>
+  <h2>Slide 24 · Business value <span class="meta">1:00 · after the demo, Aya hands to you</span></h2>
   <div class="body">
     <div class="say">
       <p>"So what is this worth to a station owner?"</p>
@@ -279,13 +286,13 @@
 </div>
 
 <div class="seg">
-  <h2>Slides 28–29 · The closing lesson, and the close <span class="meta">1:05 · Abdel Aziz hands to you</span></h2>
+  <h2>Slides 29–30 · The closing lesson, and the close <span class="meta">1:05 · Abdel Aziz hands to you</span></h2>
   <div class="body">
-    <div class="do"><b>You come in last.</b> Aya covers what is not built yet (slide 25) and Abdel
-    Aziz covers the three design lessons (slide 27). You take the three that surprised us, and then
+    <div class="do"><b>You come in last.</b> Aya covers what is not built yet (slide 26) and Abdel
+    Aziz covers the three design lessons (slide 28). You take the three that surprised us, and then
     you close the presentation.</div>
     <div class="say">
-      <p><b>Lesson six (slide 28), your closer:</b> "The lesson that surprised us most was that
+      <p><b>Lesson six (slide 29), your closer:</b> "The lesson that surprised us most was that
       testing the logic is not the same as testing the wiring. At one point every single one of our
       one hundred and eighty-two automatic checks was passing — while half of our dashboard showed
       no data at all. The logic was correct. Nothing had ever fed it. Now we write a check that
@@ -330,7 +337,7 @@
 <div class="seg">
   <h2>Slides 32 and 34 · Extra time — your two <span class="meta">1:45 · only if granted</span></h2>
   <div class="body">
-    <div class="do"><b>Slide 32 — every wait is bounded.</b> Do not read all six numbers. Take the
+    <div class="do"><b>Slide 33 — every wait is bounded.</b> Do not read all six numbers. Take the
     five-minute hold and the three-offer cap, then land the closing line.</div>
     <div class="say">
       <p>"Every wait in this system has a limit, and each one is a named number in the code rather
@@ -340,7 +347,7 @@
       <p><b>The line:</b> "Every one of these numbers exists to stop one customer's indecision
       costing another customer a charger."</p>
     </div>
-    <div class="do"><b>Slide 34 — under the surface.</b> The deposit arithmetic and the vehicle
+    <div class="do"><b>Slide 35 — under the surface.</b> The deposit arithmetic and the vehicle
     interface. Then the honest closing line about why these were cut.</div>
     <div class="say">
       <p>"Two last things. Every deposit, refund and forfeiture is recorded with its reason and the
@@ -404,7 +411,7 @@
 </div>
 
 <div class="seg">
-  <h2>Slide 31 · Built to survive its own failures <span class="meta">0:40 · new — cannot be filmed</span></h2>
+  <h2>Slide 32 · Built to survive its own failures <span class="meta">0:40 · new — cannot be filmed</span></h2>
   <div class="body">
     <div class="do"><b>Why this slide exists:</b> none of these four can appear in any video. You
     would have to crash the system, corrupt a projection or send a duplicate message on purpose to
@@ -441,13 +448,33 @@
       <p>"The rest — late arrivals, early departures, extensions, overstays, broken chargers and the
       delays they cause — all work, and you will see several of them in a few minutes."</p>
     </div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Slide 15 · Also built, but not in the demo <span class="meta">0:40 · new</span></h2>
+  <div class="body">
+    <div class="do"><b>Why this slide exists.</b> The demo covers three stories deeply. This slide is
+    so nobody thinks the rest is missing. <b>Do not read all nine boxes.</b> Pick three, then say the
+    line at the bottom.</div>
+    <div class="say">
+      <p>"The demonstration you are about to see follows three stories all the way through. These
+      other parts work too, and we did not want you to think they are not there."</p>
+      <p><b>Pick any three, one short sentence each:</b> "The operator can scan a QR code with a
+      camera, not just type it. A driver sees exactly what refund they will get before they confirm a
+      cancellation. And staff can book for someone standing at the desk, which is a different flow
+      from a driver booking on their phone."</p>
+      <p><b>Then the line that matters:</b> "Showing all of this properly would take much longer
+      than we have. So we chose depth over breadth — three stories, proven fully, instead of a quick
+      tour of everything."</p>
+    </div>
     <div class="trans"><b>Hand over →</b> "Malik will explain the thinking behind how the system
     decides who gets which charger."</div>
   </div>
 </div>
 
 <div class="seg">
-  <h2>Slide 18 · The deposit, and being fair about it <span class="meta">1:00 · Malik hands back to you</span></h2>
+  <h2>Slide 19 · The deposit, and being fair about it <span class="meta">1:00 · Malik hands back to you</span></h2>
   <div class="body">
     <div class="do"><b>Why this is yours:</b> the refund rules are enforced in one back-end service
     that every path goes through, and "only staff can mark a problem as our fault" is a permission
@@ -487,7 +514,7 @@
 
 
 <div class="seg">
-  <h2>Slide 27 · Design lessons <span class="meta">1:15</span></h2>
+  <h2>Slide 28 · Design lessons <span class="meta">1:15</span></h2>
   <div class="body">
     <div class="say">
       <p>"Three lessons from the design side."</p>
@@ -546,7 +573,7 @@
   <h2>Slides 31 and 33 · Extra time — your two <span class="meta">1:45 · only if granted</span></h2>
   <div class="body">
     <div class="do"><b>Only if Malik's ask was accepted.</b> He hands straight to you.</div>
-    <div class="do"><b>Slide 31 — built to survive its own failures.</b> None of these four can appear
+    <div class="do"><b>Slide 32 — built to survive its own failures.</b> None of these four can appear
     in any video: you would have to crash the system or corrupt data on purpose. Say that out loud.</div>
     <div class="say">
       <p>"Four decisions you did not see in any of our videos, because each one only shows itself when
@@ -558,7 +585,7 @@
       <p>"And every message carries a key the database refuses to duplicate. Run the worker twice and
       you get zero new messages, not two copies of everything."</p>
     </div>
-    <div class="do"><b>Slide 33 — what the system watches.</b> The point is that nobody triggers any
+    <div class="do"><b>Slide 34 — what the system watches.</b> The point is that nobody triggers any
     of it. Time does.</div>
     <div class="say">
       <p>"A session still charging past its end time is found by a sweep and escalated through three
@@ -636,7 +663,7 @@
 
 
 <div class="seg">
-  <h2>Slide 22 · Results <span class="meta">0:45 · Abdel Aziz hands to you</span></h2>
+  <h2>Slide 23 · Results <span class="meta">0:45 · Abdel Aziz hands to you</span></h2>
   <div class="body">
     <div class="say">
       <p>"Thank you Abdel Aziz. How do we know it works? One hundred and eighty-two automatic
@@ -651,7 +678,7 @@
 </div>
 
 <div class="seg">
-  <h2>Slide 25 · What we would build next <span class="meta">0:45 · Malik hands back to you</span></h2>
+  <h2>Slide 26 · What we would build next <span class="meta">0:45 · Malik hands back to you</span></h2>
   <div class="body">
     <div class="do"><b>Why this is yours:</b> this is the honest half of the customer journey — the
     things a driver would notice are missing. You already say "no data" instead of zero and that the

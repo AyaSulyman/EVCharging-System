@@ -496,6 +496,46 @@ sectionSlide(5, "What we built", "Twelve working parts, all verified against a r
   speaker(s, "Abdel Aziz");
 }
 
+/* ============================================ 14b. NOT IN THE DEMO */
+{
+  const s = pres.addSlide();
+  s.background = { color: C.canvas };
+  titleBar(s, "Also built — but not in today's demo", "Features");
+
+  s.addText("The demo shows three stories end to end. These parts all work too, and we did not want you to think they are missing.", {
+    x: 0.6, y: 1.72, w: 12.1, h: 0.4, fontFace: B, fontSize: 14, color: C.ink, margin: 0,
+  });
+
+  const rest = [
+    ["Camera QR scanner", "The operator can scan the code with a camera, not just type it."],
+    ["Cancel with a live refund quote", "You see exactly what you get back before you confirm."],
+    ["Connect your car", "Read the battery level and suggest a charger that fits the journey."],
+    ["Booking at the desk", "Staff can create a reservation for someone standing in front of them."],
+    ["Reports with CSV export", "Pick a date range and download it."],
+    ["Behaviour profiles", "Lateness, cancellations and no-show patterns per driver, not just a score."],
+    ["Publish charger time", "An operator opens up bookable time from the admin screen."],
+    ["Remove someone's access", "Their login stops working straight away, not at the next sign-in."],
+    ["Ask for two stations at once", "\"Either of these two sites is fine\" is a single request."],
+  ];
+  rest.forEach((r, i) => {
+    const x = 0.6 + (i % 3) * 4.1;
+    const y = 2.3 + Math.floor(i / 3) * 1.35;
+    card(s, x, y, 3.85, 1.2);
+    s.addText(r[0], {
+      x: x + 0.25, y: y + 0.15, w: 3.4, h: 0.32, fontFace: B, fontSize: 13.5, bold: true, color: C.primary, margin: 0,
+    });
+    s.addText(r[1], {
+      x: x + 0.25, y: y + 0.48, w: 3.4, h: 0.62, fontFace: B, fontSize: 11, color: C.inkSoft, margin: 0,
+    });
+  });
+
+  s.addText("Showing all of this properly would take far longer than we have. So we chose depth over breadth: three stories, proven fully.", {
+    x: 0.6, y: 6.35, w: 12.1, h: 0.4, fontFace: B, fontSize: 13.5, bold: true, italic: true, color: C.primary, margin: 0,
+  });
+  speaker(s, "Abdel Aziz");
+  s.addNotes("Abdel Aziz. 40 seconds. Do not read all nine. Pick three, then say the line at the bottom: we chose depth over breadth.");
+}
+
 /* ================================================================ SECTION 6 */
 sectionSlide(6, "The thinking behind it", "How the system decides — and why it can explain itself.", [
   "How the optimizer chooses",
