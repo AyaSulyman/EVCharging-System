@@ -487,8 +487,17 @@ async function run() {
         });
       } else {
         // Completed. Late arrivals are drawn from a realistic spread rather than a flat random.
+        /**
+         * Negative values are arrivals BEFORE the scheduled minute, and they matter: `classifyArrival`
+         * returns ON_TIME only for arrival at exactly the scheduled minute, so a flat 0 for every
+         * non-late completion made 95 of 145 arrivals ON_TIME and produced exactly one EARLY in the
+         * whole dataset. A rate over one event is not a rate, and the arrival KPI row said so. Real
+         * drivers turn up a few minutes early far more often than they hit the minute precisely.
+         */
         delayMinutes =
-          outcome === "completed_late" ? [3, 5, 8, 12, 18, 25, 40][Math.floor(rng() * 7)] : 0;
+          outcome === "completed_late"
+            ? [3, 5, 8, 12, 18, 25, 40][Math.floor(rng() * 7)]
+            : [-14, -11, -8, -6, -4, -2, -1, 0, 0][Math.floor(rng() * 9)];
         actualStart = new Date(start.getTime() + delayMinutes * 60_000);
         const minutesEarly = outcome === "completed_early_departure" ? 10 + Math.floor(rng() * 20) : 0;
         releasedEarly = minutesEarly > 0;
