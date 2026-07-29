@@ -13,17 +13,37 @@ const path = require("path");
 const PEOPLE = [
   { key: "malik", file: "script-malik.html", name: "Malik", accent: "malik",
     role: "Reservation logic · optimization · business value",
-    time: "8:15", owns: "Opens and closes. Slides 1–2, 4, 6, 16–17, 23, 28–29.",
+    time: "8:15", owns: "Opens and closes the talk. The problem, the optimizer, reliability, business value, the final lesson, and the request for extra time.",
     qa: "Leads Q&A. Booking rules, optimizer, reliability, business value." },
   { key: "abdelaziz", file: "script-abdelaziz.html", name: "Abdel Aziz", accent: "aziz",
     role: "Architecture · database · operator side",
-    time: "7:00", owns: "Slides 8–9, 14, 18, 27, plus the three short scenes.",
+    time: "7:00", owns: "Architecture and the database rule, what was built, what is not in the demo, the deposit rules, and the design lessons.",
     qa: "Database, back end, operator side, deposits and refunds." },
   { key: "aya", file: "script-aya.html", name: "Aya", accent: "aya",
     role: "Page rendering · customer journey · demo · analytics",
-    time: "6:45", owns: "Slides 11–12, 20, 22, 25. Drives the demo.",
+    time: "6:45", owns: "How pages are rendered, the results and analytics, and what comes next. Narrates the capacity-recovery video.",
     qa: "Screens, customer journey, rendering, analytics, what is not built." },
 ];
+
+
+/**
+ * Splits a presenter's <main> into its individual `<div class="seg">` blocks and reads the leading
+ * slide number out of each heading, so all three scripts can be merged into one slide-ordered view.
+ *
+ * Segments with no slide number in the heading — the video beats, the extra-time ask, the Q&A block —
+ * cannot be placed on the slide axis, so they are kept in their author's own order and appended after
+ * the numbered ones rather than being dropped or guessed at.
+ */
+function splitSegments(body) {
+  const parts = body.split('<div class="seg">').slice(1);
+  return parts.map((raw) => {
+    const html = '<div class="seg">' + raw;
+    const head = (html.match(/<h2[^>]*>([\s\S]*?)<\/h2>/) || [, ""])[1];
+    const m = head.match(/Slides?\s*(\d+)/);
+    const title = head.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    return { html, order: m ? Number(m[1]) : Number.POSITIVE_INFINITY, title };
+  });
+}
 
 function extractMain(html) {
   const m = html.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
@@ -35,6 +55,30 @@ const panels = PEOPLE.map((p) => {
   const src = fs.readFileSync(path.join(__dirname, p.file), "utf8");
   return { ...p, body: extractMain(src) };
 });
+
+
+/* Merge every segment from all three scripts into one slide-ordered timeline. */
+const CLS = { malik: "m", aziz: "z", aya: "y" };
+const merged = [];
+panels.forEach((p) => {
+  splitSegments(p.body).forEach((seg, i) => {
+    merged.push({ ...seg, owner: p.name, cls: CLS[p.accent], tie: i });
+  });
+});
+merged.sort((a, b) => {
+  if (a.order !== b.order) return a.order - b.order;
+  if (a.owner !== b.owner) return a.owner.localeCompare(b.owner);
+  return a.tie - b.tie;
+});
+const mergedHtml = merged
+  .map((x) => {
+    const label = x.order === Number.POSITIVE_INFINITY ? "no slide" : "slide " + x.order;
+    return `<div class="${x.cls} merged-item">
+  <div class="merged-tag"><span class="merged-who">${x.owner}</span><span class="merged-slide">${label}</span></div>
+  ${x.html}
+</div>`;
+  })
+  .join("\n");
 
 const total = "22:00";
 
@@ -139,6 +183,12 @@ const html = `<!doctype html>
   .panel th { background:var(--panel-2); font-size:10.5px; text-transform:uppercase; letter-spacing:.1em; color:var(--dim); }
   .panel ul { margin:8px 0 0; padding-left:20px; } .panel li { margin:4px 0; }
 
+  .card.all { --accent:var(--volt); }
+  .merged-item { position:relative; }
+  .merged-tag { display:flex; align-items:center; gap:8px; margin:20px 0 -8px; }
+  .merged-who { background:var(--accent); color:var(--bg); font-weight:800; font-size:11.5px;
+                letter-spacing:.04em; text-transform:uppercase; border-radius:999px; padding:3px 11px; }
+  .merged-slide { font-size:11.5px; font-weight:700; color:var(--dim); text-transform:uppercase; letter-spacing:.08em; }
   footer { max-width:1140px; margin:0 auto; padding:0 20px 60px; color:var(--dim); font-size:13px; }
   @media print { .bar,.dash,.totalbar { display:none; } .panel { display:block !important; } body { background:#fff; } }
 </style>
@@ -173,6 +223,13 @@ ${panels.map((p, i) => `  <button class="card ${p.accent === "malik" ? "m" : p.a
     <div class="tl">speaking time</div>
     <div class="ow">${p.owns}</div>
   </button>`).join("\n")}
+  <button class="card all" role="tab" id="tab-all" aria-controls="panel-all" aria-selected="false" data-key="all">
+    <div class="nm">Everyone</div>
+    <div class="rl">All three scripts merged</div>
+    <div class="tm">${total}</div>
+    <div class="tl">in slide order</div>
+    <div class="ow">Every segment from all three presenters, sorted by slide number. Use this to rehearse the handovers.</div>
+  </button>
 </div>
 <div class="totalbar">Total speaking time <b>${total}</b> — plus Q&amp;A. Videos add 11:30 inside that.</div>
 
@@ -186,6 +243,16 @@ ${panels.map((p, i) => `<section class="panel ${p.accent === "malik" ? "m" : p.a
   <p class="qa-note"><b>In Q&amp;A you take:</b> ${p.qa}</p>
 ${p.body}
 </section>`).join("\n\n")}
+<section class="panel" id="panel-all" role="tabpanel" aria-labelledby="tab-all">
+  <div class="panel-head" style="--accent:var(--volt)">
+    <h2>Everyone, in slide order</h2>
+    <span class="badge" style="background:var(--volt)">${total}</span>
+  </div>
+  <p class="qa-note">Every segment from all three scripts, ordered by the slide it belongs to. The
+  coloured name above each block is who speaks it. Blocks with no slide number — the video beats, the
+  extra-time ask, the Q&amp;A notes — come last, in their author's own order.</p>
+${mergedHtml}
+</section>
 </main>
 
 <footer>Generated from the three script files by <code>build-hub.js</code> — re-run it after editing any
