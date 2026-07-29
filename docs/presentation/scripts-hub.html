@@ -250,6 +250,18 @@
 </div>
 
 <div class="seg">
+  <h2>Your video · The contested afternoon <span class="meta">3:00 · you narrate it live</span></h2>
+  <div class="body">
+    <div class="do"><b>This is a recorded video, not a live demo.</b> You do not open the app on
+    stage. Play your video and narrate over it — every line you say is in the
+    <a href="demo-playbook.html">recording playbook</a>, which is the single authority for anything
+    demo-related. Nothing in this script duplicates it, so the two cannot fall out of step.</div>
+    <div class="say"><p>"Two drivers want the same charger. Let me show you what the system does about it — and, more importantly, how it explains itself afterwards."</p></div>
+    <div class="trans"><b>Hand over →</b> "Abdel Aziz will show you what happens when a charger fails."</div>
+  </div>
+</div>
+
+<div class="seg">
   <h2>Slide 25 · Business value <span class="meta">1:00 · after the demo, Aya hands to you</span></h2>
   <div class="body">
     <div class="say">
@@ -406,94 +418,18 @@
 </div>
 
 <div class="seg">
-  <h2>Demo · you operate the staff screen <span class="meta">during Aya's demo</span></h2>
+  <h2>Your video · The station that broke <span class="meta">3:00 · you narrate it live</span></h2>
   <div class="body">
-    <div class="do">
-      <b>Before you start:</b> log in as <code>staff@chargehub.com</code> / <code>Staff123!</code>
-      on a second window. Have <code>/staff</code> already open.
-    </div>
-    <table>
-      <tr><th>When Aya says</th><th>You do</th><th>You say</th></tr>
-      <tr>
-        <td>"Anna arrives at the station"</td>
-        <td>Open the check-in panel. <b>Type the booking code</b> rather than using the camera.</td>
-        <td>"On the operator side I look her up. I can scan her QR code with the camera, or type the
-        code — both go through exactly the same lookup, so nothing is different."</td>
-      </tr>
-      <tr>
-        <td>"Check her in"</td>
-        <td>Press check in.</td>
-        <td>"She is checked in, and the system has already recorded whether she was early, on time,
-        inside the grace period, or late. That happens automatically."</td>
-      </tr>
-      <tr>
-        <td>"Start the session"</td>
-        <td>Press start charging.</td>
-        <td>"Starting and ending are two separate recorded steps, so we always know how long the bay
-        was really occupied — not just how long it was booked for."</td>
-      </tr>
-      <tr>
-        <td>"A charger breaks"</td>
-        <td>Go to <code>/staff/incidents</code>, report a charger failure.</td>
-        <td>"I report the fault here. The system immediately works out which bookings are affected
-        and how far the delay spreads down the queue."</td>
-      </tr>
-      <tr>
-        <td>"Show the waitlist"</td>
-        <td>Open <code>/staff/waitlist</code>.</td>
-        <td>"This is my waitlist — and notice it only shows my station. I am assigned to Downtown,
-        so I cannot see or act on the other two. That is enforced on the server, not just hidden in
-        the screen."</td>
-      </tr>
-    </table>
-    <div class="warn"><b>Camera warning:</b> the browser only allows camera access on
-    <code>localhost</code> or over HTTPS. If the demo is on a phone over the office network, the
-    camera will not start. <b>Use the typed code.</b> It is the same code path, so you are not
-    avoiding anything real.</div>
+    <div class="do"><b>This is a recorded video, not a live demo.</b> You do not open the app on
+    stage. Play your video and narrate over it — every line you say is in the
+    <a href="demo-playbook.html">recording playbook</a>, which is the single authority for anything
+    demo-related. Nothing in this script duplicates it, so the two cannot fall out of step.</div>
+    <div class="say"><p>"Let me show you what happens when something goes wrong — because that is where a system is really judged."</p></div>
+    <div class="trans"><b>Hand over →</b> "Aya will show you what happens when a driver simply finishes early."</div>
   </div>
 </div>
 
-<div class="seg">
-  <h2>Three short scenes <span class="meta">1:30 · Aya hands to you after the main demo</span></h2>
-  <div class="body">
-    <div class="do"><b>You run these from the terminal, then show the result on screen.</b> Run
-    <code>npm run demo -- reset</code> between each one. A booking from the previous scene genuinely
-    still holds its charger, so skipping the reset can fail with CHARGER_BUSY — correct behaviour
-    that looks like a bug on stage.</div>
 
-    <div class="say">
-      <p>"Thank you Aya. That was one driver end to end. Let me show you three shorter scenes, each
-      making a single point."</p>
-    </div>
-
-    <p><span class="pill">1</span> <b><code>npm run demo -- run waitlist_promotion</code></b></p>
-    <div class="say">
-      <p>"Someone wanted a time that was already full, so they waited. Then the person who had it
-      cancelled. Within a minute the waiting driver was offered that exact slot, and accepted.
-      Nobody at the station had to do anything — no phone call, no manual reassignment."</p>
-    </div>
-
-    <p><span class="pill">2</span> <b><code>npm run demo -- run reliability_scoring</code></b></p>
-    <div class="say">
-      <p>"Here are four drivers on the same system with very different habits. One always turns up —
-      a hundred. One is occasionally late — eighty-three. Two are chronically late or frequently
-      absent — zero."</p>
-      <p><b>The point to make:</b> "That is built from what they actually did, not typed in by
-      anyone. And it is recalculated from the history every time, so a missed or repeated update
-      cannot leave the number permanently wrong."</p>
-    </div>
-
-    <p><span class="pill">3</span> <b><code>npm run demo -- run technical_incident</code></b></p>
-    <div class="say">
-      <p>"A charger is reported broken. The system identifies which bookings are affected."</p>
-      <p><b>The point to make:</b> "Notice it does not cancel anything automatically. It tells the
-      operator what is affected and lets a person decide. We felt that cancelling someone's booking
-      should be a human decision, not something a background job does quietly."</p>
-    </div>
-
-    <div class="trans"><b>Hand over →</b> "Aya, over to you for how we know all of this works."</div>
-  </div>
-</div>
 
 <div class="seg">
   <h2>Slide 29 · Design lessons <span class="meta">1:15</span></h2>
@@ -601,71 +537,14 @@
 </div>
 
 <div class="seg">
-  <h2>Slide 22 · Demo — Anna's journey <span class="meta">3:30 · the centrepiece</span></h2>
+  <h2>Your video · Nothing is wasted <span class="meta">3:00 · you narrate it live</span></h2>
   <div class="body">
-    <div class="do">
-      <b>Before you begin — check all three:</b>
-      <br>1. The services window is running and printing a line every minute.
-      <br>2. You are logged in as <code>user@chargehub.com</code> / <code>User123!</code>.
-      <br>3. Abdel Aziz is logged in as staff on the second window.
-    </div>
-
-    <div class="say"><p>"This is Anna. She needs to charge her car this afternoon. Let me walk you
-    through exactly what happens."</p></div>
-
-    <ol class="steps">
-      <li><b>Book</b> — Open the booking page, pick a station and a charger, choose 60 minutes.
-        <div class="say"><p>"She picks a station and how long she needs. Watch what happens when I
-        change the length — the available start times change with it. That is not a stored list of
-        slots; it is worked out from what is genuinely free."</p></div>
-      </li>
-      <li><b>Pay the deposit</b> — Complete the simulated payment.
-        <div class="say"><p>"A small deposit confirms it. She has ten minutes to pay before the
-        charger is released to someone else. I should say clearly — this payment is simulated. No
-        card details are ever entered, stored or shown anywhere."</p></div>
-      </li>
-      <li><b>QR code appears</b> — Show the confirmation screen.
-        <div class="say"><p>"And here is her QR code. This is what she shows when she arrives."</p></div>
-      </li>
-      <li><b>Operator checks her in</b> — <span class="pill">Abdel Aziz</span> types the code and checks in.
-        <div class="say"><p>"Over to the station side."</p></div>
-      </li>
-      <li><b>Charging starts, then ends</b> — <span class="pill">Abdel Aziz</span> starts, then ends.
-        <div class="say"><p>"She plugs in and charges. And here is something worth watching — she
-        finishes early. That leftover time does not just disappear. It goes straight back on sale,
-        and within a minute the system offers it to somebody who was waiting."</p></div>
-      </li>
-      <li><b>A charger breaks</b> — <span class="pill">Abdel Aziz</span> reports a fault.
-        <div class="say"><p>"Now something goes wrong. A charger fails. The system works out which
-        bookings are affected and how far the delay spreads down the queue — and it tells those
-        drivers rather than letting them find out at the station."</p></div>
-      </li>
-      <li><b>Extension request</b> — Request more time from the driver side.
-        <div class="say"><p>"Anna asks for more time. The system checks whether it genuinely fits
-        before the next booking. If it fits, she gets it. If only part of it fits, she gets that
-        part and is told why. And if the next customer would be affected, she is refused — because
-        that customer's booking is a promise too."</p></div>
-      </li>
-      <li><b>Notifications</b> — Open the bell.
-        <div class="say"><p>"And Anna has been told about all of it — the offer, the delay, the
-        decision on her extra time. These messages are not written by the booking code. They are
-        produced separately by reading the record of what happened, which means a failure to send a
-        message can never cause a booking to fail."</p></div>
-      </li>
-      <li><b>Analytics update</b> — Open <code>/admin/schedule-quality</code>.
-        <div class="say"><p>"And every number here has moved. Thirty-one measurements — how full
-        the chargers are, how often drivers get the time they wanted, how long people wait, how many
-        waitlisted drivers we eventually serve."</p>
-        <p><b>Point at a sample size:</b> "Notice each one shows how many cases it is based on. And
-        where we have no data, it says 'no data' rather than showing zero — because zero and 'we
-        don't know' are very different things."</p></div>
-      </li>
-    </ol>
-    <div class="warn"><b>If something does not respond:</b> the background services run once a
-    minute. Say "this runs on a timer, so give it a moment" and move to the next step — do not stand
-    in silence waiting. Come back to it.</div>
-    <div class="trans"><b>Hand over →</b> "That was one driver from start to finish. Abdel Aziz will
-    show you three shorter scenes that each make one point."</div>
+    <div class="do"><b>This is a recorded video, not a live demo.</b> You do not open the app on
+    stage. Play your video and narrate over it — every line you say is in the
+    <a href="demo-playbook.html">recording playbook</a>, which is the single authority for anything
+    demo-related. Nothing in this script duplicates it, so the two cannot fall out of step.</div>
+    <div class="say"><p>"This is the ordinary thing that happens at every station every day — somebody finishes early — and what almost no system does about it."</p></div>
+    <div class="trans"><b>Hand over →</b> "Malik will tell you what all of that is worth to a station owner."</div>
   </div>
 </div>
 

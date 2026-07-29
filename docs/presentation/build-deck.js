@@ -150,7 +150,7 @@ function speaker(slide, who) {
   const people = [
     { n: "Malik", r: "Booking rules, optimization engine,\nreliability scoring, waitlists,\nextensions, business value", g: "M", x: 0.6 },
     { n: "Abdel Aziz", r: "Backend services, database design,\nQR workflow, operator screens,\ndeposit and refund rules", g: "A", x: 4.75 },
-    { n: "Aya", r: "Customer journey, interface design,\nhow pages are rendered,\nanalytics dashboards, live demo", g: "Y", x: 8.9 },
+    { n: "Aya", r: "Customer journey, interface design,\nhow pages are rendered,\nanalytics dashboards, recorded demo", g: "Y", x: 8.9 },
   ];
   people.forEach((p) => {
     card(s, p.x, 1.85, 3.8, 3.1);
@@ -716,12 +716,12 @@ sectionSlide(6, "The thinking behind it", "How the system decides — and why it
 }
 
 /* ================================================================ SECTION 7 */
-sectionSlide(7, "Live demonstration", "One driver's journey, then three short scenes.", [
+sectionSlide(7, "Recorded demonstrations", "Three scenarios, each recorded end to end on the real system.", [
   "Anna's full journey",
   "Waitlist promotion",
   "Reliability scoring",
   "A broken charger",
-]).addNotes("Aya drives the main journey (3:30). Abdel Aziz operates the staff window throughout, then runs the three short scenes (1:30).");
+]).addNotes("Three recorded videos, 3:00 each. Each presenter narrates their own live over playback. Nothing here is performed live.");
 
 /* ================================================================ 13. DEMO MAP */
 {
@@ -752,11 +752,11 @@ sectionSlide(7, "Live demonstration", "One driver's journey, then three short sc
       x: x + 0.9, y: y + 0.52, w: 2.8, h: 0.55, fontFace: B, fontSize: 10.5, color: C.inkSoft, margin: 0,
     });
   });
-  s.addText("Then Abdel Aziz runs three short scenes: a waitlisted driver promoted to a real booking · a reliability score built from real history · a broken charger reported and resolved.", {
+  s.addText("Three recorded scenarios: a contested afternoon and how the optimizer resolves it · a charger failure and the delay it causes · time given back when a driver leaves early.", {
     x: 0.6, y: 5.95, w: 12.1, h: 0.5, fontFace: B, fontSize: 13, italic: true, color: C.primary, margin: 0,
   });
   speaker(s, "Aya");
-  s.addNotes("SWITCH TO THE APP HERE. Aya drives the main journey; Abdel Aziz operates the staff window and then runs the three short scenes.");
+  s.addNotes("PLAY THE VIDEOS HERE, in order: Malik, Abdel Aziz, Aya. Each narrates their own live. Do not open the app — nothing is performed live.");
 }
 
 /* ================================================================ SECTION 8 */

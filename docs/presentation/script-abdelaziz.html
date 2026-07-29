@@ -59,10 +59,10 @@
 <header>
   <div class="role">Presenter script</div>
   <h1>Abdel Aziz — architecture, database, features, operator side</h1>
-  <div class="total">Your speaking time: about <b>7 minutes</b>, plus you operate the staff screen during Aya’s demo.
+  <div class="total">Your speaking time: about <b>7 minutes</b>, plus you narrate your own recorded scenario.
   Slides 8–9 are the technical heart of the talk — the database rule is the strongest thing we have.
   You also own the deposit and refund rules, because they are enforced in the back end you built,
-  and you close the demonstration with three short scenes.</div>
+  and you narrate the recorded scenario in which a charger fails.</div>
 </header>
 
 <main>
@@ -174,94 +174,18 @@
 </div>
 
 <div class="seg">
-  <h2>Demo · you operate the staff screen <span class="meta">during Aya's demo</span></h2>
+  <h2>Your video · The station that broke <span class="meta">3:00 · you narrate it live</span></h2>
   <div class="body">
-    <div class="do">
-      <b>Before you start:</b> log in as <code>staff@chargehub.com</code> / <code>Staff123!</code>
-      on a second window. Have <code>/staff</code> already open.
-    </div>
-    <table>
-      <tr><th>When Aya says</th><th>You do</th><th>You say</th></tr>
-      <tr>
-        <td>"Anna arrives at the station"</td>
-        <td>Open the check-in panel. <b>Type the booking code</b> rather than using the camera.</td>
-        <td>"On the operator side I look her up. I can scan her QR code with the camera, or type the
-        code — both go through exactly the same lookup, so nothing is different."</td>
-      </tr>
-      <tr>
-        <td>"Check her in"</td>
-        <td>Press check in.</td>
-        <td>"She is checked in, and the system has already recorded whether she was early, on time,
-        inside the grace period, or late. That happens automatically."</td>
-      </tr>
-      <tr>
-        <td>"Start the session"</td>
-        <td>Press start charging.</td>
-        <td>"Starting and ending are two separate recorded steps, so we always know how long the bay
-        was really occupied — not just how long it was booked for."</td>
-      </tr>
-      <tr>
-        <td>"A charger breaks"</td>
-        <td>Go to <code>/staff/incidents</code>, report a charger failure.</td>
-        <td>"I report the fault here. The system immediately works out which bookings are affected
-        and how far the delay spreads down the queue."</td>
-      </tr>
-      <tr>
-        <td>"Show the waitlist"</td>
-        <td>Open <code>/staff/waitlist</code>.</td>
-        <td>"This is my waitlist — and notice it only shows my station. I am assigned to Downtown,
-        so I cannot see or act on the other two. That is enforced on the server, not just hidden in
-        the screen."</td>
-      </tr>
-    </table>
-    <div class="warn"><b>Camera warning:</b> the browser only allows camera access on
-    <code>localhost</code> or over HTTPS. If the demo is on a phone over the office network, the
-    camera will not start. <b>Use the typed code.</b> It is the same code path, so you are not
-    avoiding anything real.</div>
+    <div class="do"><b>This is a recorded video, not a live demo.</b> You do not open the app on
+    stage. Play your video and narrate over it — every line you say is in the
+    <a href="demo-playbook.html">recording playbook</a>, which is the single authority for anything
+    demo-related. Nothing in this script duplicates it, so the two cannot fall out of step.</div>
+    <div class="say"><p>"Let me show you what happens when something goes wrong — because that is where a system is really judged."</p></div>
+    <div class="trans"><b>Hand over →</b> "Aya will show you what happens when a driver simply finishes early."</div>
   </div>
 </div>
 
-<div class="seg">
-  <h2>Three short scenes <span class="meta">1:30 · Aya hands to you after the main demo</span></h2>
-  <div class="body">
-    <div class="do"><b>You run these from the terminal, then show the result on screen.</b> Run
-    <code>npm run demo -- reset</code> between each one. A booking from the previous scene genuinely
-    still holds its charger, so skipping the reset can fail with CHARGER_BUSY — correct behaviour
-    that looks like a bug on stage.</div>
 
-    <div class="say">
-      <p>"Thank you Aya. That was one driver end to end. Let me show you three shorter scenes, each
-      making a single point."</p>
-    </div>
-
-    <p><span class="pill">1</span> <b><code>npm run demo -- run waitlist_promotion</code></b></p>
-    <div class="say">
-      <p>"Someone wanted a time that was already full, so they waited. Then the person who had it
-      cancelled. Within a minute the waiting driver was offered that exact slot, and accepted.
-      Nobody at the station had to do anything — no phone call, no manual reassignment."</p>
-    </div>
-
-    <p><span class="pill">2</span> <b><code>npm run demo -- run reliability_scoring</code></b></p>
-    <div class="say">
-      <p>"Here are four drivers on the same system with very different habits. One always turns up —
-      a hundred. One is occasionally late — eighty-three. Two are chronically late or frequently
-      absent — zero."</p>
-      <p><b>The point to make:</b> "That is built from what they actually did, not typed in by
-      anyone. And it is recalculated from the history every time, so a missed or repeated update
-      cannot leave the number permanently wrong."</p>
-    </div>
-
-    <p><span class="pill">3</span> <b><code>npm run demo -- run technical_incident</code></b></p>
-    <div class="say">
-      <p>"A charger is reported broken. The system identifies which bookings are affected."</p>
-      <p><b>The point to make:</b> "Notice it does not cancel anything automatically. It tells the
-      operator what is affected and lets a person decide. We felt that cancelling someone's booking
-      should be a human decision, not something a background job does quietly."</p>
-    </div>
-
-    <div class="trans"><b>Hand over →</b> "Aya, over to you for how we know all of this works."</div>
-  </div>
-</div>
 
 <div class="seg">
   <h2>Slide 29 · Design lessons <span class="meta">1:15</span></h2>
