@@ -1,0 +1,738 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ChargeHub — All Presenter Scripts</title>
+<style>
+  :root[data-theme="light"] {
+    --bg:#F4F7F9; --panel:#FFFFFF; --panel-2:#EDF3F6; --line:#DBE4EA;
+    --ink:#0D1A22; --soft:#4C6270; --dim:#7B8F9B;
+    --primary:#0E7A5F; --primary-soft:#E4F4EF; --dark:#0A5C48;
+    --volt:#B87400; --volt-soft:#FDF3E0;
+    --malik:#B87400; --aziz:#1B6CA8; --aya:#7B3FBF;
+    --shadow:0 1px 2px rgba(13,26,34,.06), 0 10px 24px rgba(13,26,34,.07);
+  }
+  :root[data-theme="dark"] {
+    --bg:#0B1014; --panel:#131C22; --panel-2:#1A252D; --line:#25353F;
+    --ink:#E8F1F5; --soft:#93AAB6; --dim:#637986;
+    --primary:#2DD4A7; --primary-soft:#0F2A24; --dark:#2DD4A7;
+    --volt:#F5A524; --volt-soft:#3A2C10;
+    --malik:#F5A524; --aziz:#4EA8DE; --aya:#C77DFF;
+    --shadow:0 1px 0 rgba(255,255,255,.04), 0 10px 26px rgba(0,0,0,.5);
+  }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:15px/1.65 ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif; }
+
+  .bar { position:sticky; top:0; z-index:60; background:color-mix(in srgb,var(--bg) 88%,transparent);
+         backdrop-filter:blur(12px); border-bottom:1px solid var(--line); }
+  .bar-in { max-width:1140px; margin:0 auto; padding:10px 20px; display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+  .brand { font-weight:800; letter-spacing:-.02em; display:flex; align-items:center; gap:8px; }
+  .brand .dot { width:9px; height:9px; border-radius:50%; background:var(--primary); box-shadow:0 0 12px var(--primary); }
+  .navlinks { display:flex; gap:4px; flex-wrap:wrap; margin-left:auto; }
+  .navlinks a, .toggle { display:inline-flex; align-items:center; gap:6px; min-height:38px; padding:0 12px;
+    border:1px solid var(--line); border-radius:9px; background:var(--panel); color:var(--soft);
+    font-size:12.5px; font-weight:600; text-decoration:none; cursor:pointer; transition:.15s; }
+  .navlinks a:hover, .toggle:hover { color:var(--ink); border-color:var(--primary); }
+  .navlinks a.here { color:var(--ink); border-color:var(--primary); background:var(--primary-soft); }
+
+  header.hero { max-width:1140px; margin:0 auto; padding:34px 20px 6px; }
+  .kicker { color:var(--primary); font-size:11.5px; font-weight:800; letter-spacing:.18em; text-transform:uppercase; }
+  h1.title { margin:10px 0 8px; font-size:clamp(26px,4vw,38px); letter-spacing:-.03em; line-height:1.1; }
+  .lede { color:var(--soft); max-width:64ch; }
+
+  /* dashboard */
+  .dash { max-width:1140px; margin:22px auto 0; padding:0 20px;
+          display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:14px; }
+  .card { text-align:left; border:1px solid var(--line); border-radius:15px; background:var(--panel);
+          padding:18px; cursor:pointer; box-shadow:var(--shadow); transition:.16s; font:inherit; color:inherit; }
+  .card:hover { transform:translateY(-2px); border-color:var(--accent); }
+  .card[aria-selected="true"] { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent) inset, var(--shadow); }
+  .card .nm { font-size:21px; font-weight:800; letter-spacing:-.02em; color:var(--accent); }
+  .card .rl { color:var(--soft); font-size:13px; margin-top:3px; }
+  .card .tm { margin-top:12px; font-size:27px; font-weight:800; font-variant-numeric:tabular-nums; letter-spacing:-.03em; }
+  .card .tl { font-size:10.5px; text-transform:uppercase; letter-spacing:.12em; color:var(--dim); font-weight:800; }
+  .card .ow { margin-top:10px; font-size:12.5px; color:var(--soft); border-top:1px solid var(--line); padding-top:9px; }
+  .m { --accent:var(--malik); } .z { --accent:var(--aziz); } .y { --accent:var(--aya); }
+
+  .totalbar { max-width:1140px; margin:14px auto 0; padding:0 20px; color:var(--dim); font-size:13px; }
+
+  main { max-width:1140px; margin:0 auto; padding:22px 20px 90px; }
+  .panel { display:none; }
+  .panel.on { display:block; animation:fade .22s ease; }
+  @keyframes fade { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:none; } }
+  .panel-head { display:flex; align-items:center; gap:12px; margin:0 0 4px; padding-bottom:14px; border-bottom:2px solid var(--accent); }
+  .panel-head h2 { margin:0; font-size:23px; letter-spacing:-.02em; }
+  .panel-head .badge { margin-left:auto; background:var(--accent); color:var(--bg); font-weight:800;
+                       border-radius:999px; padding:4px 13px; font-size:13px; font-variant-numeric:tabular-nums; }
+  .qa-note { margin:14px 0 0; font-size:13px; color:var(--soft); }
+
+  /* ---- styles for the injected script markup ---- */
+  .panel .seg { background:var(--panel); border:1px solid var(--line); border-radius:14px; margin:18px 0;
+                overflow:hidden; box-shadow:var(--shadow); }
+  .panel .seg > h2 { margin:0; padding:14px 18px; background:var(--panel-2); color:var(--ink); font-size:16px;
+                     display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+  .panel .seg > h2 .meta { font-size:11.5px; font-weight:800; color:var(--accent); white-space:nowrap; }
+  .panel .body { padding:18px; }
+  .panel .say { border-left:3px solid var(--primary); background:var(--primary-soft); padding:11px 15px;
+                margin:12px 0; border-radius:0 9px 9px 0; }
+  .panel .say p { margin:0 0 9px; } .panel .say p:last-child { margin:0; }
+  .panel .do { background:var(--volt-soft); border:1px solid var(--volt); border-radius:10px; padding:11px 15px; margin:12px 0; }
+  .panel .do b { color:var(--volt); }
+  .panel .trans { background:var(--ink); color:var(--bg); border-radius:10px; padding:11px 15px; margin:14px 0 4px; }
+  .panel .trans b { color:var(--volt); }
+  .panel .warn { border:1px dashed var(--volt); background:var(--volt-soft); border-radius:10px; padding:11px 15px; margin:12px 0; }
+  .panel ol.steps { counter-reset:s; list-style:none; padding:0; margin:10px 0; }
+  .panel ol.steps > li { counter-increment:s; position:relative; padding:12px 12px 12px 50px; margin:8px 0;
+                         background:var(--bg); border:1px solid var(--line); border-radius:10px; }
+  .panel ol.steps > li::before { content:counter(s); position:absolute; left:12px; top:12px; width:26px; height:26px;
+                                 background:var(--accent); color:var(--bg); border-radius:8px; display:flex;
+                                 align-items:center; justify-content:center; font-weight:800; font-size:13px; }
+  .panel .pill { display:inline-block; background:var(--accent); color:var(--bg); border-radius:999px;
+                 padding:2px 10px; font-size:11.5px; font-weight:700; }
+  .panel code { background:var(--panel-2); border:1px solid var(--line); padding:1px 6px; border-radius:5px;
+                font-size:12.5px; font-family:ui-monospace,Consolas,monospace; }
+  .panel table { width:100%; border-collapse:collapse; margin:10px 0; font-size:13.5px; }
+  .panel th, .panel td { text-align:left; padding:9px 11px; border-bottom:1px solid var(--line); vertical-align:top; }
+  .panel th { background:var(--panel-2); font-size:10.5px; text-transform:uppercase; letter-spacing:.1em; color:var(--dim); }
+  .panel ul { margin:8px 0 0; padding-left:20px; } .panel li { margin:4px 0; }
+
+  footer { max-width:1140px; margin:0 auto; padding:0 20px 60px; color:var(--dim); font-size:13px; }
+  @media print { .bar,.dash,.totalbar { display:none; } .panel { display:block !important; } body { background:#fff; } }
+</style>
+</head>
+<body>
+
+<div class="bar"><div class="bar-in">
+  <div class="brand"><span class="dot"></span> ChargeHub Scripts</div>
+  <nav class="navlinks">
+    <a href="demo-playbook.html">🎬 Demo playbook</a>
+    <a class="here" href="scripts-hub.html">📑 All scripts</a>
+    <a href="script-malik.html">Malik</a>
+    <a href="script-abdelaziz.html">Abdel Aziz</a>
+    <a href="script-aya.html">Aya</a>
+    <button class="toggle" id="themeBtn" type="button">◐ Theme</button>
+  </nav>
+</div></div>
+
+<header class="hero">
+  <div class="kicker">Presenter scripts · all three in one place</div>
+  <h1 class="title">Pick a presenter</h1>
+  <p class="lede">The same scripts each of you has been rehearsing, collected so the handovers can be
+  checked against each other. Every segment shows its timing and who passes to whom.</p>
+</header>
+
+<div class="dash" role="tablist">
+  <button class="card m" role="tab"
+          id="tab-malik" aria-controls="panel-malik" aria-selected="true" data-key="malik">
+    <div class="nm">Malik</div>
+    <div class="rl">Reservation logic · optimization · business value</div>
+    <div class="tm">8:15</div>
+    <div class="tl">speaking time</div>
+    <div class="ow">Opens and closes. Slides 1–2, 4, 6, 16–17, 23, 28–29.</div>
+  </button>
+  <button class="card z" role="tab"
+          id="tab-abdelaziz" aria-controls="panel-abdelaziz" aria-selected="false" data-key="abdelaziz">
+    <div class="nm">Abdel Aziz</div>
+    <div class="rl">Architecture · database · operator side</div>
+    <div class="tm">7:00</div>
+    <div class="tl">speaking time</div>
+    <div class="ow">Slides 8–9, 14, 18, 27, plus the three short scenes.</div>
+  </button>
+  <button class="card y" role="tab"
+          id="tab-aya" aria-controls="panel-aya" aria-selected="false" data-key="aya">
+    <div class="nm">Aya</div>
+    <div class="rl">Page rendering · customer journey · demo · analytics</div>
+    <div class="tm">6:45</div>
+    <div class="tl">speaking time</div>
+    <div class="ow">Slides 11–12, 20, 22, 25. Drives the demo.</div>
+  </button>
+</div>
+<div class="totalbar">Total speaking time <b>22:00</b> — plus Q&amp;A. Videos add 11:30 inside that.</div>
+
+<main>
+<section class="panel m on"
+         id="panel-malik" role="tabpanel" aria-labelledby="tab-malik">
+  <div class="panel-head">
+    <h2>Malik</h2>
+    <span class="badge">8:15</span>
+  </div>
+  <p class="qa-note"><b>In Q&amp;A you take:</b> Leads Q&A. Booking rules, optimizer, reliability, business value.</p>
+<div class="seg">
+  <h2>Slides 1–2 · Opening and team <span class="meta">1:00 · you start</span></h2>
+  <div class="body">
+    <div class="say">
+      <p>"Good morning. We are Malik, Abdel Aziz and Aya, and we built ChargeHub — a reservation
+      system for electric vehicle charging stations."</p>
+      <p>"Before we start, one thing worth saying: everything you will see today runs on real code
+      and a real database. There are no mock-ups and no screenshots pretending to be a working
+      system. When we click something, it really happens."</p>
+      <p>"I worked on the booking rules and the optimization engine. Abdel Aziz built the back end,
+      the database and the operator side. Aya built the customer journey and the dashboards."</p>
+    </div>
+    <div class="trans"><b>Transition →</b> "Let me start with the problem, because the problem is
+    what makes this more than a booking form."</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Slides 4 and 6 · Introduction and the problem <span class="meta">2:00</span></h2>
+  <div class="body">
+    <div class="say">
+      <p>"A charging station is a shop with very few seats. Charging a car takes anywhere from
+      fifteen minutes to two hours, and a station might only have three or four chargers. So if a
+      driver arrives and everything is busy, that driver is simply lost."</p>
+      <p><b>Then walk the four problems on slide 4, one sentence each:</b></p>
+      <p>"First — two drivers can book the same charger at the same moment, and one of them drives
+      there for nothing. Second — a driver finishes early or cancels, that time is free again, but
+      nobody knows, so it is wasted. Third — people who never turn up block a charger somebody else
+      wanted. Fourth — staff end up deciding all of this by hand, under pressure."</p>
+      <p>"So our goal was simple to say and hard to do: serve the most drivers possible, be fair
+      about it, and never sell the same charger twice."</p>
+    </div>
+    <div class="trans"><b>Hand over →</b> "Abdel Aziz will show you how it is built."</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Slides 16–17 · Business logic — your main section <span class="meta">3:10 · your strongest material</span></h2>
+  <div class="body">
+    <p><span class="pill">Slide 16</span> <b>How the optimizer decides</b></p>
+    <div class="say">
+      <p>"A driver tells us 'about thirty minutes, any time between two and six'. The system looks
+      at every possible slot across every compatible charger and gives each one a score."</p>
+      <p>"Five things go into that score. Does this keep the free time in usable blocks, rather
+      than leaving unbookable gaps. How close is it to the time they actually wanted. Have they
+      been waiting a long time already. Are they standing at the desk, or are they being rebooked
+      after a fault that was ours. And how likely are they to actually turn up."</p>
+      <p><b>Say this clearly:</b> "This is not artificial intelligence. It is a fixed set of rules
+      with fixed weights. The same situation always gives the same answer, and we can always say
+      why. If a customer asks why they were given four-thirty instead of three, there is a stored
+      sentence explaining it."</p>
+      <p>"And we do not just claim it helps. Every time it runs, it also calculates what plain
+      first-come-first-served would have achieved on exactly the same data. If our system does not
+      serve more people, the number tells us."</p>
+    </div>
+
+    <p><span class="pill">Slide 17</span> <b>The five-minute hold and reliability</b></p>
+    <div class="say">
+      <p>"When we offer a driver a charger, we genuinely hold it for five minutes. Nobody else can
+      book it in that window. That is what makes accepting safe — the charger was already secured
+      when we made the offer, so pressing accept cannot fail."</p>
+      <p>"It is five minutes whether the booking is fifteen minutes or two hours. That was a
+      deliberate decision. If the hold scaled with the booking length, then the most valuable
+      bookings would be the most expensive ones to offer."</p>
+      <p>"And if you answer late? You do not get an error. The system runs again and offers you a
+      new time. Being slow should not throw you out of the queue."</p>
+      <p><b>Point at the four scores:</b> "Reliability starts at one hundred for everyone. Turning
+      up adds a point. Arriving late, cancelling late, or not turning up takes points away. These
+      four are real drivers from our demo data — same system, very different behaviour."</p>
+      <p><b>Important, say it:</b> "A low score never stops anyone booking. It only decides who
+      gets the better slot when two people want the same one. We were careful about that — a system
+      that could lock people out is a ban dressed up as an optimisation."</p>
+    </div>
+
+    <div class="do"><b>Slide 18 is no longer yours.</b> The deposit and refund rules are enforced in
+    the back-end services, and only staff can mark a problem as our fault — which is server-side
+    access control. Abdel Aziz owns both, so he takes that slide. You still lead any money question
+    in Q&amp;A if it is about fairness rather than how it is enforced.</div>
+    <div class="trans"><b>Hand over →</b> "Abdel Aziz will explain the deposit, and how we make sure
+    it is fair."</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Slide 23 · Business value <span class="meta">1:00 · after the demo, Aya hands to you</span></h2>
+  <div class="body">
+    <div class="say">
+      <p>"So what is this worth to a station owner?"</p>
+      <p>"More drivers served, because freed time is offered to someone waiting within a minute
+      instead of sitting empty. Fewer wasted trips, because the database makes double booking
+      impossible. Fewer no-shows, because the deposit gives a reason to turn up — and cancelling
+      early is always free, so it rewards telling us. Less staff work, because the system decides
+      and explains, and staff step in only when they choose to."</p>
+      <p>"And decisions based on evidence. A manager can see which station is short of capacity and
+      why people are waiting there, rather than guessing."</p>
+    </div>
+    <div class="trans"><b>Hand over →</b> "Aya will tell you what we have <i>not</i> built yet."</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Slides 28–29 · The closing lesson, and the close <span class="meta">1:05 · Abdel Aziz hands to you</span></h2>
+  <div class="body">
+    <div class="do"><b>You come in last.</b> Aya covers what is not built yet (slide 25) and Abdel
+    Aziz covers the three design lessons (slide 27). You take the three that surprised us, and then
+    you close the presentation.</div>
+    <div class="say">
+      <p><b>Lesson six (slide 28), your closer:</b> "The lesson that surprised us most was that
+      testing the logic is not the same as testing the wiring. At one point every single one of our
+      one hundred and eighty-two automatic checks was passing — while half of our dashboard showed
+      no data at all. The logic was correct. Nothing had ever fed it. Now we write a check that
+      would fail if two correct pieces disagreed with each other, and that habit found four real
+      problems that reading the code had missed."</p>
+      <p><b>Closing:</b> "ChargeHub turns a charging station from first-come-first-served into a
+      system that plans — and can always explain its decision. Nothing you saw is a mock-up.
+      Nothing can double-book. And nothing happens without a recorded reason. Thank you — we are
+      happy to take questions."</p>
+    </div>
+    <div class="do"><b>Q&amp;A:</b> You lead. Route database and implementation questions to Abdel
+    Aziz, interface and analytics questions to Aya. Use the Q&amp;A Handbook — you have 50 answers
+    prepared. If you genuinely do not know, say "we did not build that" rather than guessing; the
+    handbook lists what is deliberately not built.</div>
+  </div>
+</div>
+</section>
+
+<section class="panel z "
+         id="panel-abdelaziz" role="tabpanel" aria-labelledby="tab-abdelaziz">
+  <div class="panel-head">
+    <h2>Abdel Aziz</h2>
+    <span class="badge">7:00</span>
+  </div>
+  <p class="qa-note"><b>In Q&amp;A you take:</b> Database, back end, operator side, deposits and refunds.</p>
+<div class="seg">
+  <h2>Slides 8–9 · Architecture <span class="meta">2:15 · Malik hands to you</span></h2>
+  <div class="body">
+    <p><span class="pill">Slide 8</span> <b>Two applications, one database</b></p>
+    <div class="say">
+      <p>"Thank you Malik. The system is two applications sharing one database."</p>
+      <p>"The part people see is built with Next.js and React — the driver's app, the operator's
+      app and the manager's dashboards. Behind it is a back end with fifty-three endpoints, and
+      that is where every business rule lives. The screens never touch the database directly. That
+      matters because it means a rule cannot be enforced in one screen and forgotten in another."</p>
+      <p>"Underneath is MongoDB with fourteen collections. And one thing worth pointing out — we
+      keep a history of everything that happens to a booking, and that history is only ever added
+      to. It is never edited. Scores and reports are calculated from it rather than stored."</p>
+    </div>
+
+    <p><span class="pill">Slide 9</span> <b>The one rule the database enforces — your key slide</b></p>
+    <div class="say">
+      <p>"This is the most important technical decision we made, so I want to spend a moment on it."</p>
+      <p>"We split charger time into fifteen-minute blocks. A booking from three to four o'clock
+      owns four of those blocks. And we told the database: one block can be owned by only one
+      booking, ever."</p>
+      <p><b>Point at the diagram:</b> "So when Ben tries to book three-thirty to four-thirty, he
+      needs two blocks Anna already owns. The database refuses it. Not our code — the database
+      itself. But when Ben books four o'clock to five, nobody owns those blocks, so it works. Two
+      bookings sit back to back with no time wasted between them."</p>
+      <p><b>Say why:</b> "We could have written this check in our own code. We started that way.
+      The problem is that a check in code can be skipped by a feature somebody writes later, and if
+      two requests arrive at exactly the same moment they can both pass it. A rule inside the
+      database cannot be bypassed by code that does not exist yet."</p>
+    </div>
+    <div class="do"><b>If a mentor pushes:</b> MongoDB has no built-in way to say "these two time
+    ranges must not overlap". Splitting into fixed blocks turns overlap into a simple duplicate-key
+    rule, which the database does enforce natively. The cost is that bookings start on the quarter
+    hour. We accepted that trade deliberately.</div>
+    <div class="trans"><b>Hand over →</b> "Aya will explain how we chose to build each page, which is a required part of the assessment."</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Slide 14 · What we built <span class="meta">1:00 · Aya hands back to you</span></h2>
+  <div class="body">
+    <div class="do"><b>Why this is yours:</b> you built most of these services, so you can answer a
+    follow-up on any one of them without passing it along.</div>
+    <div class="say">
+      <p>"Thank you Aya. Before the demonstration, here is everything that actually works — twelve
+      parts, and every one of them is running against a real database."</p>
+      <p><b>Do not read all twelve.</b> Pick four, then move on:</p>
+      <p>"A driver can book any length from fifteen minutes up to two hours. A small deposit holds
+      the booking. They get a QR code to show at the station. And if nothing is free, they keep
+      their place in the queue and we offer them a charger the moment one opens up."</p>
+      <p>"The rest — late arrivals, early departures, extensions, overstays, broken chargers and the
+      delays they cause — all work, and you will see several of them in a few minutes."</p>
+    </div>
+    <div class="trans"><b>Hand over →</b> "Malik will explain the thinking behind how the system
+    decides who gets which charger."</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Slide 18 · The deposit, and being fair about it <span class="meta">1:00 · Malik hands back to you</span></h2>
+  <div class="body">
+    <div class="do"><b>Why this is yours:</b> the refund rules are enforced in one back-end service
+    that every path goes through, and "only staff can mark a problem as our fault" is a permission
+    check on the server. Both are yours, so a follow-up on either does not need to be passed along.</div>
+    <div class="say">
+      <p>"Thank you Malik. A small deposit holds the booking. Cancel more than a day ahead and you
+      get all of it back. Cancel at the last minute, or never turn up, and it is kept."</p>
+      <p><b>Point at the table, then land this line:</b> "But our fault always beats the clock. If
+      the charger broke, or we moved your booking, you are refunded even inside the twenty-four hour
+      window — and your reliability score is not touched at all."</p>
+      <p><b>Then the part that is really about access control:</b> "Only staff or an admin can mark
+      something as our fault. That is checked on the server, not hidden in the screen. If a driver
+      could set it themselves, they would refund themselves every single time."</p>
+      <p>"And all of these rules live in one place that every path goes through — cancelling from
+      the app, a no-show detected by a background job, an operator cancelling at the desk. There is
+      no second copy of the rules to fall out of step."</p>
+    </div>
+    <div class="warn"><b>Say this before anyone asks:</b> "Payments are simulated. No card number,
+    expiry or security code is ever accepted, stored or shown anywhere in this system — there is no
+    field for one. The records and the refund rules are real; the money movement is not."</div>
+    <div class="trans"><b>Hand over →</b> "Aya is going to show you all of this actually working."</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Demo · you operate the staff screen <span class="meta">during Aya's demo</span></h2>
+  <div class="body">
+    <div class="do">
+      <b>Before you start:</b> log in as <code>staff@chargehub.com</code> / <code>Staff123!</code>
+      on a second window. Have <code>/staff</code> already open.
+    </div>
+    <table>
+      <tr><th>When Aya says</th><th>You do</th><th>You say</th></tr>
+      <tr>
+        <td>"Anna arrives at the station"</td>
+        <td>Open the check-in panel. <b>Type the booking code</b> rather than using the camera.</td>
+        <td>"On the operator side I look her up. I can scan her QR code with the camera, or type the
+        code — both go through exactly the same lookup, so nothing is different."</td>
+      </tr>
+      <tr>
+        <td>"Check her in"</td>
+        <td>Press check in.</td>
+        <td>"She is checked in, and the system has already recorded whether she was early, on time,
+        inside the grace period, or late. That happens automatically."</td>
+      </tr>
+      <tr>
+        <td>"Start the session"</td>
+        <td>Press start charging.</td>
+        <td>"Starting and ending are two separate recorded steps, so we always know how long the bay
+        was really occupied — not just how long it was booked for."</td>
+      </tr>
+      <tr>
+        <td>"A charger breaks"</td>
+        <td>Go to <code>/staff/incidents</code>, report a charger failure.</td>
+        <td>"I report the fault here. The system immediately works out which bookings are affected
+        and how far the delay spreads down the queue."</td>
+      </tr>
+      <tr>
+        <td>"Show the waitlist"</td>
+        <td>Open <code>/staff/waitlist</code>.</td>
+        <td>"This is my waitlist — and notice it only shows my station. I am assigned to Downtown,
+        so I cannot see or act on the other two. That is enforced on the server, not just hidden in
+        the screen."</td>
+      </tr>
+    </table>
+    <div class="warn"><b>Camera warning:</b> the browser only allows camera access on
+    <code>localhost</code> or over HTTPS. If the demo is on a phone over the office network, the
+    camera will not start. <b>Use the typed code.</b> It is the same code path, so you are not
+    avoiding anything real.</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Three short scenes <span class="meta">1:30 · Aya hands to you after the main demo</span></h2>
+  <div class="body">
+    <div class="do"><b>You run these from the terminal, then show the result on screen.</b> Run
+    <code>npm run demo -- reset</code> between each one. A booking from the previous scene genuinely
+    still holds its charger, so skipping the reset can fail with CHARGER_BUSY — correct behaviour
+    that looks like a bug on stage.</div>
+
+    <div class="say">
+      <p>"Thank you Aya. That was one driver end to end. Let me show you three shorter scenes, each
+      making a single point."</p>
+    </div>
+
+    <p><span class="pill">1</span> <b><code>npm run demo -- run waitlist_promotion</code></b></p>
+    <div class="say">
+      <p>"Someone wanted a time that was already full, so they waited. Then the person who had it
+      cancelled. Within a minute the waiting driver was offered that exact slot, and accepted.
+      Nobody at the station had to do anything — no phone call, no manual reassignment."</p>
+    </div>
+
+    <p><span class="pill">2</span> <b><code>npm run demo -- run reliability_scoring</code></b></p>
+    <div class="say">
+      <p>"Here are four drivers on the same system with very different habits. One always turns up —
+      a hundred. One is occasionally late — eighty-three. Two are chronically late or frequently
+      absent — zero."</p>
+      <p><b>The point to make:</b> "That is built from what they actually did, not typed in by
+      anyone. And it is recalculated from the history every time, so a missed or repeated update
+      cannot leave the number permanently wrong."</p>
+    </div>
+
+    <p><span class="pill">3</span> <b><code>npm run demo -- run technical_incident</code></b></p>
+    <div class="say">
+      <p>"A charger is reported broken. The system identifies which bookings are affected."</p>
+      <p><b>The point to make:</b> "Notice it does not cancel anything automatically. It tells the
+      operator what is affected and lets a person decide. We felt that cancelling someone's booking
+      should be a human decision, not something a background job does quietly."</p>
+    </div>
+
+    <div class="trans"><b>Hand over →</b> "Aya, over to you for how we know all of this works."</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Slide 27 · Design lessons <span class="meta">1:15</span></h2>
+  <div class="body">
+    <div class="say">
+      <p>"Three lessons from the design side."</p>
+      <p>"First — preventing double bookings belongs in the database, not in our code. We tried it
+      in the application first. A check in code can be skipped by a feature written later, and two
+      requests arriving together can both pass it. Moving it into a database rule made it
+      impossible to break."</p>
+      <p>"Second — we had to model charger time as small blocks. We started with fixed thirty-minute
+      slots, but real charging is anywhere from fifteen minutes to two hours. Splitting time into
+      fifteen-minute blocks let us support any length with one simple rule. And we got the boundary
+      wrong once, in a way that made every back-to-back booking impossible — which taught us to test
+      the edges, not the middle."</p>
+      <p>"Third — scores have to be rebuilt from history, never counted up as you go. A running
+      total drifts. If one update is missed or repeated, the number is wrong forever and nobody can
+      tell. Recalculating from the recorded history means a repeated event cannot double-count and a
+      lost one repairs itself."</p>
+    </div>
+    <div class="trans"><b>Hand over →</b> "Malik has the three that surprised us most."</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Questions likely to come to you <span class="meta">Q&amp;A</span></h2>
+  <div class="body">
+    <table>
+      <tr><th>Question</th><th>Short answer</th></tr>
+      <tr><td>Why MongoDB and not SQL?</td><td>Honest answer: it is what the team knew. A relational
+      database with an exclusion constraint would express the overlap rule more directly. We got the
+      same guarantee by splitting time into blocks and using a unique index.</td></tr>
+      <tr><td>Why fifteen minutes?</td><td>It divides evenly into every length we support — 15, 30,
+      45, 60, 90 and 120. No rounding and no wasted time. One minute would multiply the number of
+      database writes by fifteen for precision nothing needs.</td></tr>
+      <tr><td>What if two people click at exactly the same millisecond?</td><td>One of them gets a
+      duplicate-key error from the database and is told the charger is busy. This is tested — it is
+      one of our automatic checks.</td></tr>
+      <tr><td>How do you know the station scoping works?</td><td>We tested it by running it: the
+      assigned station is allowed, an unassigned one is refused with a 403, and an admin bypasses it
+      by design. We can show that.</td></tr>
+      <tr><td>Is the QR code secure?</td><td>It contains only the booking code, which the operator
+      could also type. It is a lookup shortcut, not a credential — and the operator still has to be
+      logged in and assigned to that station.</td></tr>
+      <tr><td>Are the payments real?</td><td>No. They are simulated, and no card data of any kind is
+      accepted, stored or displayed. What is real is the rules and the records — every deposit,
+      refund and forfeiture is written down with its reason.</td></tr>
+      <tr><td>How hard would real payments be?</td><td>The connection point already exists, along
+      with the payment-intent and refund records and the protection against charging twice. It is a
+      swap, not a rebuild.</td></tr>
+      <tr><td>Could a driver claim it was your fault to get a refund?</td><td>No. Only staff or an
+      admin can set the operator-fault flag, and that is checked on the server.</td></tr>
+    </table>
+  </div>
+</div>
+</section>
+
+<section class="panel y "
+         id="panel-aya" role="tabpanel" aria-labelledby="tab-aya">
+  <div class="panel-head">
+    <h2>Aya</h2>
+    <span class="badge">6:45</span>
+  </div>
+  <p class="qa-note"><b>In Q&amp;A you take:</b> Screens, customer journey, rendering, analytics, what is not built.</p>
+<div class="seg">
+  <h2>Slides 10–12 · How pages are rendered <span class="meta">1:45 · required section · Abdel Aziz hands to you</span></h2>
+  <div class="body">
+    <div class="do"><b>Why this is yours:</b> rendering is really a question about how the page
+    <i>feels</i> to the person using it — how fast it appears and whether the information is right
+    the moment they see it. That is the customer journey, which is your half of the project.</div>
+
+    <p><span class="pill">Slide 11</span> <b>Three ways to build a page</b></p>
+    <div class="say">
+      <p>"Thank you Abdel Aziz. Next.js gives us three different ways to build a page, and we chose per page
+      rather than picking one for the whole project."</p>
+      <p>"Server-rendered means the server builds the page fresh for every visitor. Static means it
+      is built once when we deploy and then reused for everybody. And browser-rendered means a light
+      shell arrives first, and then the browser fetches the data."</p>
+      <p>"Each one is right in a different situation, so the interesting part is not the three
+      names — it is why we picked each one."</p>
+    </div>
+
+    <p><span class="pill">Slide 12</span> <b>Every page, and why</b></p>
+    <div class="say">
+      <p>"The public pages — the home page, the station list, a station's detail page — are
+      server-rendered. A driver looking for a charger, and a search engine indexing us, both need to
+      see real availability in the very first response. If those pages were cached, we would be
+      showing yesterday's answer."</p>
+      <p><b>The line to land — say it slowly:</b> "The QR landing page is server-rendered and never
+      cached at all. Showing a bay as free when it was taken thirty seconds ago is the one failure
+      this whole product exists to prevent."</p>
+      <p>"The information pages — about, FAQ, terms, privacy — are static. They are identical for
+      everyone and change very rarely, so building them once at deploy time is simply faster for the
+      visitor."</p>
+      <p>"And the driver's own area — the booking wizard, their bookings, their offers, the waitlist
+      — is browser-rendered. Those pages need the login token, and they involve a lot of clicking. A
+      static shell appears instantly and the personal data arrives a moment later, which feels much
+      faster than waiting for a full page."</p>
+      <p><b>Be honest, it scores well:</b> "We also configured a time-based refresh option, but it
+      is currently unused — every request asks for fresh data. That is on our list to tidy up."</p>
+    </div>
+    <div class="trans"><b>Hand over →</b> "Abdel Aziz will show you everything the system actually
+    does."</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Slide 20 · Demo — Anna's journey <span class="meta">3:30 · the centrepiece</span></h2>
+  <div class="body">
+    <div class="do">
+      <b>Before you begin — check all three:</b>
+      <br>1. The services window is running and printing a line every minute.
+      <br>2. You are logged in as <code>user@chargehub.com</code> / <code>User123!</code>.
+      <br>3. Abdel Aziz is logged in as staff on the second window.
+    </div>
+
+    <div class="say"><p>"This is Anna. She needs to charge her car this afternoon. Let me walk you
+    through exactly what happens."</p></div>
+
+    <ol class="steps">
+      <li><b>Book</b> — Open the booking page, pick a station and a charger, choose 60 minutes.
+        <div class="say"><p>"She picks a station and how long she needs. Watch what happens when I
+        change the length — the available start times change with it. That is not a stored list of
+        slots; it is worked out from what is genuinely free."</p></div>
+      </li>
+      <li><b>Pay the deposit</b> — Complete the simulated payment.
+        <div class="say"><p>"A small deposit confirms it. She has ten minutes to pay before the
+        charger is released to someone else. I should say clearly — this payment is simulated. No
+        card details are ever entered, stored or shown anywhere."</p></div>
+      </li>
+      <li><b>QR code appears</b> — Show the confirmation screen.
+        <div class="say"><p>"And here is her QR code. This is what she shows when she arrives."</p></div>
+      </li>
+      <li><b>Operator checks her in</b> — <span class="pill">Abdel Aziz</span> types the code and checks in.
+        <div class="say"><p>"Over to the station side."</p></div>
+      </li>
+      <li><b>Charging starts, then ends</b> — <span class="pill">Abdel Aziz</span> starts, then ends.
+        <div class="say"><p>"She plugs in and charges. And here is something worth watching — she
+        finishes early. That leftover time does not just disappear. It goes straight back on sale,
+        and within a minute the system offers it to somebody who was waiting."</p></div>
+      </li>
+      <li><b>A charger breaks</b> — <span class="pill">Abdel Aziz</span> reports a fault.
+        <div class="say"><p>"Now something goes wrong. A charger fails. The system works out which
+        bookings are affected and how far the delay spreads down the queue — and it tells those
+        drivers rather than letting them find out at the station."</p></div>
+      </li>
+      <li><b>Extension request</b> — Request more time from the driver side.
+        <div class="say"><p>"Anna asks for more time. The system checks whether it genuinely fits
+        before the next booking. If it fits, she gets it. If only part of it fits, she gets that
+        part and is told why. And if the next customer would be affected, she is refused — because
+        that customer's booking is a promise too."</p></div>
+      </li>
+      <li><b>Notifications</b> — Open the bell.
+        <div class="say"><p>"And Anna has been told about all of it — the offer, the delay, the
+        decision on her extra time. These messages are not written by the booking code. They are
+        produced separately by reading the record of what happened, which means a failure to send a
+        message can never cause a booking to fail."</p></div>
+      </li>
+      <li><b>Analytics update</b> — Open <code>/admin/schedule-quality</code>.
+        <div class="say"><p>"And every number here has moved. Thirty-one measurements — how full
+        the chargers are, how often drivers get the time they wanted, how long people wait, how many
+        waitlisted drivers we eventually serve."</p>
+        <p><b>Point at a sample size:</b> "Notice each one shows how many cases it is based on. And
+        where we have no data, it says 'no data' rather than showing zero — because zero and 'we
+        don't know' are very different things."</p></div>
+      </li>
+    </ol>
+    <div class="warn"><b>If something does not respond:</b> the background services run once a
+    minute. Say "this runs on a timer, so give it a moment" and move to the next step — do not stand
+    in silence waiting. Come back to it.</div>
+    <div class="trans"><b>Hand over →</b> "That was one driver from start to finish. Abdel Aziz will
+    show you three shorter scenes that each make one point."</div>
+  </div>
+</div>
+
+
+<div class="seg">
+  <h2>Slide 22 · Results <span class="meta">0:45 · Abdel Aziz hands to you</span></h2>
+  <div class="body">
+    <div class="say">
+      <p>"Thank you Abdel Aziz. How do we know it works? One hundred and eighty-two automatic
+      checks, and they run every time we change anything."</p>
+      <p>"They do not check that the code runs. They check things like: two bookings that overlap —
+      the second one is refused. Two bookings back to back — both accepted. A held charger cannot be
+      taken by anyone else. And leaving early really does put the time back on sale."</p>
+    </div>
+    <div class="trans"><b>Hand over →</b> "Malik will tell you what all of that is worth to a
+    station owner."</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Slide 25 · What we would build next <span class="meta">0:45 · Malik hands back to you</span></h2>
+  <div class="body">
+    <div class="do"><b>Why this is yours:</b> this is the honest half of the customer journey — the
+    things a driver would notice are missing. You already say "no data" instead of zero and that the
+    refresh option is unused, so being the one who names the gaps is consistent. <b>Do not read all
+    six.</b> Take the first three properly and summarise the rest in one sentence.</div>
+    <div class="say">
+      <p>"Thank you Malik. We should be equally clear about what is not built."</p>
+      <p>"Real card payments. Everything around them exists — the connection point, the deposit and
+      refund records, the protection against charging twice — but no money actually moves. That is a
+      swap, not a rebuild."</p>
+      <p>"Email and text alerts. Messages work today, but only inside the app. A driver has to open
+      it to see that their charger is ready."</p>
+      <p><b>The one worth dwelling on:</b> "And a real check-out signal. Right now we assume a driver
+      leaves when charging stops. If someone unplugs and leaves the car parked in the bay, we would
+      put that time back on sale while a car is still sitting there. That is the weakest assumption
+      in the system, and no amount of code fixes it — it needs a sensor or a second scan."</p>
+      <p><b>Then one sentence for the rest:</b> "Beyond that: reserving extra time automatically for
+      someone overstaying, tuning the scoring differently per station, and long bookings that span
+      two separate free periods."</p>
+    </div>
+    <div class="trans"><b>Hand over →</b> "Abdel Aziz will start on what we learned."</div>
+  </div>
+</div>
+
+<div class="seg">
+  <h2>Questions likely to come to you <span class="meta">Q&amp;A</span></h2>
+  <div class="body">
+    <div class="say">
+      <p><b>"Did you design this yourself?"</b> — Yes. One set of colours, fonts and components used
+      across every screen, with a minimum touch size so it works on a phone.</p>
+      <p><b>"Does it work on mobile?"</b> — Yes, every screen is built for small screens first.</p>
+      <p><b>"Why does that say 'no data'?"</b> — Because there genuinely is none for that period.
+      We deliberately never show zero in place of missing data — a zero looks like a real
+      measurement and would be misleading.</p>
+      <p><b>"What is the countdown on the offer?"</b> — The charger is really held for five minutes.
+      The number comes from the server, not the phone's clock, so a device with the wrong time
+      cannot show a hold that has already expired as still valid.</p>
+      <p><b>"Can I see the deposit figures?"</b> — Be honest: the data is all recorded, but we have
+      not built a screen for it yet. It is on our list.</p>
+    </div>
+  </div>
+</div>
+</section>
+</main>
+
+<footer>Generated from the three script files by <code>build-hub.js</code> — re-run it after editing any
+script so this page cannot drift out of date.</footer>
+
+<script>
+  (function () {
+    var root = document.documentElement, KEY = "chargehub-theme";
+    var saved = null;
+    try { saved = localStorage.getItem(KEY); } catch (e) {}
+    if (saved) root.setAttribute("data-theme", saved);
+    else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)
+      root.setAttribute("data-theme", "dark");
+
+    document.getElementById("themeBtn").addEventListener("click", function () {
+      var next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+      root.setAttribute("data-theme", next);
+      try { localStorage.setItem(KEY, next); } catch (e) {}
+    });
+
+    var tabs = document.querySelectorAll(".card[role=tab]");
+    tabs.forEach(function (tab) {
+      tab.addEventListener("click", function () {
+        tabs.forEach(function (t) { t.setAttribute("aria-selected", String(t === tab)); });
+        document.querySelectorAll(".panel").forEach(function (p) {
+          p.classList.toggle("on", p.id === "panel-" + tab.dataset.key);
+        });
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+    });
+  })();
+</script>
+</body>
+</html>

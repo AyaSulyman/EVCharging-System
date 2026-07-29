@@ -48,7 +48,7 @@ window must not be told the cancellation failed because a template threw.
 |---|---|
 | In-app notifications | ✅ Model extended additively; the original six types untouched |
 | Customer notification centre | ✅ `/notifications`, audience-filtered |
-| Operator notification centre | ✅ `?audience=operator`, station-scoped fan-out |
+| Operator notification centre | ⚠️ **API only — no screen.** `?audience=operator` works and operator rows are produced, but no frontend code requests them (verified: zero callers). `incident_reported` is written and never displayed. Do not demonstrate |
 | Waitlist offers | ✅ `offer_issued` |
 | Offer expiry warnings | ✅ `offer_expiring` (time-driven) + `offer_expired` (event-driven) |
 | Extension approvals/denials | ✅ `extension_decided`, distinguishing partial from full |

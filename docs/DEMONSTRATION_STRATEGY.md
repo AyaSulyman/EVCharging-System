@@ -437,6 +437,41 @@ visibly keeps the lower-scored driver in the queue.
 **Do not** replace the existing 0-score drivers. One is needed to show the floor. The second is
 genuinely redundant and could be repurposed as the ~70 archetype at no cost.
 
+### 8b. What actually happened when this was implemented
+
+Both archetypes were added and calibrated over **six** regeneration passes. Result:
+
+```
+Nadia Fares    0     Karim Nassar   0
+Ziad Haddad   30     Yara Mansour  79     Rami Khoury / Lina Aoun  100
+```
+
+**One of the two targets was met.** Yara Mansour at 79 is a real mid-band driver — multiplier 0.79,
+distinct from both 1.00 and the 0.60 floor. That is a genuine gain: the band now has an ordinary
+driver in it, not only a perfect one.
+
+**The second could not be reliably placed, and the reason is structural.** Three properties of the
+shipped scoring make a probabilistic archetype unable to target the middle:
+
+1. **The cap absorbs the first ~27 points.** Score is `min(100, 100 + completions − penalties)`. With
+   ~29 reservations a driver accumulates ~27 completion points, so any archetype whose expected
+   penalty sits below that reads a flat 100. Three of the six passes produced exactly this.
+2. **The no-show quantum is enormous relative to the history.** At −25 against a ~29-event history,
+   drawing one more or one fewer no-show moves the score by 25 points. There is no weight that makes
+   the middle stable.
+3. **The archetypes are coupled.** `makeRng` is deterministic and shared, so changing one archetype's
+   weights reshuffles which reservations every *other* driver receives. Tuning Ziad moved Yara from
+   79 to 59; tuning Yara moved Ziad from 76 to 30. They cannot be calibrated independently.
+
+**Consequence for the demonstration:** do not build the tie-break moment on generated archetypes.
+Use the deterministic `reliability_scoring` demo scenario, which constructs an exact history (one
+clean completion, one no-show) and reproduces identically every run. Use Yara (79) versus a
+100-scoring driver for the *visible* tie-break, since that pair is stable in the current data.
+
+**This is a finding worth saying out loud in Q&A**, not a defect to hide: it is direct evidence of
+how steep the scoring deliberately is. "Why does nobody score 55?" now has a real answer — because
+one no-show costs twenty-five clean visits, so the distribution collapses toward the ends.
+
 ---
 
 ## 9. Distribution of demonstration ownership

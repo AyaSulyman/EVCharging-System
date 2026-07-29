@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ChargeHub — Demo Recording Playbook</title>
+<style>
+  :root[data-theme="dark"] {
+    --bg:#0B1014; --panel:#121A20; --panel-2:#18232B; --line:#22323C;
+    --ink:#E8F1F5; --soft:#8FA6B2; --dim:#5E7684;
+    --volt:#F5A524; --volt-soft:#3A2C10;
+    --green:#2DD4A7; --green-soft:#0E2B24;
+    --malik:#F5A524; --aziz:#4EA8DE; --aya:#C77DFF;
+    --shadow:0 1px 0 rgba(255,255,255,.04), 0 8px 24px rgba(0,0,0,.45);
+  }
+  :root[data-theme="light"] {
+    --bg:#F4F7F9; --panel:#FFFFFF; --panel-2:#EEF3F6; --line:#DAE3E9;
+    --ink:#0D1A22; --soft:#4A5F6C; --dim:#7B8F9B;
+    --volt:#B87400; --volt-soft:#FDF3E0;
+    --green:#0E7A5F; --green-soft:#E4F4EF;
+    --malik:#B87400; --aziz:#1B6CA8; --aya:#7B3FBF;
+    --shadow:0 1px 2px rgba(13,26,34,.06), 0 8px 20px rgba(13,26,34,.07);
+  }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body {
+    margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.65 ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  a { color:inherit; }
+
+  /* ---------- top bar ---------- */
+  .bar {
+    position:sticky; top:0; z-index:50; background:color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter:blur(12px); border-bottom:1px solid var(--line);
+  }
+  .bar-in { max-width:1120px; margin:0 auto; padding:10px 20px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .brand { font-weight:800; letter-spacing:-.02em; font-size:15px; display:flex; align-items:center; gap:8px; }
+  .brand .dot { width:9px; height:9px; border-radius:50%; background:var(--volt); box-shadow:0 0 12px var(--volt); }
+  .navlinks { display:flex; gap:4px; flex-wrap:wrap; margin-left:auto; }
+  .navlinks a, .toggle {
+    display:inline-flex; align-items:center; gap:6px; min-height:38px; padding:0 12px;
+    border:1px solid var(--line); border-radius:9px; background:var(--panel);
+    color:var(--soft); font-size:12.5px; font-weight:600; text-decoration:none; cursor:pointer;
+    transition:.15s;
+  }
+  .navlinks a:hover, .toggle:hover { color:var(--ink); border-color:var(--volt); }
+  .navlinks a.here { color:var(--ink); border-color:var(--volt); background:var(--volt-soft); }
+
+  /* ---------- header ---------- */
+  header.hero { max-width:1120px; margin:0 auto; padding:34px 20px 10px; }
+  .kicker { color:var(--volt); font-size:11.5px; font-weight:800; letter-spacing:.18em; text-transform:uppercase; }
+  h1 { margin:10px 0 8px; font-size:clamp(26px,4vw,38px); letter-spacing:-.03em; line-height:1.1; }
+  .lede { color:var(--soft); max-width:62ch; font-size:15.5px; }
+
+  /* ---------- filter ---------- */
+  .filter { max-width:1120px; margin:22px auto 0; padding:0 20px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .filter .lbl { font-size:12px; color:var(--dim); font-weight:700; text-transform:uppercase; letter-spacing:.1em; margin-right:4px; }
+  .chip {
+    min-height:40px; padding:0 15px; border-radius:999px; border:1px solid var(--line);
+    background:var(--panel); color:var(--soft); font-size:13px; font-weight:700; cursor:pointer; transition:.15s;
+  }
+  .chip:hover { color:var(--ink); }
+  .chip[aria-pressed="true"] { color:var(--bg); background:var(--ink); border-color:var(--ink); }
+  .chip.m[aria-pressed="true"] { background:var(--malik); border-color:var(--malik); color:#0B1014; }
+  .chip.z[aria-pressed="true"] { background:var(--aziz); border-color:var(--aziz); color:#0B1014; }
+  .chip.y[aria-pressed="true"] { background:var(--aya); border-color:var(--aya); color:#0B1014; }
+
+  main { max-width:1120px; margin:0 auto; padding:8px 20px 90px; }
+
+  /* ---------- video card ---------- */
+  .vid { margin:22px 0; border:1px solid var(--line); border-radius:16px; background:var(--panel); box-shadow:var(--shadow); overflow:hidden; }
+  .vid-head { padding:18px 20px; border-bottom:1px solid var(--line); background:var(--panel-2); display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; }
+  .num {
+    flex:none; width:44px; height:44px; border-radius:12px; display:grid; place-items:center;
+    background:var(--volt); color:#0B1014; font-weight:900; font-size:16px; letter-spacing:-.02em;
+  }
+  .vid-head h2 { margin:0 0 3px; font-size:19px; letter-spacing:-.02em; }
+  .vid-head .sub { color:var(--soft); font-size:13.5px; }
+  .len { margin-left:auto; font-variant-numeric:tabular-nums; font-weight:800; color:var(--volt); font-size:15px; }
+  .vid-body { padding:18px 20px 22px; }
+
+  /* ---------- crew grid ---------- */
+  .crew { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin:0 0 18px; }
+  .crew div { border:1px solid var(--line); border-radius:11px; padding:11px 13px; background:var(--bg); }
+  .crew .role { font-size:10.5px; text-transform:uppercase; letter-spacing:.11em; color:var(--dim); font-weight:800; }
+  .crew .who { margin-top:3px; font-weight:800; font-size:14.5px; }
+  .who.m { color:var(--malik); } .who.z { color:var(--aziz); } .who.y { color:var(--aya); }
+
+  /* ---------- beats ---------- */
+  h3.sec { margin:22px 0 10px; font-size:12px; text-transform:uppercase; letter-spacing:.13em; color:var(--dim); font-weight:800; }
+  ol.beats { list-style:none; counter-reset:b; margin:0; padding:0; }
+  ol.beats > li { counter-increment:b; position:relative; padding:0 0 0 40px; margin:0 0 16px; }
+  ol.beats > li::before {
+    content:counter(b); position:absolute; left:0; top:1px; width:26px; height:26px; border-radius:8px;
+    display:grid; place-items:center; background:var(--panel-2); border:1px solid var(--line);
+    color:var(--soft); font-size:12px; font-weight:800;
+  }
+  .act { font-weight:700; margin-bottom:5px; }
+  .tag { display:inline-block; padding:1px 8px; border-radius:6px; font-size:11px; font-weight:800; margin-right:7px; vertical-align:1px; }
+  .tag.m { background:color-mix(in srgb,var(--malik) 18%,transparent); color:var(--malik); }
+  .tag.z { background:color-mix(in srgb,var(--aziz) 18%,transparent); color:var(--aziz); }
+  .tag.y { background:color-mix(in srgb,var(--aya) 18%,transparent); color:var(--aya); }
+  .say { border-left:3px solid var(--green); background:var(--green-soft); padding:9px 13px; border-radius:0 9px 9px 0; color:var(--ink); }
+  .say::before { content:"SAY"; display:block; font-size:10px; font-weight:800; letter-spacing:.12em; color:var(--green); margin-bottom:3px; }
+
+  /* ---------- overlays table ---------- */
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th, td { text-align:left; padding:9px 11px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-size:10.5px; text-transform:uppercase; letter-spacing:.1em; color:var(--dim); font-weight:800; }
+  td.t { font-variant-numeric:tabular-nums; font-weight:800; color:var(--volt); white-space:nowrap; }
+  .ovl { font-style:italic; }
+
+  .note { border:1px solid var(--volt); background:var(--volt-soft); border-radius:11px; padding:12px 15px; margin:14px 0; font-size:14px; }
+  .note b { color:var(--volt); }
+  .warn { border:1px dashed var(--line); border-radius:11px; padding:12px 15px; margin:14px 0; font-size:14px; color:var(--soft); }
+  code { background:var(--panel-2); border:1px solid var(--line); padding:1px 6px; border-radius:5px; font-size:12.5px; font-family:ui-monospace,Consolas,monospace; }
+  pre { background:var(--panel-2); border:1px solid var(--line); border-radius:10px; padding:12px 14px; overflow-x:auto; font-size:12.5px; }
+  .hide { display:none !important; }
+  footer { max-width:1120px; margin:0 auto; padding:0 20px 60px; color:var(--dim); font-size:13px; }
+  @media print { .bar,.filter { display:none; } body { background:#fff; } }
+</style>
+</head>
+<body>
+
+<div class="bar"><div class="bar-in">
+  <div class="brand"><span class="dot"></span> ChargeHub Playbook</div>
+  <nav class="navlinks">
+    <a class="here" href="demo-playbook.html">🎬 Demo playbook</a>
+    <a href="scripts-hub.html">📑 All scripts</a>
+    <a href="script-malik.html">Malik</a>
+    <a href="script-abdelaziz.html">Abdel Aziz</a>
+    <a href="script-aya.html">Aya</a>
+    <button class="toggle" id="themeBtn" type="button">◐ Theme</button>
+  </nav>
+</div></div>
+
+<header class="hero">
+  <div class="kicker">Recording playbook · five videos · 11 min 30 s</div>
+  <h1>What each of us does, and says, on camera</h1>
+  <p class="lede">Every demonstration below proves implemented business rules — not screens. Filter to
+  your own name to see only what you are responsible for. Nothing here describes behaviour that does
+  not exist in the code.</p>
+</header>
+
+<div class="filter">
+  <span class="lbl">Show</span>
+  <button class="chip" data-who="all" aria-pressed="true">Everyone</button>
+  <button class="chip m" data-who="m" aria-pressed="false">Malik</button>
+  <button class="chip z" data-who="z" aria-pressed="false">Abdel Aziz</button>
+  <button class="chip y" data-who="y" aria-pressed="false">Aya</button>
+</div>
+
+<main>
+
+  <div class="note">
+    <b>Before any recording.</b> Start the background workers in their own terminal and leave them
+    running — without them nothing expires and no freed capacity is re-offered, and the system looks
+    stuck. Then confirm the harness is green.
+    <pre>cd backend
+npm run ops:demo-services     # leave running
+npm run ops:verify            # expect 182/182</pre>
+    Browser at 1280&nbsp;px wide. Driver on the left, staff on the right. Never alt-tab.
+  </div>
+
+  <!-- ================= V1 ================= -->
+  <section class="vid" data-crew="m z y">
+    <div class="vid-head">
+      <div class="num">1</div>
+      <div>
+        <h2>The bay that cannot be sold twice</h2>
+        <div class="sub">The guarantee. Everything else is worthless if this is not true.</div>
+      </div>
+      <div class="len">2:15</div>
+    </div>
+    <div class="vid-body">
+      <div class="crew">
+        <div><div class="role">Starts it</div><div class="who z">Abdel Aziz</div></div>
+        <div><div class="role">Driver screen</div><div class="who y">Aya</div></div>
+        <div><div class="role">Staff screen</div><div class="who z">Abdel Aziz</div></div>
+        <div><div class="role">Technical logic</div><div class="who z">Abdel Aziz</div></div>
+        <div><div class="role">Business logic</div><div class="who m">Malik</div></div>
+      </div>
+      <p><b>Why it is Abdel Aziz's:</b> slide 9 — "the one rule the database enforces" — is already his
+      in the deck. This video <em>is</em> that slide happening.</p>
+
+      <h3 class="sec">Beats</h3>
+      <ol class="beats">
+        <li><div class="act"><span class="tag y">Aya</span>Open the booking chooser, pick <b>exact time</b>, choose a station, charger and 60 minutes.</div>
+          <div class="say">"She picks how long she needs. Watch the available start times change with it — that is not a stored list, it is worked out from what is genuinely free."</div></li>
+        <li><div class="act"><span class="tag z">Abdel Aziz</span>In the second browser, request the <b>same charger, same hour</b>. Both press Confirm.</div>
+          <div class="say">"Both drivers pressed Confirm. Neither waited for the other."</div></li>
+        <li><div class="act"><span class="tag z">Abdel Aziz</span><b>Hold on the refusal for three seconds.</b> This is the money shot.</div>
+          <div class="say">"Refused — and refused by the database itself, not by our code. We split charger time into fifteen-minute blocks and told the database one block has one owner. A rule inside the database cannot be bypassed by a feature somebody writes next year."</div></li>
+        <li><div class="act"><span class="tag z">Abdel Aziz</span>Book <b>16:00–17:00</b> on the same charger. It succeeds.</div>
+          <div class="say">"A booking ending at four o'clock does not own the four o'clock block. So these two sit back to back with nothing wasted between them."</div></li>
+        <li><div class="act"><span class="tag y">Aya</span>Pay the simulated deposit. Show the QR code.</div>
+          <div class="say">"A small deposit confirms it. And I should say clearly — this payment is simulated. No card details are ever entered, stored or shown anywhere."</div></li>
+        <li><div class="act"><span class="tag z">Abdel Aziz</span><b>Type</b> the booking code on <code>/staff</code>, check in, start the session, end it.</div>
+          <div class="say">"I can scan her QR with the camera or type the code — both go through exactly the same lookup. And the system has already recorded whether she was early, on time, inside grace, or late. Nobody types that."</div></li>
+        <li><div class="act"><span class="tag z">Abdel Aziz</span>Try to act on <b>Airport</b>. Show the 403.</div>
+          <div class="say">"I am assigned to Downtown, so the server refuses. That is not a hidden menu — it is a permission check."</div></li>
+      </ol>
+
+      <h3 class="sec">Overlays</h3>
+      <table>
+        <tr><th>At</th><th>Overlay text</th><th>Why</th></tr>
+        <tr><td class="t">0:22</td><td class="ovl">"Not a stored list. Calculated from what is actually free, for this exact duration."</td><td>The most-missed idea in the system</td></tr>
+        <tr><td class="t">0:38</td><td class="ovl">"Both pressed Confirm. Neither waited for the other."</td><td>Makes the race visible</td></tr>
+        <tr><td class="t">0:44</td><td class="ovl">"Refused by the database, not by our code."</td><td>The single most important claim</td></tr>
+        <tr><td class="t">0:52</td><td class="ovl">"15:00 · 15:15 · 15:30 · 15:45 owned — 16:00 free."</td><td>Half-open coverage is invisible otherwise</td></tr>
+        <tr><td class="t">1:26</td><td class="ovl">"Held for 10 minutes. Unpaid, it returns to sale automatically."</td><td>The countdown is not on screen</td></tr>
+        <tr><td class="t">1:48</td><td class="ovl">"Recorded as ON TIME — classified automatically, nobody types it."</td><td>Entirely invisible in the UI</td></tr>
+        <tr><td class="t">2:05</td><td class="ovl">"Refused by the server. This operator is assigned to Downtown."</td><td>A refusal looks like a bug unless named</td></tr>
+      </table>
+      <div class="warn"><b>Tail:</b> 5 seconds of <code>npm run ops:reconcile</code> showing <b>0 disagreements</b>. One line, one number — the claim becomes evidence.</div>
+    </div>
+  </section>
+
+  <!-- ================= V2 ================= -->
+  <section class="vid" data-crew="m y">
+    <div class="vid-head">
+      <div class="num">2</div>
+      <div>
+        <h2>The afternoon that filled up</h2>
+        <div class="sub">The intelligence. This is what separates the project from a booking form.</div>
+      </div>
+      <div class="len">2:45</div>
+    </div>
+    <div class="vid-body">
+      <div class="crew">
+        <div><div class="role">Starts it</div><div class="who m">Malik</div></div>
+        <div><div class="role">Driver screen</div><div class="who y">Aya</div></div>
+        <div><div class="role">Manager screen</div><div class="who m">Malik</div></div>
+        <div><div class="role">Business + technical</div><div class="who m">Malik</div></div>
+        <div><div class="role">Analytics</div><div class="who m">Malik</div></div>
+      </div>
+      <p><b>Why it is Malik's:</b> slides 16–17 are the optimizer and reliability, described in his own
+      script as "your strongest material". The counterfactual is his argument to make.</p>
+
+      <h3 class="sec">Beats</h3>
+      <ol class="beats">
+        <li><div class="act"><span class="tag y">Aya</span>Open <code>/book</code>, choose <b>flexible</b>, describe a window: about 30 minutes, any time this afternoon.</div>
+          <div class="say">"She is not picking a time. She is describing a window — and that is the whole difference. A wizard can only answer 'which of these exact times?' It has nothing to say when the answer is none of them."</div></li>
+        <li><div class="act"><span class="tag m">Malik</span>Open <code>/admin/optimizer</code>. <b>Pause four seconds on the demand pool.</b></div>
+          <div class="say">"The system is not answering one person. It is planning all of them against the same chargers at once. Score people one at a time and two of them will happily be given the same charger."</div></li>
+        <li><div class="act"><span class="tag m">Malik</span>Point at the ordering.</div>
+          <div class="say">"Least flexible first. If you serve the flexible driver first you can burn the only slot the rigid one could ever have used — and then you serve one customer instead of two."</div></li>
+        <li><div class="act"><span class="tag m">Malik</span>Open one assignment's stored rationale.</div>
+          <div class="say">"Five things, fixed points each: does it keep the free time in usable blocks, how close to the time they wanted, how long they have waited, priority, and how likely they are to turn up. Same situation, same answer, every time — and this sentence was stored when the decision was made. A manager can show it to a customer."</div></li>
+        <li><div class="act"><span class="tag m">Malik</span><b>Pause five seconds on the counterfactual.</b> The strongest evidence in the project.</div>
+          <div class="say">"Every run also works out what plain first-come-first-served would have achieved on exactly the same data. If we were not better, this number would say so."</div></li>
+        <li><div class="act"><span class="tag y">Aya</span>Show the offer on <code>/offers</code> with its countdown. Let one expire, then accept late.</div>
+          <div class="say">"That charger is genuinely held — nobody else can book it for five minutes, which is what makes pressing Accept safe. And answering late does not throw you out: the system runs again and offers a new time."</div></li>
+      </ol>
+
+      <h3 class="sec">Overlays</h3>
+      <table>
+        <tr><th>At</th><th>Overlay text</th><th>Why</th></tr>
+        <tr><td class="t">0:30</td><td class="ovl">"Not answering one person — planning all of them against the same chargers at once."</td><td>The core distinction from a booking form</td></tr>
+        <tr><td class="t">0:42</td><td class="ovl">"Least flexible first — or you burn the only slot the rigid driver could use."</td><td>Counter-intuitive; must be said</td></tr>
+        <tr><td class="t">0:58</td><td class="ovl">"Usable gaps · close to the time asked · time waited · priority · likely to arrive"</td><td>Makes scoring concrete</td></tr>
+        <tr><td class="t">1:25</td><td class="ovl">"Same data, first-come-first-served: N served. This plan: M served."</td><td>The only <em>measured</em> proof the optimizer is worth building</td></tr>
+        <tr><td class="t">1:45</td><td class="ovl">"Genuinely held. Nobody else can book it for five minutes — so Accept cannot fail."</td><td>"Held" sounds like a UI state; it is real</td></tr>
+        <tr><td class="t">1:55</td><td class="ovl">"The countdown comes from the server, not this phone."</td><td>Anticipates a sharp question</td></tr>
+        <tr><td class="t">2:35</td><td class="ovl">"Waiting time and priority sit outside the reliability discount. Never starved."</td><td>The fairness guarantee</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= V3 ================= -->
+  <section class="vid" data-crew="m z y">
+    <div class="vid-head">
+      <div class="num">3</div>
+      <div>
+        <h2>Nothing is wasted</h2>
+        <div class="sub">Capacity maximization — the clearest business-value story in the system.</div>
+      </div>
+      <div class="len">2:30</div>
+    </div>
+    <div class="vid-body">
+      <div class="crew">
+        <div><div class="role">Starts it</div><div class="who y">Aya</div></div>
+        <div><div class="role">Driver screen</div><div class="who y">Aya</div></div>
+        <div><div class="role">Staff screen</div><div class="who z">Abdel Aziz</div></div>
+        <div><div class="role">Business logic</div><div class="who m">Malik</div></div>
+        <div><div class="role">Analytics</div><div class="who y">Aya</div></div>
+      </div>
+      <p><b>Why it is Aya's:</b> her script already owns the driver's journey and the analytics
+      screens. Early departure and waitlists are things the customer experiences.</p>
+      <div class="note"><b>21 of the 31 KPIs move during this single recording.</b> That is the reason
+      early departure, extensions and the waitlist are one story instead of three.</div>
+
+      <h3 class="sec">Beats</h3>
+      <ol class="beats">
+        <li><div class="act"><span class="tag z">Abdel Aziz</span>End a 60-minute session after 35 minutes.</div>
+          <div class="say">"She booked an hour and left after thirty-five minutes."</div></li>
+        <li><div class="act"><span class="tag y">Aya</span><b>Pause three seconds</b> on the freed time.</div>
+          <div class="say">"Twenty-five minutes just went back on sale. In most systems that time is simply lost — nobody knows it is free."</div></li>
+        <li><div class="act">Show the workers terminal for <b>8 seconds</b>, then <b>hard cut</b>.</div>
+          <div class="say">"These run every minute. Nobody clicks them."</div></li>
+        <li><div class="act"><span class="tag y">Aya</span>Show the extension top-up landing first.</div>
+          <div class="say">"The first refusal went to a driver already charging who had asked for more time. No new arrival, no new deposit, no risk of a no-show — the cheapest customer to serve is the one already in the bay."</div></li>
+        <li><div class="act"><span class="tag y">Aya</span>Show the waitlisted driver being offered the slot, and the bell.</div>
+          <div class="say">"Then the waiting queue. This driver was told 'nothing free' twenty minutes ago and has done nothing since. And the message was not written by the booking code — a separate worker reads the record of what happened, so a message that fails can never break a booking."</div></li>
+        <li><div class="act"><span class="tag y">Aya</span>Three extension outcomes back to back: approved → partial → <b>rejected, pause four seconds</b>.</div>
+          <div class="say">"Room to spare, granted. Only twenty of the thirty minutes actually fit, so she gets twenty and is told why. And refused — because the next customer arrives in ten minutes, and their booking is a promise too."</div></li>
+      </ol>
+
+      <h3 class="sec">Overlays</h3>
+      <table>
+        <tr><th>At</th><th>Overlay text</th><th>Why</th></tr>
+        <tr><td class="t">0:18</td><td class="ovl">"25 minutes back on sale. In most systems this time is simply lost."</td><td>The business value in one line</td></tr>
+        <tr><td class="t">0:24</td><td class="ovl">"Recorded as capacity released — reason EARLY_DEPARTURE. The minutes are counted."</td><td>Ties it to the KPI shown later</td></tr>
+        <tr><td class="t">0:40</td><td class="ovl">"60 seconds later."</td><td>Be honest about the cut</td></tr>
+        <tr><td class="t">0:46</td><td class="ovl">"Offered first to a driver already charging who wanted more time."</td><td><b>Completely invisible</b>, and it is the cleverest rule in the system</td></tr>
+        <tr><td class="t">1:10</td><td class="ovl">"Written by a separate worker, not by the booking code."</td><td>Architecture made visible</td></tr>
+        <tr><td class="t">1:58</td><td class="ovl">"Refused — the next customer arrives in ten minutes. Their booking is a promise too."</td><td>The fairness point that lands</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= V4 ================= -->
+  <section class="vid" data-crew="m z y">
+    <div class="vid-head">
+      <div class="num">4</div>
+      <div>
+        <h2>When it goes wrong</h2>
+        <div class="sub">Trust. A system is judged on its failures, not its happy path.</div>
+      </div>
+      <div class="len">2:15</div>
+    </div>
+    <div class="vid-body">
+      <div class="crew">
+        <div><div class="role">Starts it</div><div class="who z">Abdel Aziz</div></div>
+        <div><div class="role">Performs actions</div><div class="who z">Abdel Aziz</div></div>
+        <div><div class="role">Technical logic</div><div class="who z">Abdel Aziz</div></div>
+        <div><div class="role">Business logic</div><div class="who m">Malik</div></div>
+        <div><div class="role">Analytics</div><div class="who y">Aya</div></div>
+      </div>
+      <p><b>Why it is Abdel Aziz's:</b> the staff console, incidents and the delay cascade are his
+      material already, and he operates <code>/staff/incidents</code> in the existing plan.</p>
+
+      <h3 class="sec">Beats</h3>
+      <ol class="beats">
+        <li><div class="act"><span class="tag z">Abdel Aziz</span>Report a charger failure on <code>/staff/incidents</code>.</div>
+          <div class="say">"A charger fails at twenty to four. Four people are booked behind it. The charger goes unavailable immediately — nothing new can land on it."</div></li>
+        <li><div class="act"><span class="tag z">Abdel Aziz</span>Show the delay cascade panel.</div>
+          <div class="say">"The system works out which bookings are affected and walks the delay forward — this one, then the one behind it, then the one behind that."</div></li>
+        <li><div class="act"><span class="tag z">Abdel Aziz</span><b>Pause five seconds.</b> The best sentence available to this project.</div>
+          <div class="say">"And it has not cancelled anything. It computed the delay, identified who is affected, and stopped. A person decides. We felt cancelling someone's booking should be a human decision, not something a background job does quietly."</div></li>
+        <li><div class="act"><span class="tag m">Malik</span>Show the refund and the untouched reliability score.</div>
+          <div class="say">"Refunded in full — inside the twenty-four hour window, where normally the deposit is kept. Our fault always beats the clock. And their reliability score is untouched, because fault is stamped on the event at the moment it happens. Only staff can set that flag; a driver who could would refund themselves every time."</div></li>
+        <li><div class="act"><span class="tag z">Abdel Aziz</span>Overstay tiers — <b>12 seconds only.</b></div>
+          <div class="say">"Nobody reported this one. A sweep noticed the session ran past its end. We detect it — we do not yet automatically reserve extra time for it, and that is on our list."</div></li>
+      </ol>
+
+      <h3 class="sec">Overlays</h3>
+      <table>
+        <tr><th>At</th><th>Overlay text</th><th>Why</th></tr>
+        <tr><td class="t">0:28</td><td class="ovl">"The delay is walked forward: this booking, then the one behind it, then the next."</td><td>Cascade is abstract without a picture</td></tr>
+        <tr><td class="t">0:40</td><td class="ovl">"It has NOT cancelled anything. It computed, identified, and stopped. A person decides."</td><td>Restraint is impossible to convey on a slide</td></tr>
+        <tr><td class="t">0:52</td><td class="ovl">"Each displaced driver was given the highest priority tier — 'recovery'."</td><td>Priority tiers are invisible</td></tr>
+        <tr><td class="t">1:15</td><td class="ovl">"Reliability untouched. Fault is stamped as it happens, so no scorer can penalise them."</td><td>The fairness keystone, otherwise unseen</td></tr>
+        <tr><td class="t">1:52</td><td class="ovl">"We detect the overstay. We do not yet reserve extra time for it."</td><td>Volunteered limits build credibility</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= V5 ================= -->
+  <section class="vid" data-crew="m z y">
+    <div class="vid-head">
+      <div class="num">5</div>
+      <div>
+        <h2>The evidence</h2>
+        <div class="sub">Proof that the previous four were not theatre.</div>
+      </div>
+      <div class="len">1:45</div>
+    </div>
+    <div class="vid-body">
+      <div class="crew">
+        <div><div class="role">Starts it</div><div class="who y">Aya</div></div>
+        <div><div class="role">Performs actions</div><div class="who y">Aya</div></div>
+        <div><div class="role">Technical logic</div><div class="who z">Abdel Aziz</div></div>
+        <div><div class="role">Business logic</div><div class="who m">Malik</div></div>
+        <div><div class="role">Analytics</div><div class="who y">Aya</div></div>
+      </div>
+      <p><b>Why it is Aya's:</b> slide 22 is already hers, and "no data rather than zero" is already
+      her line. <b>Record this one last</b> — every number must be a consequence of V1–V4, and she
+      should say so.</p>
+
+      <h3 class="sec">Beats</h3>
+      <ol class="beats">
+        <li><div class="act"><span class="tag y">Aya</span>Open <code>/admin/reliability</code>.</div>
+          <div class="say">"These scores were not typed in. They are re-added from the recorded history every time this page loads — so a repeated event cannot count twice, and a lost one repairs itself."</div></li>
+        <li><div class="act"><span class="tag m">Malik</span>Show the point table.</div>
+          <div class="say">"No-show minus twenty-five, cancellation minus ten, late minus five, turning up plus one. Twenty-five clean visits to recover from one no-show — deliberately steep, because a driver who holds a bay and never arrives denies it to someone who would have used it. And a low score never blocks a booking. It only decides who gets the better slot when two people want the same one."</div></li>
+        <li><div class="act"><span class="tag y">Aya</span>Open <code>/admin/schedule-quality</code>. <b>Pause four seconds on a sample size.</b></div>
+          <div class="say">"Thirty-one measurements, and every one shows how many cases it is based on. A percentage over three events is not a trend."</div></li>
+        <li><div class="act"><span class="tag y">Aya</span>Point at a "no data" tile.</div>
+          <div class="say">"Where we have no data it says 'no data' — never zero. A zero looks like a real measurement and would mislead."</div></li>
+        <li><div class="act">Terminal: <code>npm run ops:verify</code> — final summary lines only.</div>
+          <div class="say">"One hundred and eighty-two automatic checks against a real database, every time we change anything. And they were all passing while half of this dashboard was empty — testing the logic and testing the wiring turned out to be different jobs. That is the lesson we did not expect."</div></li>
+      </ol>
+
+      <h3 class="sec">Overlays</h3>
+      <table>
+        <tr><th>At</th><th>Overlay text</th><th>Why</th></tr>
+        <tr><td class="t">0:15</td><td class="ovl">"Not typed in. Re-added from the recorded history every time this page loads."</td><td>Derived-not-accumulated is invisible</td></tr>
+        <tr><td class="t">0:25</td><td class="ovl">"No-show −25 · cancellation −10 · late −5 · turning up +1"</td><td>Makes the asymmetry concrete</td></tr>
+        <tr><td class="t">1:00</td><td class="ovl">"Every number shows how many cases it is based on."</td><td>Statistical honesty</td></tr>
+        <tr><td class="t">1:10</td><td class="ovl">"'No data' — never zero. A zero looks like a measurement."</td><td>The most credible detail available</td></tr>
+        <tr><td class="t">1:35</td><td class="ovl">"182 checks passing — while half this dashboard was empty."</td><td>The strongest closing line in the deck</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= ORDER ================= -->
+  <section class="vid" data-crew="m z y">
+    <div class="vid-head">
+      <div class="num">▶</div>
+      <div><h2>Recording order</h2><div class="sub">Each recording leaves database state the next one needs.</div></div>
+    </div>
+    <div class="vid-body">
+      <ol class="beats">
+        <li><div class="act">Run <code>ops:verify</code>, capture the 182/182 tail as a still.</div></li>
+        <li><div class="act">Start <code>ops:demo-services</code> and leave it running.</div></li>
+        <li><div class="act"><b>Record V1</b> — creates the bookings the rest of the day is built around.</div></li>
+        <li><div class="act">Run <code>ops:reconcile</code>, capture "0 disagreements", cut into V1 as a tail.</div></li>
+        <li><div class="act"><b>Record V2</b> — needs V1's occupancy to make the afternoon genuinely contended.</div></li>
+        <li><div class="act"><b>Record V3</b> — needs V2's waitlisted driver, or promotion has nobody to promote.</div></li>
+        <li><div class="act"><b>Record V4</b> — last of the four, so a broken charger cannot disturb V1–V3.</div></li>
+        <li><div class="act">Run <code>ops:verify-demo</code> — confirm 16/16 and no empty KPI section.</div></li>
+        <li><div class="act"><b>Record V5</b> — every number is now a consequence of what came before.</div></li>
+      </ol>
+      <div class="note"><b>Never run</b> <code>seed:all</code>, <code>seed:stations</code> or
+      <code>demo -- reset</code> at any point. All three are destructive against the shared database
+      and would erase the state the recordings depend on. Never re-record V1–V4 without re-recording V5.</div>
+    </div>
+  </section>
+
+</main>
+
+<footer>Every rule referenced here was verified against the implementation. See
+<code>docs/DEMONSTRATION_STRATEGY.md</code> for the full mapping of rules, subsystems and KPIs to each video.</footer>
+
+<script>
+  (function () {
+    var root = document.documentElement, KEY = "chargehub-theme";
+    var saved = null;
+    try { saved = localStorage.getItem(KEY); } catch (e) {}
+    if (saved) root.setAttribute("data-theme", saved);
+    else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches)
+      root.setAttribute("data-theme", "light");
+
+    document.getElementById("themeBtn").addEventListener("click", function () {
+      var next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+      root.setAttribute("data-theme", next);
+      try { localStorage.setItem(KEY, next); } catch (e) {}
+    });
+
+    var chips = document.querySelectorAll(".chip");
+    chips.forEach(function (chip) {
+      chip.addEventListener("click", function () {
+        chips.forEach(function (c) { c.setAttribute("aria-pressed", String(c === chip)); });
+        var who = chip.dataset.who;
+        document.querySelectorAll(".vid").forEach(function (v) {
+          v.classList.toggle("hide", who !== "all" && (v.dataset.crew || "").indexOf(who) === -1);
+        });
+        document.querySelectorAll(".beats > li").forEach(function (li) {
+          if (who === "all") { li.classList.remove("hide"); return; }
+          var tag = li.querySelector(".tag");
+          li.classList.toggle("hide", !!tag && !tag.classList.contains(who));
+        });
+      });
+    });
+  })();
+</script>
+</body>
+</html>

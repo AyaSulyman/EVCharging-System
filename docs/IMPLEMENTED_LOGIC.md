@@ -2376,6 +2376,11 @@ deposit for a no-show it never warned about. Every one of those facts was alread
   deposit was refunded". A naming convention on `type` would have meant matching string prefixes.
 - **Note:** the API accepts `?audience=` but only ever returns the caller's own rows, so the parameter
   widens nothing — a driver asking for the operator inbox gets an empty list.
+- **⚠️ Only the customer centre exists as a screen.** `/notifications` never sends `audience`, so it
+  reads the customer inbox. **No frontend code anywhere requests `audience=operator`** — verified by
+  search, zero callers. Operator rows (`incident_reported`) are written correctly and are currently
+  unreadable through the interface. The field and the API are right; the second screen was never
+  built. Not a demo candidate.
 
 ### 27.5 Nine generators, two of them time-driven ⭐
 - **Event-driven:** waitlist offers, offer expiry, waitlisting, extension decisions, reservation

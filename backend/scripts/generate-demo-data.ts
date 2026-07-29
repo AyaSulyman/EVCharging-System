@@ -111,6 +111,59 @@ const ARCHETYPES = [
       cancelled_operator_fault: 2,
     },
   },
+  /**
+   * The two archetypes below exist for the OPTIMIZER, not for the dashboard.
+   *
+   * `showProbabilityFor` in optimization/scoring.ts is `max(RELIABILITY_FLOOR, score/100)` with the
+   * floor at 0.60. Every score at or below 60 therefore collapses to the same multiplier: a driver
+   * at 40 and a driver at 0 produce an identical scheduling decision. The four archetypes above
+   * score roughly 100 / 83 / 0 / 0, which is three distinct multipliers (1.00, 0.83, 0.60, 0.60) —
+   * the two zeros are redundant by construction, and the entire lower half of the scale is inert.
+   *
+   * The band where reliability actually changes an outcome is 60–100, and it held one driver. These
+   * two populate it, so a tie-break between two ordinary drivers with slightly different records can
+   * be demonstrated. A perfect driver beating an absent one proves nothing anybody doubted.
+   *
+   * Mixes are calibrated against ADJUSTMENTS in reliabilityPolicy.ts (late −5, cancellation −10,
+   * no-show −25, attendance +1, initial 100, capped) over roughly 29 reservations per driver.
+   */
+  {
+    name: "Yara Mansour",
+    email: "demo.late-canceller@chargehub.com",
+    weights: {
+      /**
+       * `cancelled_late`, NOT `cancelled_good_notice`. A good-notice cancellation carries
+       * `penalize: false` (see the emitter below) and is waived outright by the scorer — cancelling
+       * with a day's notice is deliberately free, because it is the behaviour the platform wants.
+       * An archetype built on it scores a flat 100 no matter how often they cancel.
+       *
+       * Late cancellations (−10) rather than no-shows (−25) for the rest: at ~30 reservations a 3%
+       * no-show weight draws 0 or 1 and the score swings 25 points on a coin flip. Several smaller
+       * penalties put a comparable total on the board with far less variance.
+       *
+       * WHY THE WEIGHTS LOOK HEAVY. The score is capped at 100 and every completion adds +1, so
+       * roughly 27 points of penalty are absorbed before the score moves at all. An archetype whose
+       * expected penalty sits near that threshold reads 100 on most runs — which is exactly what the
+       * first three calibration passes produced. Solving 129 − 11·cancels − 5·late for a target near
+       * 80 over ~29 reservations gives these weights, comfortably clear of the cap.
+       */
+      completed_ontime: 590,
+      completed_late: 60,
+      completed_early_departure: 130,
+      cancelled_late: 220,
+    },
+  },
+  {
+    name: "Ziad Haddad",
+    email: "demo.slipping@chargehub.com",
+    weights: {
+      completed_ontime: 700,
+      completed_late: 60,
+      completed_early_departure: 140,
+      cancelled_late: 100,
+      no_show: 60,
+    },
+  },
 ] as const;
 
 function pickOutcome(r: number, weights: Record<string, number>): Outcome {

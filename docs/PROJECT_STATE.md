@@ -63,7 +63,7 @@ same commit.**
 | Reservation Optimization Engine (multi-request scheduler + commit path) | **Done** — Phase H, steps 1–5 of the roadmap. `ReservationRequest.priority`'s `"recovery"` tier is wired into scoring and, as of the Delay Propagation Engine (§6j), is actually created — the first real user of that tier. Per-station weight tuning still not built. See §6e |
 | Customer reliability score | **Done** — the first event-log consumer, derived not accumulated |
 | Customer behaviour tracking | **Done** — second consumer: delays, cancellations, no-shows, arrival accuracy |
-| Notifications from events | **Done** — a CONSUMER of three event logs, idempotent via a unique dedupeKey. Nine generators; two notification centres. See IMPLEMENTED_LOGIC §27 |
+| Notifications from events | **Done for customers** — a CONSUMER of three event logs, idempotent via a unique dedupeKey. Nine generators. The customer centre (`/notifications`) works. **The operator centre is API-only: `?audience=operator` is served but no screen calls it**, so `incident_reported` is produced and never displayed. See IMPLEMENTED_LOGIC §27 |
 | Real payments | Not built. The seam exists — see `CLAUDE.md` §7 |
 | **Demo Support Layer** (deterministic scenarios, controlled clock, `npm run demo`) | **Done** — **ten** scenarios (overstay_escalation and extension_denied added 2026-07-28). See §6k and `DEMO_READINESS_REPORT.md`. Sequences real services only; zero production code is demo-aware |
 | **QR Check-In Workflow** (lookup by scanned QR or booking code, ahead of check-in) | **Done** — see §6l. Read-only lookup; hands off to the pre-existing `checkIn`, never a second transition |
