@@ -151,6 +151,19 @@ npm run ops:demo-services     # leave running the whole session</pre>
     people at once. Arrange them side by side and <b>never alt-tab</b>; a viewer loses the thread instantly.
   </div>
 
+  <div class="note" data-crew="m z y">
+    <b>Only one thing in these scenarios makes you wait, and you cut it.</b> Verified against the code:
+    check-in is gated on the booking's <i>state</i>, never on the clock, so you can book a slot for
+    later today and immediately check in, start and end it. Nothing else needs real time to pass.
+    <table style="margin-top:8px">
+      <tr><th>Step</th><th>Wait?</th><th>What to do</th></tr>
+      <tr><td>Pay a deposit</td><td>No</td><td>Pay straight away — the 10-minute window is the deadline, not a delay</td></tr>
+      <tr><td>Accept an offer</td><td>No</td><td>The 5-minute countdown is the deadline, not a delay</td></tr>
+      <tr><td>Check in / start / end</td><td>No</td><td>State-gated. Run all three back to back</td></tr>
+      <tr><td>Capacity re-offered after a release</td><td><b>Yes, ~60 s</b></td><td>The only real wait. Stop recording, wait for the worker, resume, and caption the join "60 seconds later"</td></tr>
+    </table>
+  </div>
+
   <div class="stop" data-crew="m z y">
     <b>One station each — this is what keeps your recordings from ruining each other.</b>
     Malik works only at <b>Downtown</b>, Abdel Aziz only at <b>Airport</b>, Aya only at <b>Marina</b>.
@@ -223,9 +236,12 @@ npm run ops:demo-services     # leave running the whole session</pre>
           <div class="ovl"><b>2:15</b> — "Same data, first-come-first-served: N served. This plan: M served."</div>
         </li>
         <li>
-          <div class="doit"><span class="win">Window 2</span>Open <code>/offers</code>, show the countdown, accept.</div>
+          <div class="doit"><span class="win">Window 2</span>Open <code>/offers</code>, show the countdown, press <b>Accept</b>. You land on <code>/bookings</code> with the booking marked <b>PENDING_PAYMENT</b>. <b>Pay the deposit there</b> to finish.</div>
+          <div class="note" style="margin:0 0 8px"><b>Do not stop at Accept.</b> Accepting converts the hold into a booking in <code>PENDING_PAYMENT</code> — the app itself says "Charger reserved — pay the deposit to confirm it" and sends you to <code>/bookings</code>. Unpaid, it is released automatically when the ten-minute window closes. If you end the recording at Accept you are showing a booking that is about to disappear.</div>
           <div class="say">"She is offered a slot, and that charger is genuinely held for her — nobody else can book it for five minutes. That is what makes pressing accept safe: the charger was already secured when the offer was made, so accepting cannot fail. And the countdown comes from our server, not from her phone, so a device with the wrong clock cannot show an expired hold as still valid."</div>
+          <div class="say">"Accepting turns the hold into a real booking — and then she still has to pay the deposit to confirm it. Two different clocks, and they do different jobs. Five minutes to decide, because a held charger is frozen stock and an ignored offer costs somebody else a bay. Then ten minutes to pay, because a booking nobody has committed to is not a booking. Miss either one and the charger goes straight back on sale."</div>
           <div class="ovl"><b>2:40</b> — "Genuinely held. Nobody else can book it for five minutes — so Accept cannot fail."</div>
+          <div class="ovl"><b>2:52</b> — "Two clocks: 5 minutes to decide · 10 minutes to pay. Miss either and the bay returns to sale."</div>
         </li>
       </ol>
 
@@ -266,9 +282,10 @@ npm run ops:demo-services     # leave running the whole session</pre>
           <div class="ovl"><b>0:20</b> — "Payment simulated. No card data is accepted, stored or displayed anywhere."</div>
         </li>
         <li>
-          <div class="doit"><span class="win">Window 2</span>On <code>/staff</code>, <b>type</b> her booking code rather than using the camera. Check her in.</div>
-          <div class="say">"On the station side I look her up. I can scan the code on her phone with the camera or type it by hand — both go through exactly the same lookup, so nothing is different. And the moment I check her in, the system has already decided whether she was early, on time, inside the grace period, or late. Nobody types that in. It is worked out from the booking and the clock."</div>
-          <div class="ovl"><b>0:48</b> — "Recorded as ON TIME — classified automatically. Nobody types it."</div>
+          <div class="doit"><span class="win">Window 2</span>On <code>/staff</code>, use the <b>Scan QR</b> card and <b>type</b> the booking code into the manual field rather than using the camera. Press <b>Check in</b>.</div>
+          <div class="note" style="margin:0 0 8px"><b>Read the outcome off the screen — do not name it in advance.</b> The arrival is classified against the clock: booking ahead and checking in now gives <b>EARLY</b>, not ON_TIME. ON_TIME means arrival at exactly the scheduled minute, which you will not hit on cue. Say whichever label appears; the point is that nobody typed it.</div>
+          <div class="say">"On the station side I look her up. I can scan the code on her phone with the camera or type it by hand — both go through exactly the same lookup, so nothing is different. And the moment I check her in, the system has already classified the arrival — early, on time, inside the grace period, late, or a no-show. It says early here, because she turned up ahead of her slot. Nobody typed that in; it is worked out from the booking and the clock, and it is what the reliability score is later built from."</div>
+          <div class="ovl"><b>0:48</b> — "Classified automatically against the clock. Nobody types this."</div>
         </li>
         <li>
           <div class="doit"><span class="win">Window 2</span>Start the charging session.</div>
@@ -342,13 +359,14 @@ npm run ops:demo-services     # leave running the whole session</pre>
           <div class="ovl"><b>0:30</b> — "Not turned away. The request stays live and is reconsidered on every release."</div>
         </li>
         <li>
-          <div class="doit"><span class="win">Window 3</span>Check Lina in, start her session, then <b>end it after 35 minutes</b> of a 60-minute booking.</div>
-          <div class="say">"She arrives, charges, and finishes early — after thirty-five minutes of the hour she booked."</div>
+          <div class="doit"><span class="win">Window 3</span>On <code>/staff</code>, find Lina's booking: <b>Check in</b> → <b>Start charging</b> → <b>End charging</b>. Do all three back to back; you do <b>not</b> wait.</div>
+          <div class="note" style="margin:0 0 8px"><b>No waiting required.</b> Check-in is gated on the booking's state, not on the clock, so you can run the whole session immediately after paying the deposit. Ending it early releases everything between now and the booked end — so a 60-minute booking ended straight away returns close to the full hour. <b>Read the released figure off the screen</b> rather than scripting a number.</div>
+          <div class="say">"She arrives, starts charging, and then finishes early — which is the ordinary thing that happens every day and that almost no system does anything about."</div>
         </li>
         <li>
           <div class="doit">Show the freed capacity. <b>Hold 3 seconds.</b></div>
-          <div class="say">"Twenty-five minutes have just gone back on sale. In most systems that time is simply lost, because nobody knows it became free. Here it is recorded as capacity released, with the reason, and the minutes are counted — so recovered capacity is something we measure rather than something we claim."</div>
-          <div class="ovl"><b>1:00</b> — "25 minutes back on sale. Recorded as EARLY_DEPARTURE — and counted."</div>
+          <div class="say">"Those unused minutes have just gone back on sale. In most systems that time is simply lost, because nobody knows it became free. Here it is recorded as capacity released, with the reason attached, and the minutes are counted — so recovered capacity is something we measure rather than something we claim."</div>
+          <div class="ovl"><b>1:00</b> — "Unused minutes back on sale. Recorded as EARLY_DEPARTURE — and counted."</div>
         </li>
         <li>
           <div class="doit">Show the workers terminal for <b>8 seconds</b>, then <b>hard cut</b>.</div>
@@ -356,9 +374,11 @@ npm run ops:demo-services     # leave running the whole session</pre>
           <div class="ovl"><b>1:15</b> — "60 seconds later."</div>
         </li>
         <li>
-          <div class="doit"><span class="win">Window 2</span>Show Ziad's offer arriving, and accept it.</div>
-          <div class="say">"And within a minute Ziad is offered that exact slot, and accepts. Nobody at the station phoned anyone. Nobody reassigned anything by hand. A customer who would have been turned away half an hour ago is now a customer we served — out of time that would otherwise have been thrown away."</div>
+          <div class="doit"><span class="win">Window 2</span>Open <code>/offers</code>, press <b>Accept</b>, land on <code>/bookings</code>, then <b>pay the deposit</b> on the PENDING_PAYMENT booking.</div>
+          <div class="note" style="margin:0 0 8px"><b>Accepting is not the end of the story.</b> It creates the booking in <code>PENDING_PAYMENT</code> and redirects to <code>/bookings</code>; the deposit is paid there. Stop at Accept and you have filmed a booking that expires in ten minutes — which contradicts the line you are about to say.</div>
+          <div class="say">"And within a minute Ziad is offered that exact slot. He accepts, pays the deposit, and it is his. Nobody at the station phoned anyone. Nobody reassigned anything by hand. A customer who would have been turned away half an hour ago is now a customer we served — out of time that would otherwise have been thrown away entirely."</div>
           <div class="ovl"><b>1:35</b> — "Turned-away demand became served demand. No human involved."</div>
+          <div class="ovl"><b>1:48</b> — "Accepted, then confirmed with a deposit. An unpaid booking returns to sale in 10 minutes."</div>
         </li>
         <li>
           <div class="doit"><span class="win">Window 1</span>Open the bell — show the notifications.</div>
