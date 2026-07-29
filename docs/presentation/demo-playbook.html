@@ -186,12 +186,10 @@ npm run ops:demo-services     # leave running the whole session</pre>
       <div class="setup">
         <div><div class="role">Station</div><div class="val">ChargeHub — Downtown</div></div>
         <div><div class="role">Window 1 · driver A</div><div class="val">demo.reliable@chargehub.com<small>Demo123! · Rami, score 100</small></div></div>
-        <div><div class="role">Window 2 · driver B</div><div class="val">demo.late-canceller@chargehub.com<small>Demo123! · Yara, score 79</small></div></div>
+        <div><div class="role">Window 2 · driver B</div><div class="val">demo.typical@chargehub.com<small>Demo123! · Lina Aoun, score 56</small></div></div>
         <div><div class="role">Window 3 · manager</div><div class="val">admin@chargehubsystem.com<small>Admin$123</small></div></div>
       </div>
-      <div class="note"><b>Why these two drivers.</b> 100 against 79 is the only pair in the data where
-      reliability visibly changes an outcome without one of them being a perfect driver. Scores at or
-      below 60 are all treated identically by the optimizer, so a 0-score driver would prove nothing.</div>
+      <div class="note"><b>Why these two drivers.</b> Rami scores 100 and Lina 56 — an ordinary driver with a few late arrivals, not a disaster. That gap is visible in the score table: Lina’s options carry a <b>"value discounted to 60%"</b> line and Rami’s do not, because the discount is floored at 60% no matter how low a score goes. Check both scores on <code>/admin/reliability</code> before you record; regenerating demo data reshuffles them.</div>
 
       <h3 class="sec">Record these actions — silently</h3>
       <ol class="beats">
@@ -202,7 +200,7 @@ npm run ops:demo-services     # leave running the whole session</pre>
         </li>
         <li>
           <div class="doit"><span class="win">Window 2</span>Try to book <b>the same charger, the same hour</b>. Let it fail. <b>Hold for 3 seconds.</b></div>
-          <div class="say">"Now Yara wants the same charger at the same time. And she is refused — but notice who refused her. Not our code. The database itself. We split charger time into fifteen-minute blocks and told the database one block can have only one owner, ever. A rule that lives inside the database cannot be bypassed by a feature somebody writes next year."</div>
+          <div class="say">"Now Lina wants the same charger at the same time. And she is refused — but notice who refused her. Not our code. The database itself. We split charger time into fifteen-minute blocks and told the database one block can have only one owner, ever. A rule that lives inside the database cannot be bypassed by a feature somebody writes next year."</div>
           <div class="ovl"><b>0:42</b> — "Refused by the database, not by our code."</div>
         </li>
         <li>
@@ -224,11 +222,29 @@ npm run ops:demo-services     # leave running the whole session</pre>
           <div class="say">"One pass, planning everyone at once. Milliseconds — and it has a hard time limit, because a booking screen must never be left waiting on the optimizer."</div>
         </li>
         <li>
-          <div class="doit"><span class="win">Window 2</span>Back on the driver's ranked options, click <b>"Why this score?"</b> on the top option to expand the full factor breakdown.</div>
-          <div class="note" style="margin:0 0 8px"><b>Read this before recording.</b> The per-assignment reasoning is <b>not</b> on <code>/admin/optimizer</code> — that page shows why requests were <i>waitlisted</i>, which is a different thing. The five-factor arithmetic lives on the driver's flexible-booking results, behind the <b>"Why this score?"</b> link on each option. Showing it there is also the stronger demo: the explanation is in the customer's own screen, which makes the next sentence literally true.</div>
-          <div class="say">"And every option comes with its reasoning. Five things go into the score: does this keep the free time in usable blocks, how close is it to the time they wanted, how long have they been waiting, are they standing at the desk or recovering from a fault that was ours, and how likely are they to actually turn up. This is not artificial intelligence — fixed rules, fixed weights, the same answer every time. And this is not a debug screen. It is what the customer sees, which means when somebody asks why they were given four-thirty instead of three, there is a real answer and not a shrug."</div>
-          <div class="ovl"><b>1:52</b> — "Usable gaps · close to the time asked · time waited · priority · likely to arrive"</div>
-          <div class="ovl"><b>2:02</b> — "This is the customer's own screen, not a debug view."</div>
+          <div class="doit"><span class="win">Window 2</span>On the results list, each option has a small
+            <b>"Why this score?"</b> link under its reasons. Click it on the <b>top option</b> — the one
+            tagged <i>Best match</i>. A table opens underneath it.</div>
+          <div class="note" style="margin:0 0 8px"><b>What this table is, so you can narrate it confidently.</b>
+            The system does not guess an order. It gives every possible option a number, and the option
+            with the highest number goes to the top. This table is that arithmetic, made visible — five
+            rows, one per factor, each with a <b>signed number</b> (green if it helped, red if it cost),
+            a short reason, and a bold <b>Total</b> at the bottom.
+            <br><br>
+            The rows are labelled <b>Your preferences · Station capacity · Time waiting · Priority ·
+            Attendance record</b>. Above the whole list there is also a one-line summary next to a
+            sparkle icon — that is the plain-English version of the same decision.
+            <br><br>
+            <b>The row to point at:</b> the Total line. For Lina it ends with <b>"value discounted to
+            60%"</b>. That is her attendance record shrinking the value of the slot — and it is the
+            only place in the product where reliability is visible doing its job. Rami’s table has no
+            such line, because a perfect record discounts nothing. Show one, then the other.</div>
+          <div class="say">"And every option comes with its reasoning — not a marketing sentence, the actual arithmetic. Five things, each worth points. Does this keep the free time in usable blocks. How close is it to the time she asked for. How long has she been waiting. Is she standing at a desk or recovering from a fault that was ours. And how likely is she to turn up."</div>
+          <div class="say">"Look at the bottom line. Her attendance record has discounted the value of this slot to sixty percent — that is reliability, doing the only thing it is allowed to do: break a tie. It never blocks her from booking. And on the driver with a perfect record, that line simply is not there."</div>
+          <div class="say">"This is not a debug screen we built for ourselves. It is what the customer sees. So when somebody asks why they were given four-thirty instead of three, there is a real answer and not a shrug."</div>
+          <div class="ovl"><b>1:52</b> — "Every option shows its own arithmetic. Five factors, signed points, a total."</div>
+          <div class="ovl"><b>2:05</b> — "'Value discounted to 60%' — that is the attendance record breaking a tie."</div>
+          <div class="ovl"><b>2:14</b> — "This is the customer's own screen, not a debug view."</div>
         </li>
         <li>
           <div class="doit"><span class="win">Window 3</span>Show the first-come-first-served comparison. <b>Hold 5 seconds.</b></div>
