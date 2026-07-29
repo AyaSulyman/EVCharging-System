@@ -105,7 +105,7 @@
 </div>
 
 <div class="seg">
-  <h2>Slide 10 · Built to survive its own failures <span class="meta">0:40 · new — cannot be filmed</span></h2>
+  <h2>Slide 31 · Built to survive its own failures <span class="meta">0:40 · new — cannot be filmed</span></h2>
   <div class="body">
     <div class="do"><b>Why this slide exists:</b> none of these four can appear in any video. You
     would have to crash the system, corrupt a projection or send a duplicate message on purpose to
@@ -128,7 +128,7 @@
 </div>
 
 <div class="seg">
-  <h2>Slide 15 · What we built <span class="meta">1:00 · Aya hands back to you</span></h2>
+  <h2>Slide 14 · What we built <span class="meta">1:00 · Aya hands back to you</span></h2>
   <div class="body">
     <div class="do"><b>Why this is yours:</b> you built most of these services, so you can answer a
     follow-up on any one of them without passing it along.</div>
@@ -148,7 +148,7 @@
 </div>
 
 <div class="seg">
-  <h2>Slide 20 · The deposit, and being fair about it <span class="meta">1:00 · Malik hands back to you</span></h2>
+  <h2>Slide 18 · The deposit, and being fair about it <span class="meta">1:00 · Malik hands back to you</span></h2>
   <div class="body">
     <div class="do"><b>Why this is yours:</b> the refund rules are enforced in one back-end service
     that every path goes through, and "only staff can mark a problem as our fault" is a permission
@@ -188,7 +188,7 @@
 
 
 <div class="seg">
-  <h2>Slide 29 · Design lessons <span class="meta">1:15</span></h2>
+  <h2>Slide 27 · Design lessons <span class="meta">1:15</span></h2>
   <div class="body">
     <div class="say">
       <p>"Three lessons from the design side."</p>
@@ -239,6 +239,37 @@
       <tr><td>Could a driver claim it was your fault to get a refund?</td><td>No. Only staff or an
       admin can set the operator-fault flag, and that is checked on the server.</td></tr>
     </table>
+  </div>
+</div>
+
+
+<div class="seg">
+  <h2>Slides 31 and 33 · Extra time — your two <span class="meta">1:45 · only if granted</span></h2>
+  <div class="body">
+    <div class="do"><b>Only if Malik's ask was accepted.</b> He hands straight to you.</div>
+    <div class="do"><b>Slide 31 — built to survive its own failures.</b> None of these four can appear
+    in any video: you would have to crash the system or corrupt data on purpose. Say that out loud.</div>
+    <div class="say">
+      <p>"Four decisions you did not see in any of our videos, because each one only shows itself when
+      something goes wrong."</p>
+      <p><b>Take two, not all four:</b> "We write the booking first and claim the time second. If the
+      system dies half way we are left with a booking holding nothing — which our repair tool finds.
+      The other order would leave time held by nothing: invisible to every query, bookable by nobody.
+      We chose which way it breaks."</p>
+      <p>"And every message carries a key the database refuses to duplicate. Run the worker twice and
+      you get zero new messages, not two copies of everything."</p>
+    </div>
+    <div class="do"><b>Slide 33 — what the system watches.</b> The point is that nobody triggers any
+    of it. Time does.</div>
+    <div class="say">
+      <p>"A session still charging past its end time is found by a sweep and escalated through three
+      levels. No sensor, no hardware, nobody reporting it — staff know before the next customer
+      complains."</p>
+      <p>"And there are four separate analytics sources — schedule quality, reliability, incidents and
+      delays. Each is computed independently, and none recomputes what another already answers, so two
+      dashboards cannot quietly disagree with each other."</p>
+    </div>
+    <div class="trans"><b>Hand over →</b> "Malik has the last two."</div>
   </div>
 </div>
 
