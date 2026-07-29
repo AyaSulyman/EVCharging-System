@@ -369,6 +369,47 @@ sectionSlide(3, "How the system is built", "Two applications, one database, and 
   s.addNotes("This is the single most important slide in the technical half. Two browsers, same charger — one wins.");
 }
 
+/* ============================================== 9b. UNFILMABLE — SAFETY */
+{
+  const s = pres.addSlide();
+  s.background = { color: C.canvas };
+  titleBar(s, "Built to survive its own failures", "Architecture");
+
+  s.addText(
+    "Four decisions you cannot see on a screen — because each one only shows itself when something goes wrong.",
+    { x: 0.6, y: 1.72, w: 12.1, h: 0.4, fontFace: B, fontSize: 14, italic: true, color: C.inkSoft, margin: 0 }
+  );
+
+  const items = [
+    ["We chose which way it breaks",
+     "The booking is written first, the time claimed second. A crash mid-way leaves a booking holding nothing — which our repair tool finds. The other order would leave time held by nothing: invisible to every query, bookable by nobody."],
+    ["History is added to, never edited",
+     "Every event is appended. Scores and reports are recalculated from that history rather than stored, so a repeated event cannot double-count and a lost one repairs itself on the next read."],
+    ["Messages cannot be sent twice",
+     "Each notification carries a key the database refuses to duplicate. Run the worker twice and you get zero new messages, not two copies of every message."],
+    ["Side effects cannot break a booking",
+     "Notifications and re-planning read a record of what happened instead of being called from the booking code. A driver cancelling can never fail because a message could not be written."],
+  ];
+  items.forEach((it, i) => {
+    const x = 0.6 + (i % 2) * 6.15;
+    const y = 2.3 + Math.floor(i / 2) * 1.95;
+    card(s, x, y, 5.95, 1.75);
+    iconCircle(s, x + 0.3, y + 0.32, String(i + 1), C.primary, C.white, 0.5);
+    s.addText(it[0], {
+      x: x + 0.95, y: y + 0.2, w: 4.8, h: 0.36, fontFace: B, fontSize: 14.5, bold: true, color: C.ink, margin: 0,
+    });
+    s.addText(it[1], {
+      x: x + 0.95, y: y + 0.58, w: 4.8, h: 1.05, fontFace: B, fontSize: 11.5, color: C.inkSoft, margin: 0,
+    });
+  });
+
+  s.addText("None of this is demonstrable without deliberately breaking the system — which is exactly why it is worth stating.", {
+    x: 0.6, y: 6.3, w: 12.1, h: 0.4, fontFace: B, fontSize: 13.5, bold: true, italic: true, color: C.primary, margin: 0,
+  });
+  speaker(s, "Abdel Aziz");
+  s.addNotes("Abdel Aziz. 45 seconds. These four cannot appear in any video — a crash, a corrupted projection and a duplicate message are all things you would have to cause on purpose. Say that out loud; it is the point of the slide.");
+}
+
 /* ================================================================ SECTION 4 */
 sectionSlide(4, "How pages are rendered", "Next.js gives us three ways to build a page. We chose per page, on purpose.", [
   "Server-rendered",
@@ -586,6 +627,48 @@ sectionSlide(6, "The thinking behind it", "How the system decides — and why it
     x: 0.6, y: 6.2, w: 12.1, h: 0.35, fontFace: B, fontSize: 12, italic: true, color: C.primary, margin: 0,
   });
   speaker(s, "Malik");
+}
+
+/* ============================================= 17b. UNFILMABLE — BOUNDS */
+{
+  const s = pres.addSlide();
+  s.background = { color: C.canvas };
+  titleBar(s, "Every wait in the system is bounded", "Business logic");
+
+  s.addText(
+    "Nothing waits forever, and no single customer can hold capacity indefinitely. Each of these is a named constant, not a guess.",
+    { x: 0.6, y: 1.72, w: 12.1, h: 0.4, fontFace: B, fontSize: 14, color: C.ink, margin: 0 }
+  );
+
+  const bounds = [
+    ["10 min", "to pay a deposit", "Then the bay returns to sale automatically"],
+    ["5 min", "an offer is held", "Same for a 15-minute booking or a two-hour one"],
+    ["3", "offers per request", "After three ignored, the system stops volunteering"],
+    ["2", "extensions per booking", "So one driver cannot creep through an afternoon"],
+    ["250 ms", "to repair a plan", "A booking screen must never wait on the optimizer"],
+    ["0.60", "reliability floor", "The worst record still keeps 60% of a slot's value"],
+  ];
+  bounds.forEach((b, i) => {
+    const x = 0.6 + (i % 3) * 4.1;
+    const y = 2.35 + Math.floor(i / 3) * 1.85;
+    card(s, x, y, 3.85, 1.62, i === 5 ? C.voltLight : C.white);
+    s.addText(b[0], {
+      x: x + 0.25, y: y + 0.16, w: 3.4, h: 0.5, fontFace: H, fontSize: 28, bold: true,
+      color: i === 5 ? C.ink : C.primary, margin: 0,
+    });
+    s.addText(b[1], {
+      x: x + 0.25, y: y + 0.68, w: 3.4, h: 0.3, fontFace: B, fontSize: 12.5, bold: true, color: C.ink, margin: 0,
+    });
+    s.addText(b[2], {
+      x: x + 0.25, y: y + 0.98, w: 3.4, h: 0.55, fontFace: B, fontSize: 11, color: C.inkSoft, margin: 0,
+    });
+  });
+
+  s.addText("Why it matters: a held charger is frozen stock. Every one of these numbers exists to stop one customer's indecision costing another customer a bay.", {
+    x: 0.6, y: 6.15, w: 12.1, h: 0.45, fontFace: B, fontSize: 13.5, bold: true, italic: true, color: C.primary, margin: 0,
+  });
+  speaker(s, "Malik");
+  s.addNotes("Malik. 45 seconds. Do not read all six — take the 5-minute hold and the 3-offer cap, then say the closing line. These are unfilmable: showing the 3-offer cap live would take fifteen minutes of waiting.");
 }
 
 /* ================================================================ 12. DEPOSIT + FAIRNESS */
