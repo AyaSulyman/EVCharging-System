@@ -684,37 +684,56 @@ sectionSlide(7, "Recorded demonstrations", "Three scenarios, each recorded end t
 {
   const s = pres.addSlide();
   s.background = { color: C.canvas };
-  titleBar(s, "What you are about to see", "Demo");
+  titleBar(s, "Three stories, recorded end to end", "Demo");
 
-  const steps = [
-    ["1", "Anna books", "Picks a station and a 60-minute slot"],
-    ["2", "Pays a deposit", "The booking is now confirmed"],
-    ["3", "Gets a QR code", "On her confirmation screen"],
-    ["4", "Operator scans", "Anna is checked in"],
-    ["5", "Charging starts", "And later ends"],
-    ["6", "A charger breaks", "Delay spreads to later bookings"],
-    ["7", "Anna asks for more time", "Granted only if it truly fits"],
-    ["8", "The system re-plans", "Freed time is offered to someone waiting"],
-    ["9", "Dashboards update", "Every number moves"],
+  s.addText("Each of us recorded one story on the real system, alone, at a different station. We narrate them live.", {
+    x: 0.6, y: 1.72, w: 12.1, h: 0.4, fontFace: B, fontSize: 14, color: C.ink, margin: 0,
+  });
+
+  const stories = [
+    { who: "Malik", site: "Downtown", t: "The contested afternoon",
+      d: "Two drivers reach for the same charger. One is refused by the database. Then a driver who is flexible describes a window instead, and the system plans everyone at once — and shows its reasoning.",
+      p: "One block, one owner · back-to-back bookings · five-factor scoring · first-come-first-served comparison · a held offer" },
+    { who: "Abdel Aziz", site: "Airport", t: "The station that broke",
+      d: "A driver books, pays, and is checked in from her code. Then a charger fails. The system works out who is affected and how far the delay reaches — and stops there.",
+      p: "QR check-in · arrival classified automatically · incident lifecycle · delay recommended, never applied · our-fault refund · station scope" },
+    { who: "Aya", site: "Marina", t: "Nothing is wasted",
+      d: "One driver is turned away because nothing is free. Another finishes early. Within a minute the freed time is sold to the driver who was waiting.",
+      p: "Waitlist kept alive · early departure returns capacity · automatic promotion · extensions granted, partly granted and refused · 31 measurements" },
   ];
-  steps.forEach((st, i) => {
-    const x = 0.6 + (i % 3) * 4.1;
-    const y = 1.8 + Math.floor(i / 3) * 1.32;
-    card(s, x, y, 3.85, 1.16);
-    iconCircle(s, x + 0.25, y + 0.32, st[0], C.primary, C.white, 0.5);
-    s.addText(st[1], {
-      x: x + 0.9, y: y + 0.2, w: 2.8, h: 0.32, fontFace: B, fontSize: 13, bold: true, color: C.ink, margin: 0,
+  stories.forEach((st, i) => {
+    const y = 2.3 + i * 1.42;
+    card(s, 0.6, y, 12.1, 1.3);
+    s.addShape(pres.ShapeType.roundRect, {
+      x: 0.85, y: y + 0.2, w: 1.55, h: 0.4, rectRadius: 0.06,
+      fill: { color: C.primary }, line: { color: C.primary },
     });
-    s.addText(st[2], {
-      x: x + 0.9, y: y + 0.52, w: 2.8, h: 0.55, fontFace: B, fontSize: 10.5, color: C.inkSoft, margin: 0,
+    s.addText(st.who, {
+      x: 0.85, y: y + 0.2, w: 1.55, h: 0.4, align: "center", valign: "middle",
+      fontFace: B, fontSize: 11, bold: true, color: C.white, margin: 0,
+    });
+    s.addText(st.site, {
+      x: 0.85, y: y + 0.66, w: 1.55, h: 0.28, align: "center",
+      fontFace: B, fontSize: 10, color: C.inkSoft, margin: 0,
+    });
+    s.addText(st.t, {
+      x: 2.6, y: y + 0.14, w: 9.9, h: 0.3, fontFace: B, fontSize: 14.5, bold: true, color: C.ink, margin: 0,
+    });
+    s.addText(st.d, {
+      x: 2.6, y: y + 0.44, w: 9.9, h: 0.5, fontFace: B, fontSize: 11, color: C.inkSoft, margin: 0,
+    });
+    s.addText(st.p, {
+      x: 2.6, y: y + 0.96, w: 9.9, h: 0.26, fontFace: B, fontSize: 10, italic: true, color: C.primary, margin: 0,
     });
   });
-  s.addText("Three recorded scenarios: a contested afternoon and how the optimizer resolves it · a charger failure and the delay it causes · time given back when a driver leaves early.", {
-    x: 0.6, y: 5.95, w: 12.1, h: 0.5, fontFace: B, fontSize: 13, italic: true, color: C.primary, margin: 0,
+
+  s.addText("Nothing was staged. Every click ran against the same database the dashboards read from.", {
+    x: 0.6, y: 6.7, w: 12.1, h: 0.35, fontFace: B, fontSize: 13, bold: true, italic: true, color: C.primary, margin: 0,
   });
   speaker(s, "Aya");
-  s.addNotes("PLAY THE VIDEOS HERE, in order: Malik, Abdel Aziz, Aya. Each narrates their own live. Do not open the app — nothing is performed live.");
+  s.addNotes("Aya introduces all three, then hands to Malik whose video plays first. Do not read the proof lines — they are there for the examiners to read.");
 }
+
 
 /* ================================================================ SECTION 8 */
 sectionSlide(8, "Results", "What works, and how we know.", [
