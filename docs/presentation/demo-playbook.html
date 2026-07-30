@@ -446,6 +446,19 @@ npx tsx scripts/setup-contention-demo.ts</pre>
       <div class="len">3:00</div>
     </div>
     <div class="vid-body">
+      <div class="stop" style="margin:0 0 14px"><b>Run this first or the waitlist cannot happen.</b>
+      <pre>cd backend
+npx tsx scripts/setup-waitlist-demo.ts</pre>
+      Marina has <b>three</b> chargers. Lina taking one leaves two free, so a flexible request for the
+      same hour is simply placed on another charger — correctly, and with no waitlist. "Nothing is free"
+      cannot be shown until nothing is free. This fills Marina 10:00–12:00 today and <b>leaves any real
+      booking alone</b>, so Lina keeps her charger and can still end early to release it.
+      <br><br>
+      <b>Book Lina first, then run this, then book Ziad.</b> Clear it afterwards with <code>--clear</code>.
+      <br><br>
+      <b>And use the flexible form, never the wizard.</b> The wizard only lists start times that <i>are</i>
+      free, so a full hour is simply absent from the list — it can never show a refusal or a waitlist.</div>
+
       <div class="setup">
         <div><div class="role">Station</div><div class="val">ChargeHub — Marina</div></div>
         <div><div class="role">Window 1 · driver A</div><div class="val">demo.typical@chargehub.com<small>Demo123! · Lina — leaves early</small></div></div>
@@ -460,7 +473,7 @@ npx tsx scripts/setup-contention-demo.ts</pre>
           <div class="say">"Lina books an hour at the marina this afternoon."</div>
         </li>
         <li>
-          <div class="doit"><span class="win">Window 2</span>Press <b>Book now</b> and ask for the same window at Marina, now that it is full. Land on the waitlist.</div>
+          <div class="doit"><span class="win">Window 2</span>Press <b>Book now</b> — the flexible form, <b>not</b> the wizard. Marina, today, window <b>10:00 to 12:00</b>, 60 minutes. Switch <b>"Hold the best match for me automatically"</b> <b>ON</b>. Press search. You get the toast <i>"Nothing free right now — you're on the waitlist"</i>. Then open <code>/waitlist</code> to show <b>"Waiting for capacity"</b>.</div>
           <div class="say">"Ziad wants roughly the same time, and there is nothing free. In most systems that is where he disappears — 'sorry, fully booked', and you have lost the customer. Here he keeps his place and the request stays alive. A waitlist entry in our system is not a separate list; it is simply a request we have not been able to satisfy yet, and it gets reconsidered automatically every single time a charger frees up."</div>
           <div class="ovl"><b>0:30</b> — "Not turned away. The request stays live and is reconsidered on every release."</div>
         </li>
