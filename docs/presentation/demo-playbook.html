@@ -220,7 +220,7 @@ npx tsx scripts/setup-contention-demo.ts</pre>
           <div class="ovl"><b>0:58</b> — "15:00 · 15:15 · 15:30 · 15:45 owned — 16:00 free."</div>
         </li>
         <li>
-          <div class="doit"><span class="win">Window 2</span>Cancel that booking. Then press <b>Book now</b> in the navbar — it goes straight to the booking form. Ask for about 30 minutes, any time this afternoon, Downtown.</div>
+          <div class="doit"><span class="win">Window 2</span>Cancel that booking. Then press <b>Book now</b> in the navbar — it goes straight to the booking form. Ask for about 30 minutes, any time this afternoon, Downtown. Leave <b>"Hold the best match for me automatically"</b> switched OFF, and when the shortlist appears <b>do not take any of them</b>.</div>
           <div class="say">"Now the interesting half. Instead of naming a time, she describes a window — about thirty minutes, some time this afternoon. That is the whole difference. A step-by-step wizard can only answer 'which of these exact times?' It has nothing to say when the honest answer is none of them."</div>
         </li>
         <li>
@@ -285,7 +285,33 @@ npx tsx scripts/setup-contention-demo.ts</pre>
           <div class="say">"And when there is plenty of capacity free, these two numbers come out equal — because no scheduler can beat a queue when nobody has to be turned away. That is worth saying: the comparison is built to tell us when we are <i>not</i> adding anything."</div>
         </li>
         <li>
-          <div class="doit"><span class="win">Window 2</span>Open <code>/offers</code>, show the countdown, press <b>Accept</b>. You land on <code>/bookings</code> with the booking marked <b>PENDING_PAYMENT</b>. <b>Pay the deposit there</b> to finish.</div>
+          <div class="doit"><span class="win">Window 3</span>Back on <code>/admin/optimizer</code>, now press
+            the <b>second</b> button — <b>"Run and issue offers"</b>. This is the one that commits, and
+            it issues a real held offer to Lina's still-open request.</div>
+          <div class="note" style="margin:0 0 8px"><b>This step is what makes the next one work.</b>
+            Nothing you did earlier creates an offer: "Preview a pass" deliberately holds nothing, and
+            submitting the request only produced a shortlist for her to choose from. Without pressing
+            <b>"Run and issue offers"</b> here, <code>/offers</code> is empty and there is nothing to
+            accept. That is also why beat 4 said to leave the shortlist alone — taking a candidate
+            would have fulfilled the request, and a fulfilled request gets no offer.
+            <br><br>
+            <b>The alternative, if you prefer fewer windows:</b> on the booking form, switch
+            <b>"Hold the best match for me automatically"</b> ON. Then the optimizer chooses and holds
+            one at submission time and sends her straight to <code>/offers</code> — no admin step at
+            all. It is the shorter path, but you lose the shortlist, and with it the "Why this score?"
+            table from beat 7. Use the admin route if you want both.</div>
+        </li>
+        <li>
+          <div class="doit"><span class="win">Window 2</span>Open <code>/offers</code>. The offer card
+            shows a <b>m:ss countdown</b> from <b>5:00</b>, with a shrinking bar; under a minute left it
+            turns urgent. Press <b>Accept</b>. You land on <code>/bookings</code> with the booking
+            marked <b>PENDING_PAYMENT</b>. <b>Pay the deposit there</b> to finish.</div>
+          <div class="note" style="margin:0 0 8px"><b>Do not linger.</b> The hold really is five
+            minutes. If it lapses mid-take the card expires and you will need another pass. Record this
+            beat promptly after issuing the offer.
+            <br><br>
+            The seconds come from the server on every poll, not from a clock in the page — which is
+            the claim you are about to make, so it is worth knowing it is literally true.</div>
           <div class="note" style="margin:0 0 8px"><b>Do not stop at Accept.</b> Accepting converts the hold into a booking in <code>PENDING_PAYMENT</code> — the app itself says "Charger reserved — pay the deposit to confirm it" and sends you to <code>/bookings</code>. Unpaid, it is released automatically when the ten-minute window closes. If you end the recording at Accept you are showing a booking that is about to disappear.</div>
           <div class="say">"She is offered a slot, and that charger is genuinely held for her — nobody else can book it for five minutes. That is what makes pressing accept safe: the charger was already secured when the offer was made, so accepting cannot fail. And the countdown comes from our server, not from her phone, so a device with the wrong clock cannot show an expired hold as still valid."</div>
           <div class="say">"Accepting turns the hold into a real booking — and then she still has to pay the deposit to confirm it. Two different clocks, and they do different jobs. Five minutes to decide, because a held charger is frozen stock and an ignored offer costs somebody else a bay. Then ten minutes to pay, because a booking nobody has committed to is not a booking. Miss either one and the charger goes straight back on sale."</div>
