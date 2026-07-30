@@ -189,6 +189,17 @@ npm run ops:demo-services     # leave running the whole session</pre>
         <div><div class="role">Window 2 · driver B</div><div class="val">demo.typical@chargehub.com<small>Demo123! · Lina Aoun, score 56</small></div></div>
         <div><div class="role">Window 3 · manager</div><div class="val">admin@chargehubsystem.com<small>Admin$123</small></div></div>
       </div>
+      <div class="note"><b>Run this before you record, or the counterfactual proves nothing.</b>
+      <pre>cd backend
+npx tsx scripts/setup-contention-demo.ts</pre>
+      The comparison only differs when capacity is genuinely scarce. With a few requests and ten
+      mostly-free chargers, a queue serves exactly the same people as the optimizer and the number
+      honestly says so — measured at <b>2 vs 2</b>, which proves nothing on camera. This script fills
+      Downtown's afternoon nine days out, leaves one free hour, and submits three flexible requests
+      plus one that can only be served in that hour. Verified on your database: <b>optimizer 6,
+      first-come-first-served 5</b>. <b>Clear it after recording</b> with the same command plus
+      <code>--clear</code> — it deliberately makes a station look full.</div>
+
       <div class="note"><b>Why these two drivers.</b> Rami scores 100 and Lina 56 — an ordinary driver with a few late arrivals, not a disaster. That gap is visible in the score table: Lina’s options carry a <b>"value discounted to 60%"</b> line and Rami’s do not, because the discount is floored at 60% no matter how low a score goes. Check both scores on <code>/admin/reliability</code> before you record; regenerating demo data reshuffles them.</div>
 
       <h3 class="sec">Record these actions — silently</h3>
@@ -257,8 +268,8 @@ npm run ops:demo-services     # leave running the whole session</pre>
             comparison is in <b>two</b> places — show both. <b>Hold 5 seconds on the first.</b></div>
           <div class="note" style="margin:0 0 8px">
             <b>1. The amber Preview card</b>, just under the page heading. It reads, in one sentence:
-            <i>"N requests would be offered a charger. First-come-first-served would have served M.
-            Planned in X ms."</i> That single line carries the whole argument — and the milliseconds
+            <i>"6 requests would be offered a charger. First-come-first-served would have served 5.
+            Planned in 378 ms."</i> (Numbers verified on your data with the setup script above.) That single line carries the whole argument — and the milliseconds
             are the proof of the time bound you mention on slide 33. <b>Zoom in on it when you edit.</b>
             <br><br>
             <b>2. The "Run history" table</b>, lower down the same page. Compare the
@@ -269,8 +280,9 @@ npm run ops:demo-services     # leave running the whole session</pre>
             <br><br>
             <b>If the table is empty</b> it says "No passes have run yet". Press <b>"Preview a pass"</b>
             once more; previews are recorded too.</div>
-          <div class="say">"And we do not just claim this helps. Every single run also works out what plain first-come-first-served would have achieved on exactly the same data, and stores both numbers. If we were not better, this number would say so. That is the difference between an optimiser and a hopeful piece of code."</div>
-          <div class="ovl"><b>2:15</b> — "Same data, first-come-first-served: N served. This plan: M served."</div>
+          <div class="say">"And we do not just claim this helps. Every single run also works out what plain first-come-first-served would have achieved on exactly the same data, and stores both numbers. Six against five here — one more customer served from the same chargers."</div>
+          <div class="ovl"><b>2:15</b> — "Same chargers, same moment. A queue serves 5. This plan serves 6."</div>
+          <div class="say">"And when there is plenty of capacity free, these two numbers come out equal — because no scheduler can beat a queue when nobody has to be turned away. That is worth saying: the comparison is built to tell us when we are <i>not</i> adding anything."</div>
         </li>
         <li>
           <div class="doit"><span class="win">Window 2</span>Open <code>/offers</code>, show the countdown, press <b>Accept</b>. You land on <code>/bookings</code> with the booking marked <b>PENDING_PAYMENT</b>. <b>Pay the deposit there</b> to finish.</div>
