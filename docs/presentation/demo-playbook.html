@@ -196,9 +196,19 @@ npx tsx scripts/setup-contention-demo.ts</pre>
       mostly-free chargers, a queue serves exactly the same people as the optimizer and the number
       honestly says so — measured at <b>2 vs 2</b>, which proves nothing on camera. This script fills
       Downtown's afternoon nine days out, leaves one free hour, and submits three flexible requests
-      plus one that can only be served in that hour. Verified on your database: <b>optimizer 6,
-      first-come-first-served 5</b>. <b>Clear it after recording</b> with the same command plus
+      plus one that can only be served in that hour. Verified on your database twice: <b>6 vs 5</b>, then <b>5 vs 4</b> after part of the pool had been consumed. The gap is the point, not the absolute numbers. <b>Clear it after recording</b> with the same command plus
       <code>--clear</code> — it deliberately makes a station look full.</div>
+
+      <div class="stop" style="margin:0 0 14px"><b>Order matters, and getting it wrong silently kills the comparison.</b>
+      "Preview a pass" measures the pool <i>as it stands right now</i>. "Run and issue offers" consumes
+      requests out of that pool by offering them a charger. So:
+      <br><br>
+      <b>1.</b> Run the setup script &nbsp;→&nbsp; <b>2.</b> record the Preview beat while the pool is
+      full &nbsp;→&nbsp; <b>3.</b> only then press "Run and issue offers" for the offer beat.
+      <br><br>
+      Commit first and the pool shrinks, so a later Preview shows a smaller gap or none at all — which
+      is exactly how this reads "2 vs 2" again. If that happens, re-run the setup script and record the
+      Preview beat before committing anything.</div>
 
       <div class="note"><b>Why these two drivers.</b> Rami scores 100 and Lina 56 — an ordinary driver with a few late arrivals, not a disaster. That gap is visible in the score table: Lina’s options carry a <b>"value discounted to 60%"</b> line and Rami’s do not, because the discount is floored at 60% no matter how low a score goes. Check both scores on <code>/admin/reliability</code> before you record; regenerating demo data reshuffles them.</div>
 
