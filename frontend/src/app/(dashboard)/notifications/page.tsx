@@ -11,6 +11,14 @@ import {
   XCircle,
   Info,
   CheckCheck,
+  Clock,
+  Timer,
+  TimerOff,
+  Shuffle,
+  Hourglass,
+  Banknote,
+  Ban,
+  Wrench,
 } from "lucide-react";
 import { timeAgo } from "@/lib/utils";
 import { useApi } from "@/lib/useApi";
@@ -32,7 +40,27 @@ const ICONS: Record<NotificationType, { icon: React.ComponentType<{ className?: 
   low_battery: { icon: BatteryLow, color: "text-volt bg-volt-light" },
   recommendation: { icon: Sparkles, color: "text-primary bg-primary-light" },
   system: { icon: Info, color: "text-gray-600 bg-gray-100" },
+  // Added with the event-driven consumer. A missing entry here used to crash the whole page.
+  offer_issued: { icon: Sparkles, color: "text-primary bg-primary-light" },
+  offer_expiring: { icon: Timer, color: "text-volt bg-volt-light" },
+  offer_expired: { icon: TimerOff, color: "text-gray-600 bg-gray-100" },
+  extension_decided: { icon: Clock, color: "text-blue-600 bg-blue-50" },
+  delay_propagated: { icon: Hourglass, color: "text-volt bg-volt-light" },
+  reservation_moved: { icon: Shuffle, color: "text-primary bg-primary-light" },
+  deposit_refunded: { icon: Banknote, color: "text-emerald-600 bg-emerald-50" },
+  deposit_forfeited: { icon: Ban, color: "text-red-600 bg-red-50" },
+  incident_reported: { icon: Wrench, color: "text-red-600 bg-red-50" },
+  waitlisted: { icon: Hourglass, color: "text-volt bg-volt-light" },
 };
+
+/**
+ * Used when a notification arrives with a type this build has never heard of.
+ *
+ * The page previously read `ICONS[n.type]` straight into a destructure, so one unrecognised type took
+ * the entire inbox down rather than one row losing its icon. A server that can add a notification type
+ * must not be able to break a client that has not shipped yet.
+ */
+const FALLBACK_ICON = { icon: Bell, color: "text-gray-600 bg-gray-100" };
 
 export default function NotificationsPage() {
   const { call, token } = useApi();
@@ -105,7 +133,7 @@ export default function NotificationsPage() {
           </div>
         ) : (
           items.map((n) => {
-            const { icon: Icon, color } = ICONS[n.type];
+            const { icon: Icon, color } = ICONS[n.type] ?? FALLBACK_ICON;
             return (
               <button
                 key={n._id}

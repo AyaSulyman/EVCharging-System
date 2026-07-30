@@ -47,13 +47,33 @@ export interface RefundQuote {
   cutoffHours: number;
 }
 export type ProviderKey = "tesla" | "hyundai" | "bmw" | "mock";
+/**
+ * Mirrors NOTIFICATION_TYPES in backend/src/models/Notification.ts.
+ *
+ * This listed only the first six for a while after the event-driven consumer began producing the
+ * other ten. Because the icon map on the notifications page is typed `Record<NotificationType, ...>`,
+ * a stale type here meant TypeScript could not see the map was incomplete — and the page crashed at
+ * runtime on the first `offer_issued` it was handed. If the server list grows, grow this one too.
+ */
 export type NotificationType =
+  // the original six
   | "booking_confirmed"
   | "booking_reminder"
   | "booking_cancelled"
   | "low_battery"
   | "recommendation"
-  | "system";
+  | "system"
+  // added when the event-driven consumer was built
+  | "offer_issued"
+  | "offer_expiring"
+  | "offer_expired"
+  | "extension_decided"
+  | "delay_propagated"
+  | "reservation_moved"
+  | "deposit_refunded"
+  | "deposit_forfeited"
+  | "incident_reported"
+  | "waitlisted";
 
 export interface IUser {
   _id: string;
