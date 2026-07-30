@@ -142,10 +142,16 @@
 <main>
 
   <div class="note" data-crew="m z y">
-    <b>Before you record — every time.</b> Leave the background workers running in their own terminal,
-    or nothing expires and no freed capacity is ever re-offered.
-    <pre>cd backend
-npm run ops:demo-services     # leave running the whole session</pre>
+    <b>Before you record — every time. You start these yourself, in your own terminal windows.</b>
+    Nothing here depends on anyone else's machine or session. Open three terminals:
+    <pre>cd backend  &amp;&amp;  npm run dev                              # the API, port 4000
+cd frontend &amp;&amp;  npm run dev                              # the site, port 3000
+cd backend  &amp;&amp;  npm run ops:demo-services -- --interval 15   # the workers — THIS is the one you film</pre>
+    <b>Use <code>--interval 15</code>.</b> The default is 60 seconds; fifteen cuts every wait in the
+    recording to a quarter and is the difference between one cut and four. Verified working.
+    <br><br>
+    Without the third one nothing expires, no freed capacity is ever re-offered, and the notification
+    inbox stays empty — an entire subsystem looks unbuilt.
     Browser window <b>1280&nbsp;px wide</b>. Open one normal window plus as many <b>InPrivate</b> windows
     as your scenario needs — each InPrivate window keeps its own login, which is how you play several
     people at once. Arrange them side by side and <b>never alt-tab</b>; a viewer loses the thread instantly.
@@ -469,8 +475,18 @@ npx tsx scripts/setup-contention-demo.ts</pre>
           <div class="ovl"><b>1:00</b> — "Unused minutes back on sale. Recorded as EARLY_DEPARTURE — and counted."</div>
         </li>
         <li>
-          <div class="doit">Show the terminal running <code>npm run ops:demo-services</code> for <b>8 seconds</b>, then <b>hard cut</b>.</div>
-          <div class="say">"These background workers run every minute. Nobody clicks them — time is what triggers this, not a person."</div>
+          <div class="doit">Bring your <b>workers terminal</b> to the front for <b>8 seconds</b>, then <b>hard cut</b>.</div>
+          <div class="note" style="margin:0 0 8px"><b>What is on that screen, so you know what to point at.</b>
+            The three-line header is the shot — it names the jobs in plain English:
+            <pre style="margin:6px 0">Demo services running — every 15s. Press Ctrl+C to stop.
+  1. expiry sweeps   commitments · requests · no-shows · overstays · delays
+  2. capacity        released time re-planned, lapsed offers swept
+  3. notifications   events turned into inbox messages</pre>
+            Under it, one line per tick: <code>[14:32:10] tick 3: 1 notification(s)</code>, or
+            <code>tick 4: idle</code> when there was nothing to do. <b>Film the header, not the ticks</b>
+            — the header is readable at projector distance and says what the workers are for; the ticks
+            are just proof they keep running.</div>
+          <div class="say">"These three background workers run on a timer. Nobody clicks them — expiring a hold, spotting a no-show, re-planning freed capacity and writing the messages all happen because time passed, not because a person did something."</div>
           <div class="ovl"><b>1:15</b> — "60 seconds later."</div>
         </li>
         <li>
