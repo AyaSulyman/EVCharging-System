@@ -220,12 +220,12 @@ npx tsx scripts/setup-contention-demo.ts</pre>
           <div class="ovl"><b>0:18</b> — "Not a stored list. Calculated from what is actually free, for this exact length."</div>
         </li>
         <li>
-          <div class="doit"><span class="win">Window 2</span>Try to book <b>the same charger, the same hour</b>. Let it fail. <b>Hold for 3 seconds.</b></div>
+          <div class="doit"><span class="win">Window 2</span>In this second window go <b>Stations → Downtown</b> and press <b>Book</b> on the <b>same charger</b>. At the <b>Time</b> step pick the same 15:00. Press <b>Confirm</b>. It fails with a red toast. <b>Hold for 3 seconds.</b></div>
           <div class="say">"Now Lina wants the same charger at the same time. And she is refused — but notice who refused her. Not our code. The database itself. We split charger time into fifteen-minute blocks and told the database one block can have only one owner, ever. A rule that lives inside the database cannot be bypassed by a feature somebody writes next year."</div>
           <div class="ovl"><b>0:42</b> — "Refused by the database, not by our code."</div>
         </li>
         <li>
-          <div class="doit"><span class="win">Window 2</span>Book <b>16:00–17:00</b> instead. It succeeds.</div>
+          <div class="doit"><span class="win">Window 2</span>Still on that Time step, pick <b>16:00</b> instead and press <b>Confirm</b>. It succeeds.</div>
           <div class="say">"But sixteen hundred works. A booking that ends at four o'clock does not own the four o'clock block — so these two sit back to back with not one minute wasted between them. We got that boundary backwards once, and it made every adjacent pair unbookable. It is now an automatic test."</div>
           <div class="ovl"><b>0:58</b> — "15:00 · 15:15 · 15:30 · 15:45 owned — 16:00 free."</div>
         </li>
@@ -362,7 +362,7 @@ npx tsx scripts/setup-contention-demo.ts</pre>
       <h3 class="sec">Record these actions — silently</h3>
       <ol class="beats">
         <li>
-          <div class="doit"><span class="win">Window 1</span>Press <b>Book now</b>, choose Airport, a window later today. Pay the deposit. Show the QR code.</div>
+          <div class="doit"><span class="win">Window 1</span>Press <b>Book now</b>, choose Airport, a window later today. Under <b>"Once booked, can we move it?"</b> choose <b>±1 hour</b> — not the default. Pay the deposit. Show the QR code.</div>
           <div class="say">"Sara books a charger at the airport and pays a small deposit. I should say this before anyone asks — the payment is simulated. No card number, expiry or security code is ever entered, stored or shown anywhere in this system. There is no field for one. What is real is the rules and the records."</div>
           <div class="ovl"><b>0:20</b> — "Payment simulated. No card data is accepted, stored or displayed anywhere."</div>
         </li>
@@ -373,7 +373,7 @@ npx tsx scripts/setup-contention-demo.ts</pre>
           <div class="ovl"><b>0:48</b> — "Classified automatically against the clock. Nobody types this."</div>
         </li>
         <li>
-          <div class="doit"><span class="win">Window 2</span>Start the charging session.</div>
+          <div class="doit"><span class="win">Window 2</span>On the same <b>Scan QR</b> card, the button has now become <b>Start</b>. Press it. (The card re-looks-up the reservation after each action, so you never retype the code — Check in becomes Start becomes End.)</div>
           <div class="say">"Starting and ending are two separate recorded steps, which means we always know how long the bay was really used — not just how long it was booked for. That is the difference between a utilisation figure that reflects reality and one that reflects intentions."</div>
         </li>
         <li>
@@ -387,19 +387,34 @@ npx tsx scripts/setup-contention-demo.ts</pre>
           <div class="ovl"><b>1:40</b> — "It has NOT cancelled anything. It computed, identified, and stopped. A person decides."</div>
         </li>
         <li>
-          <div class="doit"><span class="win">Window 2</span>Cancel one affected booking, marking it <b>operator fault</b>. Show the full refund.</div>
-          <div class="say">"When I cancel because of our fault, that driver is refunded in full — even inside the twenty-four hour window where normally the deposit is kept. Our fault always beats the clock. And only staff or an admin can set that flag, checked on the server. If a driver could mark their own cancellation as our fault, they would refund themselves every single time."</div>
-          <div class="ovl"><b>2:05</b> — "Refunded inside the 24-hour window. Our fault beats the clock."</div>
+          <div class="doit"><span class="win">Window 2</span>On the station board row for an affected booking, press <b>Move</b>. In the panel choose reason <b>"Charger failure"</b>, pick a new time, and confirm. The panel states: <i>"Recorded as our fault — the driver’s deposit and record are unaffected."</i></div>
+          <div class="say">"So I move her, and I record the reason as a charger failure — our fault. Two things follow automatically. Her deposit is untouched, even though we are well inside the window where a driver who cancelled would lose it. And her attendance record is untouched too. Only staff or an admin can set that reason, and it is checked on the server — if a driver could mark their own booking as our fault, they would do it every single time."</div>
+          <div class="note" style="margin:8px 0"><b>Why this is a Move and not a cancel.</b> There is no
+            cancel-with-fault control anywhere in the product — verified. Operator fault is attached to
+            a <b>move</b>: the panel behind the <b>Move</b> button offers "Charger failure", "Technical
+            incident" and "Maintenance" as reasons, and any of them protects the deposit and the record.
+            That is also the better story: the driver is <i>rescued</i> rather than cancelled.
+            <br><br>
+            <b>This is why beat 1 sets flexibility to ±1 hour.</b> Move is only offered when the
+            booking's consent permits it, and the default is STRICT — which means immovable. Book with
+            the default and the <b>Move</b> button will not be there.</div>
+          <div class="ovl"><b>2:05</b> — "Moved, not cancelled — and recorded as our fault, so the deposit and the record are untouched."</div>
         </li>
         <li>
-          <div class="doit"><span class="win">Window 3</span>Show that driver's reliability score — unchanged.</div>
+          <div class="doit"><span class="win">Window 3</span>Open <code>/admin/reliability</code> and find that driver. Their score is unchanged.</div>
           <div class="say">"And their score is untouched. Fault is stamped onto the event at the moment the decision is made, so a scorer reading the history later can never accidentally punish a driver because our charger broke."</div>
           <div class="ovl"><b>2:20</b> — "Reliability untouched. Fault is stamped as it happens."</div>
         </li>
         <li>
-          <div class="doit"><span class="win">Window 2</span>Try to act on a <b>Downtown</b> charger. Show the refusal.</div>
-          <div class="say">"Last thing. I am assigned to the airport, so when I try to act on Downtown the server refuses me. Not a hidden menu — an actual permission check, on the server, on every action."</div>
-          <div class="ovl"><b>2:40</b> — "403. This operator is assigned to Airport. Refused by the server, not hidden in the menu."</div>
+          <div class="doit"><span class="win">Window 2</span>Point at the station name under the <b>Station board</b> heading. It lists <b>Airport only</b>.</div>
+          <div class="say">"Last thing, and look at the top of this board. It says Airport. I am assigned to one station, so the other two are not listed for me at all — and if I went around this screen and asked the server directly, it would refuse me. That is a real permission check on every action, not a menu we hid."</div>
+          <div class="note" style="margin:8px 0"><b>You cannot demonstrate the 403 through the interface — checked.</b>
+            The staff board only ever lists the stations you are assigned to, and there is no station
+            picker, so there is no way to <i>attempt</i> an action on Downtown and be refused. The scope
+            check is real and enforced on the server on every action; it simply has no clickable path
+            to it. Show the consequence instead — the board lists Airport and nothing else — and say the
+            rest.</div>
+          <div class="ovl"><b>2:40</b> — "This operator is assigned to Airport. The other two stations are not shown, and the server refuses them too."</div>
         </li>
       </ol>
 
@@ -444,17 +459,17 @@ npx tsx scripts/setup-contention-demo.ts</pre>
           <div class="ovl"><b>0:30</b> — "Not turned away. The request stays live and is reconsidered on every release."</div>
         </li>
         <li>
-          <div class="doit"><span class="win">Window 3</span>On <code>/staff</code>, find Lina's booking: <b>Check in</b> → <b>Start charging</b> → <b>End charging</b>. Do all three back to back; you do <b>not</b> wait.</div>
+          <div class="doit"><span class="win">Window 3</span>On <code>/staff</code>, paste Lina’s booking code into the <b>Scan QR</b> card’s manual field and press <b>Look up</b>. Then press the single button the card offers, three times in a row as it changes: <b>Check in</b> → <b>Start</b> → <b>End</b>. You do <b>not</b> wait between them.</div>
           <div class="note" style="margin:0 0 8px"><b>No waiting required.</b> Check-in is gated on the booking's state, not on the clock, so you can run the whole session immediately after paying the deposit. Ending it early releases everything between now and the booked end — so a 60-minute booking ended straight away returns close to the full hour. <b>Read the released figure off the screen</b> rather than scripting a number.</div>
           <div class="say">"She arrives, starts charging, and then finishes early — which is the ordinary thing that happens every day and that almost no system does anything about."</div>
         </li>
         <li>
-          <div class="doit">Show the freed capacity. <b>Hold 3 seconds.</b></div>
+          <div class="doit">Open <code>/admin/schedule-quality</code> in a third tab and point at <b>capacity recovery</b> and <b>minutes released</b>. <b>Hold 3 seconds.</b></div>
           <div class="say">"Those unused minutes have just gone back on sale. In most systems that time is simply lost, because nobody knows it became free. Here it is recorded as capacity released, with the reason attached, and the minutes are counted — so recovered capacity is something we measure rather than something we claim."</div>
           <div class="ovl"><b>1:00</b> — "Unused minutes back on sale. Recorded as EARLY_DEPARTURE — and counted."</div>
         </li>
         <li>
-          <div class="doit">Show the workers terminal for <b>8 seconds</b>, then <b>hard cut</b>.</div>
+          <div class="doit">Show the terminal running <code>npm run ops:demo-services</code> for <b>8 seconds</b>, then <b>hard cut</b>.</div>
           <div class="say">"These background workers run every minute. Nobody clicks them — time is what triggers this, not a person."</div>
           <div class="ovl"><b>1:15</b> — "60 seconds later."</div>
         </li>
@@ -471,7 +486,7 @@ npx tsx scripts/setup-contention-demo.ts</pre>
           <div class="ovl"><b>1:55</b> — "Written by a separate worker, not by the booking code."</div>
         </li>
         <li>
-          <div class="doit"><span class="win">Window 1</span>Request an extension that fits. Then one too long. Then one blocked by the next booking. <b>Hold 4 seconds on the refusal.</b></div>
+          <div class="doit"><span class="win">Window 1</span>On <code>/bookings</code>, open the <b>request more time</b> panel on the charging reservation. Ask for an amount that fits. Then a longer one. Then one blocked by the next booking. <b>Hold 4 seconds on the refusal.</b></div>
           <div class="say">"Extensions work the same way — checked against what is really free. Room to spare, granted in full. More than fits, so she gets the part that fits and is told why. And refused — because the next customer arrives in ten minutes, and their booking is a promise too. That last one is the one I would point at: it would be very easy to build a system that always says yes to the person standing in front of you."</div>
           <div class="ovl"><b>2:25</b> — "Refused — the next customer arrives in ten minutes. Their booking is a promise too."</div>
         </li>
