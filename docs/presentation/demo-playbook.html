@@ -218,7 +218,13 @@ npm run ops:demo-services     # leave running the whole session</pre>
           <div class="ovl"><b>1:30</b> — "Not answering one person. Planning all of them against the same chargers at once."</div>
         </li>
         <li>
-          <div class="doit"><span class="win">Window 3</span>Run a pass. Show the run completing and the plan it produced.</div>
+          <div class="doit"><span class="win">Window 3</span>Go to <code>/admin/optimizer</code>. Press
+            <b>"Preview a pass"</b> — the left of the two buttons, top right of the page. An amber card
+            appears headed <b>"Preview — nothing was held"</b>.</div>
+          <div class="note" style="margin:0 0 8px"><b>Use Preview, not "Run and issue offers", for this beat.</b>
+            Preview runs the identical code path and holds no capacity, so you can press it as many
+            times as you like while recording without freezing a bay. You will press the other button
+            later, when you actually want the offer.</div>
           <div class="say">"One pass, planning everyone at once. Milliseconds — and it has a hard time limit, because a booking screen must never be left waiting on the optimizer."</div>
         </li>
         <li>
@@ -247,7 +253,22 @@ npm run ops:demo-services     # leave running the whole session</pre>
           <div class="ovl"><b>2:14</b> — "This is the customer's own screen, not a debug view."</div>
         </li>
         <li>
-          <div class="doit"><span class="win">Window 3</span>Show the first-come-first-served comparison. <b>Hold 5 seconds.</b></div>
+          <div class="doit"><span class="win">Window 3</span>Still on <code>/admin/optimizer</code>. The
+            comparison is in <b>two</b> places — show both. <b>Hold 5 seconds on the first.</b></div>
+          <div class="note" style="margin:0 0 8px">
+            <b>1. The amber Preview card</b>, just under the page heading. It reads, in one sentence:
+            <i>"N requests would be offered a charger. First-come-first-served would have served M.
+            Planned in X ms."</i> That single line carries the whole argument — and the milliseconds
+            are the proof of the time bound you mention on slide 33. <b>Zoom in on it when you edit.</b>
+            <br><br>
+            <b>2. The "Run history" table</b>, lower down the same page. Compare the
+            <b>"Offered"</b> column against the <b>"FCFS would serve"</b> column, row by row. The
+            table's own subtitle says why it exists: <i>"'Served' against 'FCFS' is the optimizer's
+            whole claim, measured on the same snapshot each pass ran against."</i> Scroll so a few
+            rows are visible — one row is an anecdote, several are a pattern.
+            <br><br>
+            <b>If the table is empty</b> it says "No passes have run yet". Press <b>"Preview a pass"</b>
+            once more; previews are recorded too.</div>
           <div class="say">"And we do not just claim this helps. Every single run also works out what plain first-come-first-served would have achieved on exactly the same data, and stores both numbers. If we were not better, this number would say so. That is the difference between an optimiser and a hopeful piece of code."</div>
           <div class="ovl"><b>2:15</b> — "Same data, first-come-first-served: N served. This plan: M served."</div>
         </li>
