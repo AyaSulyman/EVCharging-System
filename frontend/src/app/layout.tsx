@@ -5,7 +5,7 @@ import { ToastProvider } from "@/components/Toast";
 import { App as AntdApp } from "antd";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("http://localhost:3000"),
+  metadataBase: new URL("https://evchargingweb.netlify.app"),
   title: {
     default: "ChargeHub — Smart EV Charging Reservations",
     template: "%s · ChargeHub",
