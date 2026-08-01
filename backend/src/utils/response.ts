@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { AuthError } from "@/middleware/auth";
 import { ValidationError } from "@/validation";
 
-const ALLOWED_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:3000";
+const ALLOWED_ORIGIN = process.env.CORS_ORIGIN || "https://evchargingweb.netlify.app";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
