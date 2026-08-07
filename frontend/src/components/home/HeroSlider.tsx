@@ -7,6 +7,13 @@ import { ChevronLeft, ChevronRight, BatteryCharging } from "lucide-react";
 import type { Banner } from "@/lib/backend";
 
 const AUTOPLAY_MS = 6000;
+const FALLBACK_IMAGE = "/hero-charge.svg";
+
+function getBannerImageSrc(imageUrl?: string) {
+  if (!imageUrl || !imageUrl.trim()) return FALLBACK_IMAGE;
+  if (/^https?:\/\//i.test(imageUrl)) return FALLBACK_IMAGE;
+  return imageUrl.trim();
+}
 
 export function HeroSlider({ slides }: { slides: Banner[] }) {
   const [index, setIndex] = useState(0);
@@ -72,11 +79,12 @@ export function HeroSlider({ slides }: { slides: Banner[] }) {
             }`}
           >
             <Image
-              src={slide.imageUrl}
+              src={getBannerImageSrc(slide.imageUrl)}
               alt={slide.title}
               fill
               priority={i === 0}
               sizes="100vw"
+              unoptimized
               className={`object-cover ${i === index ? "scale-105" : "scale-100"} transition-transform duration-[6000ms] ease-out`}
             />
             {/* Readability gradient */}

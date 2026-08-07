@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" role="img" aria-label="ChargeHub hero background">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0d3b66" />
+      <stop offset="100%" stop-color="#071f33" />
+    </linearGradient>
+    <linearGradient id="glow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7df9ff" />
+      <stop offset="100%" stop-color="#56d36d" />
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)" />
+  <circle cx="1250" cy="240" r="220" fill="#7df9ff" opacity="0.18" />
+  <circle cx="330" cy="690" r="270" fill="#56d36d" opacity="0.14" />
+  <rect x="160" y="240" width="460" height="240" rx="28" fill="#ffffff" opacity="0.12" />
+  <rect x="240" y="320" width="160" height="24" rx="12" fill="#ffffff" opacity="0.9" />
+  <rect x="240" y="360" width="260" height="18" rx="9" fill="#ffffff" opacity="0.7" />
+  <rect x="240" y="392" width="180" height="18" rx="9" fill="#ffffff" opacity="0.7" />
+  <rect x="950" y="260" width="280" height="280" rx="42" fill="#ffffff" opacity="0.1" />
+  <path d="M1080 320h-60v-80h-40v80h-60l80 120 80-120z" fill="url(#glow)" />
+  <path d="M1070 440c70 0 126-56 126-126 0-70-56-126-126-126-70 0-126 56-126 126 0 70 56 126 126 126z" fill="none" stroke="#ffffff" stroke-opacity="0.15" stroke-width="24" />
+  <path d="M650 620c42-72 116-112 206-112 103 0 188 48 242 126" stroke="#ffffff" stroke-opacity="0.12" stroke-width="24" fill="none" stroke-linecap="round" />
+</svg>

@@ -6,6 +6,7 @@ import { amenityInfo } from "@/lib/amenities";
 
 export function StationCard({ station }: { station: StationWithChargers }) {
   const photo = station.images?.[0];
+  const showPhoto = Boolean(photo && !/^https?:\/\//i.test(photo));
 
   return (
     <Link
@@ -14,7 +15,7 @@ export function StationCard({ station }: { station: StationWithChargers }) {
     >
       {/* Visual header — real photo when the station has one, CSS pattern otherwise */}
       <div className="relative h-44 overflow-hidden bg-gradient-to-br from-primary via-primary-dark to-ink">
-        {photo ? (
+        {showPhoto && photo ? (
           <>
             <Image
               src={photo}

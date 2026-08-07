@@ -2,9 +2,12 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { apiUrl } from "@/lib/apiClient";
 
+const fallbackSecret = process.env.NEXTAUTH_SECRET || "dev-secret-change-me";
+
 export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
+  secret: fallbackSecret,
   providers: [
     CredentialsProvider({
       name: "Credentials",
@@ -36,10 +39,10 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        const u = user as { id: string; role: string; backendToken: string };
-        token.id = u.id;
-        token.role = u.role;
-        token.backendToken = u.backendToken;
+        const u = user as { id?: string; role?: string; backendToken?: string };
+        if (u.id) token.id = u.id;
+        if (u.role) token.role = u.role;
+        if (u.backendToken) token.backendToken = u.backendToken;
       }
       return token;
     },
@@ -52,5 +55,4 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
   },
-  secret: process.env.NEXTAUTH_SECRET,
 };
