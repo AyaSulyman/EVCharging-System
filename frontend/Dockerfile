@@ -3,23 +3,25 @@ FROM node:18-alpine AS builder
 WORKDIR /app
 RUN apk add --no-cache python3 make g++ bash
 
-COPY frontend/package.json frontend/package-lock.json* frontend/yarn.lock* ./frontend/
-WORKDIR /app/frontend
+# copy package files from the frontend build context (./frontend)
+COPY package*.json yarn.lock* ./
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
-COPY frontend/ .
+# copy the rest of the frontend source from the context
+COPY . .
 RUN npm run build
 
 FROM node:18-alpine AS runner
-WORKDIR /app/frontend
+WORKDIR /app
 RUN addgroup -S chargehub && adduser -S chargehub -G chargehub
 
-COPY --from=builder /app/frontend/.next ./.next
-COPY --from=builder /app/frontend/public ./public
-COPY --from=builder /app/frontend/package.json ./package.json
-COPY --from=builder /app/frontend/node_modules ./node_modules
-COPY --from=builder /app/frontend/src ./src
-COPY --from=builder /app/frontend/app ./app
+# copy runtime assets from builder
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/src ./src
+COPY --from=builder /app/app ./app
 
 ENV NODE_ENV=production
 EXPOSE 3000
